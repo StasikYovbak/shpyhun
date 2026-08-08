@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0D1418">
+<title>ШПИГУН · онлайн</title>
+<meta name="description" content="Шпигун — онлайн-гра для компанії. Без реєстрації: відкрий посилання, створи кімнату й поділись кодом.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230D1418'/><text y='72' x='50' text-anchor='middle' font-size='62'>%F0%9F%95%B5</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0D1418;--ink-2:#141F25;--ink-3:#1D2C34;--bone:#E6DDC8;--brass:#E0A93B;
+  --stamp:#C24232;--slate:#7C8D93;--line:rgba(230,221,200,.14);--r:5px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;background:var(--ink);color:var(--bone);font-family:"IBM Plex Sans",system-ui,sans-serif;
+  font-size:16px;line-height:1.45;overscroll-behavior:none;user-select:none;-webkit-user-select:none}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(120% 70% at 50% 0%,rgba(224,169,59,.09),transparent 60%),
+             radial-gradient(100% 60% at 50% 100%,rgba(0,0,0,.5),transparent 70%)}
+.wrap{position:relative;z-index:1;display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;
+  padding:calc(env(safe-area-inset-top) + 18px) 18px calc(env(safe-area-inset-bottom) + 18px);max-width:520px;margin:0 auto}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--slate)}
+h1{font-family:"Unbounded",sans-serif;font-weight:800;font-size:clamp(32px,10vw,44px);line-height:.95;letter-spacing:-.02em;margin:8px 0 0}
+h2{font-family:"Unbounded",sans-serif;font-weight:600;font-size:21px;line-height:1.15;margin:6px 0 0}
+p{margin:9px 0 0;color:#BFB6A2;font-size:14.5px}
+.dim{color:var(--slate)}.mono{font-family:"IBM Plex Mono",monospace}
+.spacer{flex:1;min-height:12px}
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px;min-height:60px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:56px;padding:15px;
+  margin-top:10px;border:1px solid var(--brass);border-radius:var(--r);background:var(--brass);color:#15100A;
+  font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:13.5px;letter-spacing:.14em;
+  text-transform:uppercase;cursor:pointer;transition:transform .12s}
+.btn:active{transform:scale(.985)}
+.btn:disabled{opacity:.3;pointer-events:none}
+.btn.ghost{background:transparent;color:var(--bone);border-color:var(--line)}
+.btn.quiet{background:transparent;color:var(--slate);border-color:transparent;min-height:44px;font-size:12px;margin-top:2px}
+.btn.on{background:#2E4A2C;border-color:#4E7B4A;color:#CFEBC9}
+:focus-visible{outline:2px solid var(--brass);outline-offset:3px}
+input{width:100%;padding:15px;border-radius:var(--r);border:1px solid var(--line);background:var(--ink-2);
+  color:var(--bone);font-family:"IBM Plex Sans",sans-serif;font-size:16px;user-select:text;-webkit-user-select:text}
+input::placeholder{color:#4E5C62}
+input.code{font-family:"IBM Plex Mono",monospace;font-size:26px;letter-spacing:.4em;text-align:center;text-transform:uppercase}
+.field{margin-top:16px}
+.card{border:1px solid var(--line);border-radius:var(--r);background:var(--ink-2);padding:15px;margin-top:10px}
+.card b{display:block;font-family:"Unbounded",sans-serif;font-weight:600;font-size:19px;margin-top:3px}
+.code-box{border:1px dashed var(--brass);border-radius:var(--r);padding:14px;text-align:center;margin-top:12px;background:rgba(224,169,59,.06)}
+.code-box .v{font-family:"IBM Plex Mono",monospace;font-size:38px;letter-spacing:.34em;color:var(--brass);line-height:1;padding-left:.34em}
+.row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:14px;border:1px solid var(--line);
+  border-radius:var(--r);background:var(--ink-2);color:var(--bone);font-size:16px;font-weight:500;margin-top:7px}
+button.row{cursor:pointer}button.row:active{background:var(--ink-3)}
+.row .tag{margin-left:auto;font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--slate)}
+.row.ok .tag{color:#7FBF77}.row.me{border-color:rgba(224,169,59,.5)}
+.row.pick{border-color:var(--brass);background:rgba(224,169,59,.1)}
+.row.gone{opacity:.45}
+.dot{width:8px;height:8px;border-radius:50%;background:#3C4C52;flex:none}.dot.ok{background:#7FBF77}
+.mycard{border-radius:var(--r);padding:15px;margin-top:10px;text-align:center;background:var(--bone);color:#1B1508;cursor:pointer}
+.mycard .lbl{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#6E6446}
+.mycard .val{font-family:"Unbounded",sans-serif;font-weight:800;font-size:clamp(23px,6.5vw,31px);line-height:1.05;margin-top:4px}
+.mycard.spy{background:#1A1210;color:var(--bone)}
+.mycard.spy .lbl{color:#9B8378}.mycard.spy .val{color:var(--stamp)}
+.mycard.hid .val{filter:blur(13px)}
+.mycard .peek{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#6E6446;margin-top:7px;text-decoration:underline}
+.mycard.spy .peek{color:#9B8378}
+.turn{border:1px solid var(--line);border-radius:var(--r);padding:13px;margin-top:10px;display:flex;align-items:center;gap:12px;background:var(--ink-2)}
+.turn.mine{border-color:var(--brass);background:rgba(224,169,59,.1)}
+.turn .who{flex:1;font-family:"Unbounded",sans-serif;font-weight:600;font-size:17px;line-height:1.1}
+.turn .t{font-family:"IBM Plex Mono",monospace;font-size:30px;line-height:1}
+.turn .t.low{color:var(--stamp)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}
+.grid div{padding:11px 9px;border:1px solid var(--line);border-radius:var(--r);font-size:13.5px;background:var(--ink-2)}
+.grid.tap div{cursor:pointer}.grid.tap div:active{background:var(--ink-3)}
+.verdict{font-family:"Unbounded",sans-serif;font-weight:800;font-size:clamp(28px,9vw,40px);line-height:1;margin-top:10px}
+.verdict.civ{color:var(--brass)}.verdict.spy{color:var(--stamp)}
+.err{color:var(--stamp);font-size:13.5px;margin-top:10px;min-height:18px}
+.tiny{font-size:12px;color:var(--slate);margin-top:10px;line-height:1.4}
+.net{display:flex;align-items:center;gap:7px;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--slate)}
+.net i{width:7px;height:7px;border-radius:50%;background:var(--stamp);display:block}
+.net.up i{background:#7FBF77}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<!-- Мережева бібліотека лежить поруч у репозиторії: гра стартує навіть якщо CDN недоступний. -->
+<script src="mqtt.min.js"></script>
+<script>
+/* =====================================================================
+   ШПИГУН — онлайн. Зв'язок іде через публічний MQTT-брокер по wss.
+   Жодних акаунтів і реєстрацій: вистачає браузера й посилання.
+   ===================================================================== */
+
+const LOCS = ["Церква","Школа","Поле","Ліс","Ігрова кімната","Лікарня","Пляж","Літак","Поїзд","Банк",
+"Супермаркет","Ринок","Кінотеатр","Театр","Бібліотека","Зоопарк","Цирк","Ресторан","Кав'ярня","Нічний клуб",
+"Спортзал","Басейн","Готель","Заправка","Автосервіс","Пожежна частина","Відділок поліції","Військова база",
+"Підводний човен","Космічна станція","Піратський корабель","Замок","Станція метро","Ферма","Пасіка","Весілля",
+"Дитячий табір","Гуртожиток","Стоматологія","Перукарня","Пральня","Музей","Аквапарк","Гірський курорт",
+"Знімальний майданчик","Радіостанція","Тюрма","Печера","Маяк","Кладовище"];
+
+const TURN_MS  = 60000;   // хід одного гравця
+const VOTE_MS  = 90000;   // максимум на голосування
+const GUESS_MS = 60000;   // останнє слово шпигуна
+const GONE_MS  = 45000;   // скільки чекаємо мовчазного гравця, перш ніж вважати, що він пішов
+const PULSE_MS = 4000;
+
+/* CDN лишаються запасним варіантом, якщо локальний файл чомусь не завантажився. */
+const LIB = [
+  "https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js",
+  "https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js",
+  "https://cdn.jsdelivr.net/npm/mqtt@4.3.7/dist/mqtt.min.js"
+];
+const BROKERS = [
+  "wss://broker.emqx.io:8084/mqtt",
+  "wss://broker.hivemq.com:8884/mqtt",
+  "wss://test.mosquitto.org:8081/mqtt"
+];
+
+const now = ()=>Date.now();
+const rid = ()=>Math.random().toString(36).slice(2,8);
+const code4 = ()=>{const A="ABCDEFGHJKLMNPQRSTUVWXYZ";return Array.from({length:4},()=>A[Math.floor(Math.random()*A.length)]).join("")};
+const esc = s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const buzz = m=>{try{navigator.vibrate&&navigator.vibrate(m)}catch(e){}};
+const $ = id=>document.getElementById(id);
+
+const M = {
+  view:"home", name:"", code:"", id:rid(), prefill:"",
+  net:"off", cli:null, err:"",
+  st:null, lastState:0, skew:0,
+  host:false, seen:{}, ready:false,
+  myVote:null, peek:true
+};
+
+/* ========================= МЕРЕЖА ========================= */
+function loadLib(i){
+  i = i||0;
+  return new Promise((res,rej)=>{
+    if(window.mqtt) return res();
+    if(i>=LIB.length) return rej(new Error("no-lib"));
+    const s=document.createElement("script");
+    s.src=LIB[i];
+    s.onload=()=> window.mqtt ? res() : loadLib(i+1).then(res,rej);
+    s.onerror=()=> loadLib(i+1).then(res,rej);
+    document.head.appendChild(s);
+  });
+}
+const T = { s:c=>`shpyhun/v3/${c}/s`, e:c=>`shpyhun/v3/${c}/e` };
+
+/* Кожне під'єднання має свій номер. Усе, що приходить від старого
+   клієнта, ігнорується — інакше після помилки брокера в повітрі
+   опинялося кілька клієнтів одночасно, і гра «зависала на старті». */
+let gen = 0;
+function killClient(cli){
+  if(!cli) return;
+  try{ cli.removeAllListeners && cli.removeAllListeners(); }catch(e){}
+  try{ cli.end(true); }catch(e){}
+}
+function connect(code, onFirstReady){
+  killClient(M.cli); M.cli=null;
+  M.code = code; M.net = "connecting"; M.err = "";
+  M.firstReady = false;
+  const myGen = ++gen;
+  dial(code, 0, 0, myGen, onFirstReady);
+  render();
+}
+function dial(code, ix, tries, myGen, onFirstReady){
+  if(myGen !== gen) return;
+  if(tries >= BROKERS.length*3){
+    M.net="off";
+    M.err="Не вдалося під'єднатись до сервера. Перевір інтернет — спроби тривають.";
+    render();
+    setTimeout(()=>dial(code, ix+1, 0, myGen, onFirstReady), 8000);
+    return;
+  }
+  const url = BROKERS[ix % BROKERS.length];
+  let cli;
+  try{
+    cli = window.mqtt.connect(url, {clientId:"sh_"+M.id+"_"+rid(), keepalive:25, clean:true,
+          reconnectPeriod:0, connectTimeout:8000});
+  }catch(e){
+    setTimeout(()=>dial(code, ix+1, tries+1, myGen, onFirstReady), 400);
+    return;
+  }
+  M.cli = cli;
+  let settled=false, done=false;
+
+  const fail = ()=>{
+    if(done || myGen!==gen) return;
+    done = true;
+    killClient(cli);
+    if(M.cli===cli) M.cli=null;
+    M.net = "connecting"; render();
+    // Був живий зв'язок — пробуємо той самий брокер; ні — переходимо до наступного.
+    if(settled) setTimeout(()=>dial(code, ix, 0, myGen, onFirstReady), 1500);
+    else        setTimeout(()=>dial(code, ix+1, tries+1, myGen, onFirstReady), 400);
+  };
+
+  cli.on("connect", ()=>{
+    if(myGen!==gen){ killClient(cli); return; }
+    settled = true;
+    M.net="up"; M.err="";
+    cli.subscribe([T.s(code), T.e(code)], {qos:0}, ()=>{
+      if(myGen!==gen) return;
+      if(!M.firstReady){
+        M.firstReady = true;
+        onFirstReady && onFirstReady();
+      }else{
+        // Перепід'єднання посеред гри: нічого не створюємо заново,
+        // лише нагадуємо про себе й повертаємо стан у ефір.
+        pubEv({t:"hello"});
+        if(M.host && M.st) pubState();
+      }
+      render();
+    });
+    render();
+  });
+  cli.on("error",   fail);
+  cli.on("close",   fail);
+  cli.on("offline", fail);
+  cli.on("message", (topic,buf)=>{
+    if(myGen!==gen) return;
+    let d; try{ d=JSON.parse(buf.toString()); }catch(e){ return; }
+    if(!d || typeof d!=="object") return;
+    if(topic===T.s(code)) onState(d); else onEvent(d);
+  });
+}
+function live(){ return M.cli && M.cli.connected; }
+function pubState(){
+  if(!M.cli || !M.st) return;
+  M.st.now = now();
+  try{ M.cli.publish(T.s(M.code), JSON.stringify(M.st), {qos:0, retain:true}); }catch(e){}
+}
+function pubEv(o){
+  if(!M.cli) return;
+  try{ M.cli.publish(T.e(M.code), JSON.stringify(Object.assign({}, o, {id:M.id, name:M.name})), {qos:0}); }catch(e){}
+}
+
+/* ========================= ПРИЙОМ ========================= */
+function onState(s){
+  if(!s.phase || !Array.isArray(s.players)) return;
+  if(M.st && s.host===M.st.host && s.seq!=null && M.st.seq!=null && s.seq < M.st.seq) return;
+  const prev = M.st ? M.st.phase : null;
+  M.st = s; M.lastState = now();
+  M.skew = (s.now||now()) - now();
+  M.host = (s.host === M.id);
+  if(M.view==="joining" || M.view==="home") M.view="room";
+  if(prev!==s.phase){
+    buzz(35);
+    if(s.phase==="play"){ M.myVote=null; M.ready=false; M.peek=true; }
+    if(s.phase==="lobby") M.ready=false;
+  }
+  render();
+}
+function onEvent(e){
+  if(e.id) M.seen[e.id]=now();
+  if(!M.host || !M.st) return;
+  const s = M.st;
+  if(e.t==="hello"){
+    const p = s.players.find(x=>x.id===e.id);
+    if(!p){ s.players.push({id:e.id, name:(e.name||"Гравець").slice(0,14), ready:false}); commit(); }
+    else if(p.name!==e.name && e.name){ p.name=e.name.slice(0,14); commit(); }
+    else pubState();
+  }
+  else if(e.t==="bye"){
+    // У лобі викреслюємо, під час раунду лишаємо ім'я (щоб не зникло з історії),
+    // але більше не чекаємо на його голос.
+    if(s.phase==="lobby"){ s.players=s.players.filter(x=>x.id!==e.id); commit(); }
+    else { M.seen[e.id]=0; if(s.phase==="vote") checkVotes(); }
+  }
+  else if(e.t==="ready"){ const p=s.players.find(x=>x.id===e.id); if(p){ p.ready=!!e.v; commit(); } }
+  else if(e.t==="start" && s.phase==="lobby"){ startRound(); }
+  else if(e.t==="ask" && s.phase==="play" && e.id===s.asker && s.order.indexOf(e.to)>=0){
+    s.asker=e.to; s.turnEnds=now()+TURN_MS; commit();
+  }
+  else if(e.t==="callvote" && s.phase==="play"){ toVote(); }
+  else if(e.t==="vote" && s.phase==="vote" && s.order.indexOf(e.id)>=0){ s.votes[e.id]=e.to; commit(); checkVotes(); }
+  else if(e.t==="guess" && s.phase==="guess" && e.id===s.spy){
+    if(e.loc===s.loc) finish("spy","Шпигун назвав локацію правильно й урятувався.");
+    else finish("civ","Шпигун помилився — сказав «"+e.loc+"».");
+  }
+  else if(e.t==="again" && s.phase==="result"){ startRound(); }
+}
+function commit(){ if(!M.st) return; M.st.seq=(M.st.seq||0)+1; pubState(); render(); }
+
+/* ========================= ЛОГІКА ВЕДУЧОГО ========================= */
+/* «На зв'язку» = нещодавно давав про себе знати. Телефон із заблокованим
+   екраном пригальмовує таймери, тому запас великий, і посеред раунду
+   ми нікого зі списку не викидаємо — інакше зникають імена й голоси. */
+function here(id){ return id===M.id || (now()-(M.seen[id]||0)) < GONE_MS; }
+function alive(){ return M.st ? M.st.players.filter(p=>here(p.id)) : []; }
+function nameOf(id){ const p=M.st&&M.st.players.find(x=>x.id===id); return p?p.name:"—"; }
+
+function startRound(){
+  const s=M.st; if(!s) return;
+  const ids = alive().map(p=>p.id);
+  if(ids.length<3){ s.note="Треба щонайменше троє гравців."; s.phase="lobby"; commit(); return; }
+  s.players = s.players.filter(p=> ids.indexOf(p.id)>=0);
+  s.order = ids.slice().sort(()=>Math.random()-.5);
+  s.spy = s.order[Math.floor(Math.random()*s.order.length)];
+  s.loc = LOCS[Math.floor(Math.random()*LOCS.length)];
+  s.asker = s.order[Math.floor(Math.random()*s.order.length)];
+  s.turnEnds = now()+TURN_MS;
+  s.phase="play"; s.round=(s.round||0)+1;
+  s.votes={}; s.accused=null; s.win=null; s.note="";
+  s.voteEnds=0; s.guessEnds=0;
+  s.players.forEach(p=>p.ready=false);
+  commit();
+}
+function toVote(){
+  const s=M.st; if(!s) return;
+  s.phase="vote"; s.votes={}; s.voteEnds=now()+VOTE_MS; commit();
+}
+function checkVotes(force){
+  const s=M.st; if(!s||s.phase!=="vote") return;
+  const voters = s.order.filter(here);
+  const vs = Object.keys(s.votes).filter(k=> s.order.indexOf(k)>=0);
+  if(!force && vs.length < voters.length) return;
+  if(!vs.length) return finish("spy","Ніхто не проголосував — шпигун вислизнув.");
+  const tally={};
+  vs.forEach(k=>{ const v=s.votes[k]; tally[v]=(tally[v]||0)+1; });
+  let best=null,bn=-1,tie=false;
+  for(const k in tally){ if(tally[k]>bn){best=k;bn=tally[k];tie=false;} else if(tally[k]===bn) tie=true; }
+  if(tie||!best) return finish("spy","Голоси розділились — шпигун вислизнув.");
+  s.accused=best;
+  if(best===s.spy){ s.phase="guess"; s.guessEnds=now()+GUESS_MS; commit(); }
+  else finish("spy","Звинуватили свого — "+nameOf(best)+".");
+}
+function finish(win,note){
+  const s=M.st; if(!s) return;
+  s.phase="result"; s.win=win; s.note=note;
+  s.voteEnds=0; s.guessEnds=0;
+  s.score=s.score||{civ:0,spy:0}; s.score[win]++;
+  commit();
+}
+
+/* пульс: присутність, таймери, підхоплення ведення */
+setInterval(()=>{
+  if(!M.code || !live()) return;
+  pubEv({t:"hello"});
+  if(M.host && M.st){
+    const s=M.st;
+    if(s.phase==="lobby"){
+      // Чистимо список лише в лобі — під час раунду склад не чіпаємо.
+      const before=s.players.length;
+      s.players = alive();
+      if(s.players.length!==before) commit(); else pubState();
+    } else pubState();
+
+    if(s.phase==="play" && now() > s.turnEnds){
+      const i = s.order.indexOf(s.asker);
+      s.asker = s.order[(i+1)%s.order.length];
+      s.turnEnds = now()+TURN_MS;
+      commit();
+    }
+    if(s.phase==="vote"){
+      checkVotes(s.voteEnds && now() > s.voteEnds);
+    }
+    if(s.phase==="guess" && s.guessEnds && now() > s.guessEnds){
+      finish("civ","Шпигун не встиг назвати локацію.");
+    }
+  } else if(M.st && now()-M.lastState > 15000){
+    // Ведучий зник — найстарший за ідентифікатором бере гру на себе.
+    const cand = M.st.players.map(p=>p.id).filter(here).sort();
+    if(cand[0]===M.id){ M.host=true; M.st.host=M.id; commit(); }
+  }
+}, PULSE_MS);
+
+setInterval(()=>{
+  const el=$("clock");
+  if(!el || !M.st) return;
+  const s=M.st;
+  const ends = s.phase==="guess" ? s.guessEnds : s.phase==="vote" ? s.voteEnds : s.turnEnds;
+  if(!ends) return;
+  const l = Math.max(0, Math.round((ends-(now()+M.skew))/1000));
+  el.textContent = String(l).padStart(2,"0");
+  el.classList.toggle("low", l<=10);
+},400);
+
+/* ========================= ВХІД ========================= */
+async function boot(){
+  render();
+  try{ await loadLib(); }
+  catch(e){ M.err="Не вдалося завантажити мережеву бібліотеку. Перевір інтернет."; render(); return; }
+  const h=(location.hash||"").replace("#","").toUpperCase();
+  if(/^[A-Z]{4}$/.test(h)) M.prefill=h;
+  render();
+}
+function createRoom(){
+  if(!window.mqtt){ M.err="Мережева бібліотека ще вантажиться — спробуй за секунду."; render(); return; }
+  const c = code4();
+  M.host = true; M.seen={}; M.view="joining"; M.err=""; render();
+  connect(c, ()=>{
+    M.st = {seq:1, host:M.id, phase:"lobby", round:0,
+      players:[{id:M.id,name:M.name,ready:false}], order:[], votes:{},
+      score:{civ:0,spy:0}, note:"", now:now()};
+    M.seen[M.id]=now();
+    pubState(); M.view="room"; render();
+  });
+}
+function joinRoom(c){
+  c=(c||"").toUpperCase().trim();
+  if(!/^[A-Z]{4}$/.test(c)){ M.err="Код — чотири літери."; render(); return; }
+  if(!window.mqtt){ M.err="Мережева бібліотека ще вантажиться — спробуй за секунду."; render(); return; }
+  M.err=""; M.host=false; M.seen={}; M.view="joining"; render();
+  const myGen = gen+1;
+  connect(c, ()=>{ pubEv({t:"hello"}); setTimeout(()=>{ if(gen===myGen) pubEv({t:"hello"}); },1500); });
+  // Перша перевірка через 14 с; якщо ще шукаємо брокер — даємо більше часу.
+  let waited = 0;
+  const check = (delay)=>setTimeout(()=>{
+    if(gen!==myGen || M.st || M.view!=="joining") return;
+    waited += delay;
+    if(M.net!=="up" && waited < 40000) return check(6000);
+    M.err="Кімнати з таким кодом не знайшли. Перевір код і попроси ведучого не закривати вкладку.";
+    M.view="home"; killClient(M.cli);
+    M.cli=null; M.code=""; M.net="off"; gen++; render();
+  }, delay);
+  check(14000);
+}
+function leave(){
+  pubEv({t:"bye"});
+  // Ведучий прибирає за собою збережений стан, щоб кімната не «жила» примарою.
+  if(M.host && M.cli && M.code){ try{ M.cli.publish(T.s(M.code),"",{qos:0,retain:true}); }catch(e){} }
+  setTimeout(()=>killClient(M.cli), 250);
+  gen++;
+  M.cli=null; M.code=""; M.st=null; M.host=false; M.net="off"; M.view="home"; M.seen={}; M.ready=false; render();
+}
+
+/* ========================= ЕКРАНИ ========================= */
+function render(){
+  const a=$("app");
+  if(M.view==="home"){ a.innerHTML=vHome(); bHome(); return; }
+  if(M.view==="joining" || !M.st){ a.innerHTML=vWait(); const b=$("b-cancel"); if(b) b.onclick=leave; return; }
+  const s=M.st;
+  if(s.phase==="lobby"){ a.innerHTML=vLobby(s); bLobby(); }
+  else if(s.phase==="play"){ a.innerHTML=vPlay(s); bPlay(); }
+  else if(s.phase==="vote"){ a.innerHTML=vVote(s); bVote(); }
+  else if(s.phase==="guess"){ a.innerHTML=vGuess(s); bGuess(); }
+  else { a.innerHTML=vResult(s); bResult(); }
+}
+const netBar = ()=>'<div class="net '+(M.net==="up"?"up":"")+'"><i></i>'+
+  (M.net==="up"?"на зв'язку":M.net==="connecting"?"з'єднання…":"без зв'язку")+'</div>';
+
+function vHome(){
+  return netBar()+`
+  <h1>ШПИГУН</h1>
+  <p>Усім випадає одна локація. Одному — картка шпигуна. Питайте одне одного по колу й вирахуйте чужого.</p>
+  <div class="field"><div class="eyebrow">Твоє ім'я</div>
+    <input id="i-name" maxlength="14" placeholder="Як тебе називати" value="${esc(M.name)}"></div>
+  <button class="btn" id="b-create">Створити кімнату</button>
+  <div class="field"><div class="eyebrow">Або приєднайся за кодом</div>
+    <input id="i-code" class="code" maxlength="4" placeholder="XXXX" autocapitalize="characters" autocomplete="off" value="${esc(M.prefill)}"></div>
+  <button class="btn ghost" id="b-join">Увійти</button>
+  <div class="err">${esc(M.err)}</div>
+  <div class="spacer"></div>
+  <div class="tiny">Реєстрація не потрібна — досить браузера. Кожен відкриває це саме посилання зі свого телефона.</div>`;
+}
+function bHome(){
+  const n=$("i-name");
+  n.oninput=e=>M.name=e.target.value;
+  $("b-create").onclick=()=>{ M.name=n.value.trim()||"Гравець"; createRoom(); };
+  $("b-join").onclick=()=>{ M.name=n.value.trim()||"Гравець"; joinRoom($("i-code").value); };
+}
+function vWait(){
+  return netBar()+`<h2 style="margin-top:20px">Заходимо в кімнату…</h2>
+  <p class="dim">Кімната ${esc(M.code)}. Кілька секунд на з'єднання.</p>
+  <div class="spacer"></div><button class="btn quiet" id="b-cancel">Скасувати</button>`;
+}
+function vLobby(s){
+  const ps=s.players||[];
+  const readyN=ps.filter(p=>p.ready).length;
+  const can=ps.length>=3;
+  return netBar()+`
+  <div class="code-box"><div class="eyebrow">Код для друзів</div><div class="v">${esc(M.code)}</div></div>
+  <button class="btn quiet" id="b-share">Скопіювати посилання</button>
+  <h2 style="margin-top:14px">Гравці · ${ps.length}</h2>
+  <div class="scroll">
+    ${ps.map(p=>'<div class="row '+(p.ready?"ok":"")+' '+(p.id===M.id?"me":"")+'">'+
+      '<span class="dot '+(p.ready?"ok":"")+'"></span>'+esc(p.name)+
+      '<span class="tag">'+(p.id===s.host?"ведучий · ":"")+(p.ready?"готовий":"чекає")+'</span></div>').join("")}
+    ${ps.length<3?'<p class="dim">Треба щонайменше троє — зараз '+ps.length+'.</p>':''}
+  </div>
+  <div class="err">${esc(s.note||M.err)}</div>
+  <button class="btn ${M.ready?"on":"ghost"}" id="b-ready">${M.ready?"✓ Я готовий":"Я готовий"}</button>
+  <button class="btn" id="b-start" ${can?"":"disabled"}>${can?"Почати гру · готові "+readyN+"/"+ps.length:"Чекаємо гравців"}</button>
+  <button class="btn quiet" id="b-leave">Вийти</button>`;
+}
+function bLobby(){
+  $("b-ready").onclick=()=>{ M.ready=!M.ready; pubEv({t:"ready",v:M.ready}); render(); };
+  $("b-start").onclick=()=>{
+    if(!live()){ M.err="Немає зв'язку — зачекай секунду."; render(); return; }
+    if(M.host) startRound(); else pubEv({t:"start"});
+  };
+  $("b-leave").onclick=leave;
+  $("b-share").onclick=async()=>{
+    const url=location.href.split("#")[0]+"#"+M.code;
+    try{
+      if(navigator.share) await navigator.share({title:"Шпигун",text:"Заходь у гру, код "+M.code,url:url});
+      else { await navigator.clipboard.writeText(url); $("b-share").textContent="Скопійовано ✓"; }
+    }catch(e){}
+  };
+}
+function myCard(s){
+  const spy=s.spy===M.id;
+  return '<div class="mycard '+(spy?"spy":"")+' '+(M.peek?"":"hid")+'" id="mycard">'+
+    '<div class="lbl">'+(spy?"Твоя картка":"Локація")+'</div>'+
+    '<div class="val">'+(spy?"ШПИГУН":esc(s.loc))+'</div>'+
+    '<div class="peek">'+(M.peek?"сховати від сусідів":"показати")+'</div></div>';
+}
+function vPlay(s){
+  const mine=s.asker===M.id;
+  const others=s.order.filter(id=>id!==M.id);
+  return netBar()+`
+  <div class="eyebrow" style="margin-top:8px">Раунд ${s.round} · кімната ${esc(M.code)}</div>
+  ${myCard(s)}
+  <div class="turn ${mine?"mine":""}">
+    <div class="who">${mine?"Твій хід — питай":"Питає "+esc(nameOf(s.asker))}</div>
+    <div class="t mono" id="clock">60</div></div>
+  ${mine?'<p class="dim">Спитай уголос і познач, кого саме — хід перейде до нього.</p>':''}
+  <div class="scroll">
+    ${mine?others.map(id=>'<button class="row '+(here(id)?"":"gone")+'" data-ask="'+id+'">'+esc(nameOf(id))+'<span class="tag">питаю</span></button>').join(""):""}
+    <div class="eyebrow" style="margin-top:14px">Локації в грі</div>
+    <div class="grid">${LOCS.map(l=>"<div>"+esc(l)+"</div>").join("")}</div>
+  </div>
+  <button class="btn" id="b-vote">Час голосувати</button>`;
+}
+function bPlay(){
+  $("mycard").onclick=()=>{ M.peek=!M.peek; render(); };
+  Array.prototype.forEach.call(document.querySelectorAll("[data-ask]"), b=>{
+    b.onclick=()=>{
+      if(M.host){ M.st.asker=b.dataset.ask; M.st.turnEnds=now()+TURN_MS; commit(); }
+      else pubEv({t:"ask",to:b.dataset.ask});
+    };
+  });
+  $("b-vote").onclick=()=>{ if(M.host) toVote(); else pubEv({t:"callvote"}); };
+}
+function vVote(s){
+  const voted=Object.keys(s.votes||{}).length;
+  return netBar()+`
+  <div class="eyebrow" style="margin-top:8px">Голосування</div>
+  <h2>Хто шпигун?</h2>
+  <p class="dim">Проголосували ${voted} з ${s.order.length}. Вирішує більшість.</p>
+  <div class="turn"><div class="who">Лишилось часу</div><div class="t mono" id="clock">90</div></div>
+  ${myCard(s)}
+  <div class="scroll">${s.order.filter(id=>id!==M.id).map(id=>
+    '<button class="row '+(M.myVote===id?"pick":"")+' '+(here(id)?"":"gone")+'" data-v="'+id+'">'+esc(nameOf(id))+
+    '<span class="tag">'+(M.myVote===id?"обрано":"голос")+'</span></button>').join("")}</div>
+  <div class="tiny">Голос можна змінити, поки не проголосували всі.</div>`;
+}
+function bVote(){
+  $("mycard").onclick=()=>{ M.peek=!M.peek; render(); };
+  Array.prototype.forEach.call(document.querySelectorAll("[data-v]"), b=>{
+    b.onclick=()=>{
+      M.myVote=b.dataset.v;
+      if(M.host){ M.st.votes[M.id]=M.myVote; commit(); checkVotes(); }
+      else { pubEv({t:"vote",to:M.myVote}); render(); }
+    };
+  });
+}
+function vGuess(s){
+  if(s.spy!==M.id) return netBar()+`
+    <div class="eyebrow" style="margin-top:8px">Останнє слово</div>
+    <h2>${esc(nameOf(s.accused))} розкритий</h2>
+    <p>Зараз він називає локацію. Вгадає — раунд його.</p>
+    <div class="turn"><div class="who">Лишилось часу</div><div class="t mono" id="clock">60</div></div>
+    <div class="spacer"></div><div class="eyebrow">Чекаємо…</div>`;
+  return netBar()+`
+    <div class="eyebrow" style="margin-top:8px">Тебе розкрили</div>
+    <h2>Назви локацію</h2><p class="dim">Вгадаєш — забереш раунд собі.</p>
+    <div class="turn"><div class="who">Лишилось часу</div><div class="t mono" id="clock">60</div></div>
+    <div class="scroll"><div class="grid tap">${LOCS.map(l=>'<div data-g="'+esc(l)+'">'+esc(l)+'</div>').join("")}</div></div>`;
+}
+function bGuess(){
+  Array.prototype.forEach.call(document.querySelectorAll("[data-g]"), b=>{
+    b.onclick=()=>{
+      const g=b.dataset.g;
+      if(M.host){
+        if(g===M.st.loc) finish("spy","Шпигун назвав локацію правильно й урятувався.");
+        else finish("civ","Шпигун помилився — сказав «"+g+"».");
+      } else pubEv({t:"guess",loc:g});
+    };
+  });
+}
+function vResult(s){
+  const sc=s.score||{civ:0,spy:0};
+  return netBar()+`
+  <div class="eyebrow" style="margin-top:8px">Розкриття</div>
+  <div class="verdict ${s.win}">${s.win==="civ"?"Мирні перемогли":"Шпигун переміг"}</div>
+  <div class="card"><div class="eyebrow">Локація</div><b>${esc(s.loc)}</b></div>
+  <div class="card"><div class="eyebrow">Шпигун</div><b>${esc(nameOf(s.spy))}</b></div>
+  <p class="dim">${esc(s.note||"")}</p>
+  <div class="card"><div class="eyebrow">Рахунок · мирні : шпигуни</div><b>${sc.civ} : ${sc.spy}</b></div>
+  <div class="spacer"></div>
+  <button class="btn" id="b-again">Ще раунд</button>
+  <button class="btn quiet" id="b-leave2">Вийти</button>`;
+}
+function bResult(){
+  $("b-again").onclick=()=>{ if(M.host) startRound(); else pubEv({t:"again"}); };
+  $("b-leave2").onclick=leave;
+}
+
+window.addEventListener("beforeunload",()=>{ try{ pubEv({t:"bye"}); }catch(e){} });
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && M.code && live()) pubEv({t:"hello"}); });
+boot();
+</script>
+</body>
+</html>
