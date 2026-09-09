@@ -30,22 +30,25 @@ canvas#c{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
   background:#0b0413;display:block}
 
 /* ---------- шар сенсорного керування ---------- */
-#touch{position:absolute;inset:0;touch-action:none;display:none;z-index:5}
+#touch{position:absolute;inset:0;touch-action:none;display:none;z-index:5;--ctlop:.55}
 #touch.on{display:block}
 .pad{position:absolute;border-radius:50%;border:2px solid rgba(34,224,255,.75);
-  background:rgba(20,6,36,.35);opacity:.55;display:flex;align-items:center;justify-content:center;
+  background:rgba(20,6,36,.35);opacity:var(--ctlop);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
   font-weight:700;font-size:20px;color:#bff4ff;text-shadow:0 0 6px rgba(34,224,255,.9);
   transition:transform .06s linear,background .06s linear;will-change:transform}
 .pad.hit{background:rgba(255,46,136,.55);border-color:#ffd23f;color:#fff;transform:scale(.92)}
-.pad{flex-direction:column}
 .pad small{display:block;font-size:9px;letter-spacing:.08em;opacity:.85;margin-top:1px;font-weight:400}
-#stick{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;
-  border:2px solid rgba(255,46,136,.5);background:rgba(20,6,36,.28);opacity:0;display:none}
-#stick.on{display:block;opacity:.5}
-#knob{position:absolute;width:52px;height:52px;left:34px;top:34px;border-radius:50%;
-  background:rgba(34,224,255,.45);border:2px solid rgba(255,255,255,.6)}
+.pad.small{font-size:15px}
+.pad.small small{font-size:8px}
+/* хрестовина: 4 трикутники-стрілки, хітбокс рахується в JS і на 25% більший */
+#dpad{position:absolute;opacity:var(--ctlop);pointer-events:none;overflow:visible}
+#dpad .arw{fill:rgba(20,6,36,.5);stroke:#22e0ff;stroke-width:2.5;stroke-linejoin:round;
+  transition:fill .06s linear}
+#dpad .arw.hit{fill:#ff2e88;stroke:#ffd23f}
+#dpad .hub{fill:rgba(20,6,36,.3);stroke:rgba(34,224,255,.45);stroke-width:2}
 #btnPause{position:absolute;width:44px;height:44px;border-radius:10px;border:2px solid var(--line);
-  background:rgba(11,4,19,.55);opacity:.55;display:flex;align-items:center;justify-content:center;
+  background:rgba(11,4,19,.55);opacity:var(--ctlop);display:flex;align-items:center;justify-content:center;
   color:#bff4ff;font-size:15px;font-weight:700}
 
 /* ---------- екрани меню ---------- */
@@ -101,10 +104,17 @@ input[type=range]{width:130px;accent-color:#ff2e88;background:transparent}
   <canvas id="c" width="480" height="270"></canvas>
 
   <div id="touch">
-    <div id="stick"><div id="knob"></div></div>
+    <svg id="dpad" viewBox="0 0 150 150" aria-hidden="true">
+      <rect class="hub" x="52" y="52" width="46" height="46" rx="9"></rect>
+      <polygon class="arw" id="dpU" points="75,7 103,43 47,43"></polygon>
+      <polygon class="arw" id="dpD" points="75,143 103,107 47,107"></polygon>
+      <polygon class="arw" id="dpL" points="7,75 43,103 43,47"></polygon>
+      <polygon class="arw" id="dpR" points="143,75 107,103 107,47"></polygon>
+    </svg>
     <div class="pad" id="btnA">A<small>СТРИБОК</small></div>
     <div class="pad" id="btnB">B<small>КЛИНОК</small></div>
     <div class="pad" id="btnC">C<small>СТРІЛ</small></div>
+    <div class="pad small" id="btnD">D<small>РИВОК</small></div>
     <div id="btnPause">| |</div>
   </div>
 
@@ -132,10 +142,11 @@ input[type=range]{width:130px;accent-color:#ff2e88;background:transparent}
     <div class="row"><span class="lab">Гучність музики</span><input type="range" id="sMus" min="0" max="10" step="1"></div>
     <div class="row"><span class="lab">Вібрація</span><div class="seg" id="sVib">
       <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
-    <div class="row"><span class="lab">Розмір кнопок</span><div class="seg" id="sSize">
+    <div class="row"><span class="lab">Розмір керування</span><div class="seg" id="sSize">
       <button data-v="S">S</button><button data-v="M">M</button><button data-v="L">L</button></div></div>
+    <div class="row"><span class="lab">Прозорість керування</span><input type="range" id="sOp" min="30" max="90" step="10"></div>
     <div class="row"><span class="lab">Розкладка</span><div class="seg" id="sHand">
-      <button data-v="0">Права</button><button data-v="1">Ліва</button></div></div>
+      <button data-v="0">Стрілки ліворуч</button><button data-v="1">Дзеркально</button></div></div>
     <button class="btn" id="sReset">Скинути прогрес</button>
     <button class="btn" data-back="menu">Назад</button>
   </div></div>
@@ -152,10 +163,16 @@ input[type=range]{width:130px;accent-color:#ff2e88;background:transparent}
       <p><span class="k">РЕЙКОСТРИЛ (C)</span> — без набоїв, але з теплом. Перегрів блокує зброю на 2 с;
       влучний тап по <span class="k">C</span> у зеленій зоні шкали миттєво скидає тепло.
       Утримання <span class="k">C</span> — променевий постріл крізь щити.</p>
-      <p><span class="k">РИВОК</span> — свайп правою половиною екрана або подвійний тап по джойстику.
+      <p><span class="k">РИВОК (D)</span> — окрема кнопка збоку від решти.
       Під час ривка ти невразливий.</p>
-      <p>Клавіатура: <span class="k">A/D</span> або стрілки — рух, <span class="k">S</span> — присісти
-      і зістрибнути з платформи, <span class="k">W / ↑ / Пробіл / K</span> — стрибок,
+      <p><span class="k">ХРЕСТОВИНА</span> ліворуч: <span class="k">←/→</span> рух,
+      <span class="k">↑</span> стрибок (те саме, що <span class="k">A</span>),
+      <span class="k">↓</span> присісти, а якщо потримати <span class="k">↓</span> 0,3 с —
+      зістрибнути крізь тонку платформу. Палець можна вести з однієї стрілки на іншу не відриваючи.
+      <span class="k">ПОДВІЙНИЙ СТРИБОК</span> — другий стрибок просто в повітрі; відновлюється
+      на землі або від дотику до стіни.</p>
+      <p>Клавіатура: <span class="k">A/D</span> або <span class="k">←/→</span> — рух,
+      <span class="k">S / ↓</span> — присісти й зістрибнути, <span class="k">W / ↑ / Пробіл / K</span> — стрибок,
       <span class="k">J</span> — клинок, <span class="k">L</span> — рейкострил,
       <span class="k">Shift</span> — ривок, <span class="k">Esc / P</span> — пауза.</p>
       <p class="mini">Оригінальний світ, персонажі й назви. Уся графіка та звук згенеровані кодом.</p>
@@ -208,17 +225,52 @@ const VW = 480, VH = 270, TS = 16;          // внутрішня розділь
 const DT = 1 / 60;                          // фіксований крок фізики
 const MAXDT = 0.25;                         // максимальний dt кадру (п.9 чек-листа)
 
-// Фізика героя. Перевірено математикою:
-//   висота стрибка = JUMP^2/(2*GRAV) = 380^2/3000 = 48.1 px = 3 тайли
-//   час підйому 0.253 c, падіння з 48 px при GRAV*FALL — 0.218 c
-//   довжина стрибка на максимальній швидкості = 130 * 0.471 = 61 px = 3.8 тайла
-const PH = {
-  GRAV: 1500, FALL: 1.35, JUMP: 380, MAXFALL: 420,
-  RUN: 130, ACC: 900, AIRACC: 700, FRIC: 1400, AIRFRIC: 260,
-  COYOTE: 0.10, BUFFER: 0.12, CUT: 120,
-  DASHV: 300, DASHT: 0.18, DASHCD: 0.80, DASHI: 0.15,
-  CONV: 42
+/* ================================================================
+   CONFIG — усі числа, які має сенс крутити, в одному місці.
+   Одиниці: пікселі та секунди. Швидкості — px/с, прискорення —
+   px/с²; усе множиться на dt, нічого не додається «за кадр».
+   ================================================================ */
+const CONFIG = {
+  // --- гравітація ---
+  GRAV:     1400,   // базова гравітація на підйомі, px/с²
+  FALL:     1.35,   // множник гравітації на падінні (падає швидше, ніж злітає)
+  APEX:     0.55,   // множник біля вершини — «зависання», щоб устигнути прицілитись
+  APEX_V:   60,     // ...діє, поки |vY| менша за це, px/с
+  MAXFALL:  520,    // стеля швидкості падіння (за кадр це 8.7 px < 16 px тайла)
+
+  // --- стрибок ---
+  JUMP:     440,    // швидкість першого стрибка -> фактична висота 66 px = 4.1 тайла
+                    // (ТЗ називало 430; при кроці 1/60 c дискретна інтеграція «з'їдає»
+                    //  ~3.7 px, тож 440 дає рівно ті 66 px, які потрібні)
+  JUMP2:    330,    // подвійний стрибок у повітрі -> ще ~39 px
+  CUT:      0.45,   // відпустив кнопку на підйомі -> vY множиться на це
+  COYOTE:   0.12,   // 120 мс: стрибок ще працює після сходу з краю
+  BUFFER:   0.15,   // 150 мс: натиснуто до приземлення -> стрибне на приземленні
+  AIRJUMPS: 1,      // скільки стрибків доступно в повітрі (0 = вимкнути подвійний)
+
+  // --- біг ---
+  RUN:      140,    // максимальна швидкість бігу, px/с
+  ACC:      900,    // прискорення, px/с²
+  DEC:      1200,   // гальмування на землі, px/с²
+  AIRCTRL:  0.65,   // керування в повітрі — 65 % від наземного
+  AIRDEC:   300,    // гальмування в повітрі, px/с²
+  CONV:     42,     // швидкість конвеєрів, px/с
+
+  // --- ривок ---
+  DASHV:    300, DASHT: 0.18, DASHCD: 0.80, DASHI: 0.15,
+
+  // --- керування (CSS-пікселі) ---
+  DPAD:     150,    // сторона хрестовини
+  DPAD_HIT: 1.25,   // хітбокс на 25 % більший за візуальний
+  DPAD_DEAD: 16,    // мертва зона від центру по кожній осі
+  DPAD_EDGE: 20,    // відступ від краю екрана
+  BTN:      68,     // діаметр кнопок A/B/C
+  BTN_GAP:  18,     // відстань між кнопками
+  BTN_DASH: 46,     // діаметр кнопки ривка D
+  DROP_HOLD: 0.30   // утримання ↓ для спуску крізь тонку платформу
 };
+// Короткий псевдонім: решта коду звертається до констант як PH.*
+const PH = CONFIG;
 // «Арк-тесак»
 const BL = {
   DUR: [0.18, 0.18, 0.30], DMG: [2, 2, 3], WIN: 0.40,
@@ -256,7 +308,7 @@ function mulberry(seed) {
    ================================================================ */
 const SAVE_KEY = 'echo_neon_courier_v1';
 const Store = {
-  data: { unlocked: 1, cleared: [], vol: 7, mus: 5, vib: 1, size: 'M', hand: 0, deaths: 0 },
+  data: { unlocked: 1, cleared: [], vol: 7, mus: 5, vib: 1, size: 'M', hand: 0, op: 55, deaths: 0 },
   load() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
@@ -270,6 +322,7 @@ const Store = {
           d.mus = clamp(parseInt(o.mus, 10) >= 0 ? parseInt(o.mus, 10) : 5, 0, 10);
           d.vib = o.vib ? 1 : 0;
           d.size = (o.size === 'S' || o.size === 'L') ? o.size : 'M';
+          d.op = clamp(parseInt(o.op, 10) || 55, 30, 90);
           d.hand = o.hand ? 1 : 0;
           d.deaths = parseInt(o.deaths, 10) || 0;
         }
@@ -696,7 +749,7 @@ const LEVELS=[
   '.........................+...........................................................====...............................',
   '........................====..................====....t...........===..........t........................................',
   '.................................t..h...............###.......................=====.....................................',
-  '..................====.........##########...........###.h.....====......................................................',
+  '..................====.........##########...........###.h.....====..........................=====................=====..',
   '......................h.....s..##########....##############.....................s...h...+...............................',
   '...@......s......########################....##############$....s...h......###############!..........................E..',
   '##############...#########################...###########################...#############################################',
@@ -1016,27 +1069,26 @@ function loadLevel(idx) {
 const Input = (function () {
   const el = {
     layer: document.getElementById('touch'),
-    stick: document.getElementById('stick'),
-    knob: document.getElementById('knob'),
-    A: document.getElementById('btnA'),
-    B: document.getElementById('btnB'),
-    C: document.getElementById('btnC'),
+    dpad: document.getElementById('dpad'),
+    U: document.getElementById('dpU'), D: document.getElementById('dpD'),
+    L: document.getElementById('dpL'), R: document.getElementById('dpR'),
+    A: document.getElementById('btnA'), B: document.getElementById('btnB'),
+    C: document.getElementById('btnC'), Dash: document.getElementById('btnD'),
     pause: document.getElementById('btnPause')
   };
-  const DEAD = 12, RADIUS = 60;                 // мертва зона й радіус джойстика
 
-  const kb = { l: 0, r: 0, d: 0, a: 0, b: 0, c: 0 };
-  const tc = { ax: 0, dy: 0, a: 0, b: 0, c: 0 };
+  const kb = { l: 0, r: 0, d: 0, u: 0, a: 0, b: 0, c: 0 };
+  const dir = { l: 0, r: 0, u: 0, d: 0 };          // стан хрестовини
+  const tc = { a: 0, b: 0, c: 0 };                 // стан кнопок дій
   const held = { a: 0, b: 0, c: 0 };
   const prev = { a: 0, b: 0, c: 0 };
-  const btnPos = { A: { x: 0, y: 0, r: 32 }, B: { x: 0, y: 0, r: 32 }, C: { x: 0, y: 0, r: 32 } };
+  const btnPos = { A: { x: 0, y: 0, r: 34 }, B: { x: 0, y: 0, r: 34 },
+                   C: { x: 0, y: 0, r: 34 }, Dash: { x: 0, y: 0, r: 23 } };
+  const pad = { x: 0, y: 0, half: 75, dead: 16 };
   const pauseBox = { x: 0, y: 0, w: 44, h: 44 };
 
-  const ptrs = new Map();                        // активні вказівники
-  let stickId = -1, stickX = 0, stickY = 0;
-  let lastStickUp = 0, lastStickX = 0, lastStickY = 0;
-  let dashQ = false, dashDir = 0, pauseQ = false;
-  let enabled = false;
+  const ptrs = new Map();
+  let dashQ = false, dashDir = 0, pauseQ = false, enabled = false;
 
   const S = {
     ax: 0, down: false,
@@ -1046,30 +1098,69 @@ const Input = (function () {
     dashP: false, dashDir: 0, pauseP: false
   };
 
+  const SCALE = { S: 0.85, M: 1, L: 1.15 };
+
   function layout() {
-    const sizes = { S: 64, M: 74, L: 86 };
-    const d = sizes[Store.data.size] || 74;
-    const r = d / 2, gap = 16, m = 14;
+    const k = SCALE[Store.data.size] || 1;
     const W = window.innerWidth, H = window.innerHeight;
-    const hand = Store.data.hand ? -1 : 1;       // 1 = кнопки праворуч
-    const baseX = hand > 0 ? (W - m - r) : (m + r);
-    const baseY = H - m - r;
-    btnPos.A.x = baseX;                       btnPos.A.y = baseY;
-    btnPos.B.x = baseX - hand * (d + gap);    btnPos.B.y = baseY - 4;
-    btnPos.C.x = baseX - hand * (d + gap) * 0.5; btnPos.C.y = baseY - (d + gap) * 0.92;
-    ['A', 'B', 'C'].forEach(k => {
-      const p = btnPos[k], e = el[k];
-      p.r = r;
-      e.style.width = d + 'px'; e.style.height = d + 'px';
-      e.style.left = (p.x - r) + 'px'; e.style.top = (p.y - r) + 'px';
-    });
+    const mir = Store.data.hand ? -1 : 1;          // 1 = хрестовина ліворуч
+    const edge = CONFIG.DPAD_EDGE;
+
+    // --- хрестовина ---
+    const size = CONFIG.DPAD * k;
+    const px = mir > 0 ? (edge + size / 2) : (W - edge - size / 2);
+    const py = H - edge - size / 2;
+    pad.x = px; pad.y = py; pad.half = size / 2; pad.dead = CONFIG.DPAD_DEAD * k;
+    el.dpad.style.width = size + 'px'; el.dpad.style.height = size + 'px';
+    el.dpad.style.left = (px - size / 2) + 'px';
+    el.dpad.style.top = (py - size / 2) + 'px';
+
+    // --- кнопки дій ромбом: A знизу, B збоку, C зверху, D (ривок) навпроти B ---
+    const d = CONFIG.BTN * k, gap = CONFIG.BTN_GAP * k, dd = CONFIG.BTN_DASH * k;
+    const rad = (d + gap) / Math.SQRT2;
+    const cx = mir > 0 ? (W - edge - rad - d / 2) : (edge + rad + d / 2);
+    const cy = H - edge - rad - d / 2;
+    btnPos.A.x = cx;             btnPos.A.y = cy + rad;  btnPos.A.r = d / 2;
+    btnPos.C.x = cx;             btnPos.C.y = cy - rad;  btnPos.C.r = d / 2;
+    btnPos.B.x = cx - mir * rad; btnPos.B.y = cy;        btnPos.B.r = d / 2;
+    btnPos.Dash.x = cx + mir * rad; btnPos.Dash.y = cy;  btnPos.Dash.r = dd / 2;
+    place('A', d); place('B', d); place('C', d); place('Dash', dd);
+
     pauseBox.x = W - 8 - 44; pauseBox.y = 8;
     el.pause.style.left = pauseBox.x + 'px'; el.pause.style.top = pauseBox.y + 'px';
+    el.layer.style.setProperty('--ctlop', (Store.data.op || 55) / 100);
+  }
+  function place(key, size) {
+    const p = btnPos[key], e = el[key];
+    e.style.width = size + 'px'; e.style.height = size + 'px';
+    e.style.left = (p.x - size / 2) + 'px'; e.style.top = (p.y - size / 2) + 'px';
   }
 
-  function stickHalf(x) {
-    const W = window.innerWidth;
-    return Store.data.hand ? (x > W / 2) : (x < W / 2);
+  // Напрямки хрестовини за положенням пальця. bounded=false — палець уже
+  // «володіє» хрестовиною, тож дозволяємо вести його скільки завгодно далеко.
+  function padDirs(x, y, bounded) {
+    const ax = x - pad.x, ay = y - pad.y;
+    if (bounded) {
+      const hx = pad.half * CONFIG.DPAD_HIT;       // хітбокс на 25% більший
+      if (Math.abs(ax) > hx || Math.abs(ay) > hx) return null;
+    }
+    return { l: ax < -pad.dead ? 1 : 0, r: ax > pad.dead ? 1 : 0,
+             u: ay < -pad.dead ? 1 : 0, d: ay > pad.dead ? 1 : 0 };
+  }
+  function applyDirs(nd) {
+    const was = dir.l | dir.r | dir.u | dir.d;
+    const fresh = (nd.l && !dir.l) || (nd.r && !dir.r) || (nd.u && !dir.u) || (nd.d && !dir.d);
+    dir.l = nd.l; dir.r = nd.r; dir.u = nd.u; dir.d = nd.d;
+    el.L.classList.toggle('hit', !!dir.l);
+    el.R.classList.toggle('hit', !!dir.r);
+    el.U.classList.toggle('hit', !!dir.u);
+    el.D.classList.toggle('hit', !!dir.d);
+    if (fresh) buzz(10);                            // легкий відгук на нову стрілку
+  }
+  function clearDirs() {
+    dir.l = dir.r = dir.u = dir.d = 0;
+    el.L.classList.remove('hit'); el.R.classList.remove('hit');
+    el.U.classList.remove('hit'); el.D.classList.remove('hit');
   }
   function inBtn(k, x, y) {
     const p = btnPos[k], dx = x - p.x, dy = y - p.y;
@@ -1082,6 +1173,12 @@ const Input = (function () {
     if (x >= pauseBox.x && x <= pauseBox.x + pauseBox.w && y >= pauseBox.y && y <= pauseBox.y + pauseBox.h) {
       pauseQ = true; ptrs.set(id, { kind: 'pause' }); return;
     }
+    if (inBtn('Dash', x, y)) {                      // окрема кнопка ривка
+      ptrs.set(id, { kind: 'Dash' });
+      setBtnVisual('Dash', true);
+      dashQ = true; dashDir = 0;
+      return;
+    }
     for (const k of ['A', 'B', 'C']) {
       if (inBtn(k, x, y)) {
         ptrs.set(id, { kind: k });
@@ -1089,40 +1186,16 @@ const Input = (function () {
         return;
       }
     }
-    if (stickHalf(x) && stickId < 0) {
-      stickId = id; stickX = x; stickY = y;
-      ptrs.set(id, { kind: 'stick', t: performance.now(), x: x, y: y });
-      el.stick.style.left = x + 'px'; el.stick.style.top = y + 'px';
-      el.stick.classList.add('on');
-      el.knob.style.left = '34px'; el.knob.style.top = '34px';
-      // подвійний тап по джойстику = ривок
-      const now = performance.now();
-      if (now - lastStickUp < 300 && Math.abs(x - lastStickX) < 60 && Math.abs(y - lastStickY) < 60) {
-        dashQ = true; dashDir = 0;
-      }
-      return;
-    }
-    // інша половина — трекер свайпу для ривка
-    ptrs.set(id, { kind: 'swipe', t: performance.now(), x: x, y: y, fired: false });
+    const nd = padDirs(x, y, true);
+    if (nd) { ptrs.set(id, { kind: 'pad' }); applyDirs(nd); }
+    else ptrs.set(id, { kind: 'none' });
   }
   function move(id, x, y) {
     const p = ptrs.get(id);
     if (!p) return;
-    if (p.kind === 'stick') {
-      let dx = x - stickX, dy = y - stickY;
-      const len = Math.hypot(dx, dy);
-      if (len > RADIUS) { dx = dx / len * RADIUS; dy = dy / len * RADIUS; }
-      tc.ax = Math.abs(dx) < DEAD ? 0 : clamp((dx - sign(dx) * DEAD) / (RADIUS - DEAD), -1, 1);
-      tc.dy = Math.abs(dy) < DEAD ? 0 : (dy - sign(dy) * DEAD) / (RADIUS - DEAD);
-      el.knob.style.left = (34 + dx) + 'px'; el.knob.style.top = (34 + dy) + 'px';
-      // різкий рух вниз — присідання / спуск крізь платформу
-    } else if (p.kind === 'swipe' && !p.fired) {
-      const dx = x - p.x, dy = y - p.y;
-      if (Math.abs(dx) > 34 && Math.abs(dx) > Math.abs(dy) && performance.now() - p.t < 400) {
-        p.fired = true; dashQ = true; dashDir = sign(dx);
-      }
+    if (p.kind === 'pad') {
+      applyDirs(padDirs(x, y, false));              // ковзання ← -> → без відриву
     } else if (p.kind === 'A' || p.kind === 'B' || p.kind === 'C') {
-      // палець зісковзнув із кнопки — відпускаємо
       if (!inBtn(p.kind, x, y)) {
         tc[p.kind.toLowerCase()] = 0; setBtnVisual(p.kind, false);
         ptrs.set(id, { kind: 'none' });
@@ -1133,11 +1206,9 @@ const Input = (function () {
     const p = ptrs.get(id);
     ptrs.delete(id);
     if (!p) return;
-    if (p.kind === 'stick') {
-      stickId = -1; tc.ax = 0; tc.dy = 0;
-      el.stick.classList.remove('on');
-      lastStickUp = performance.now(); lastStickX = p.x; lastStickY = p.y;
-    } else if (p.kind === 'A' || p.kind === 'B' || p.kind === 'C') {
+    if (p.kind === 'pad') clearDirs();
+    else if (p.kind === 'Dash') setBtnVisual('Dash', false);
+    else if (p.kind === 'A' || p.kind === 'B' || p.kind === 'C') {
       tc[p.kind.toLowerCase()] = 0; setBtnVisual(p.kind, false);
     }
   }
@@ -1156,7 +1227,7 @@ const Input = (function () {
 
   const KEYS = {
     ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowDown: 'd', KeyS: 'd',
-    ArrowUp: 'a', KeyW: 'a', Space: 'a', KeyK: 'a', KeyJ: 'b', KeyL: 'c'
+    ArrowUp: 'u', KeyW: 'u', Space: 'a', KeyK: 'a', KeyJ: 'b', KeyL: 'c'
   };
   window.addEventListener('keydown', e => {
     if (e.repeat) return;
@@ -1171,34 +1242,33 @@ const Input = (function () {
     if (k) { kb[k] = 0; e.preventDefault(); }
   });
   window.addEventListener('blur', () => {
-    kb.l = kb.r = kb.d = kb.a = kb.b = kb.c = 0;
-    tc.ax = 0; tc.dy = 0; tc.a = tc.b = tc.c = 0;
-    ptrs.clear(); stickId = -1;
-    el.stick.classList.remove('on');
-    ['A', 'B', 'C'].forEach(k => setBtnVisual(k, false));
+    kb.l = kb.r = kb.d = kb.u = kb.a = kb.b = kb.c = 0;
+    tc.a = tc.b = tc.c = 0;
+    ptrs.clear(); clearDirs();
+    ['A', 'B', 'C', 'Dash'].forEach(k => setBtnVisual(k, false));
   });
 
   return {
     S: S,
     kb: kb,
     btn: btnPos,
+    pad: pad,
     layout: layout,
     enable(on) {
       enabled = !!on;
       el.layer.classList.toggle('on', !!on);
       if (!on) {
-        tc.ax = 0; tc.dy = 0; tc.a = tc.b = tc.c = 0;
-        ptrs.clear(); stickId = -1;
-        el.stick.classList.remove('on');
-        ['A', 'B', 'C'].forEach(k => setBtnVisual(k, false));
+        tc.a = tc.b = tc.c = 0;
+        ptrs.clear(); clearDirs();
+        ['A', 'B', 'C', 'Dash'].forEach(k => setBtnVisual(k, false));
       }
     },
     // Викликається на кожному фіксованому кроці фізики: рахує фронти.
     step() {
-      const kbAx = (kb.r ? 1 : 0) - (kb.l ? 1 : 0);
-      S.ax = tc.ax !== 0 ? tc.ax : kbAx;
-      S.down = (kb.d === 1) || tc.dy > 0.55;
-      held.a = (kb.a || tc.a) ? 1 : 0;
+      const l = kb.l || dir.l, r = kb.r || dir.r;
+      S.ax = (r ? 1 : 0) - (l ? 1 : 0);
+      S.down = !!(kb.d || dir.d);
+      held.a = (kb.a || kb.u || tc.a || dir.u) ? 1 : 0;   // ↑ дублює кнопку A
       held.b = (kb.b || tc.b) ? 1 : 0;
       held.c = (kb.c || tc.c) ? 1 : 0;
       S.a = !!held.a; S.b = !!held.b; S.c = !!held.c;
@@ -1208,10 +1278,9 @@ const Input = (function () {
       S.dashP = dashQ; S.dashDir = dashDir; dashQ = false;
     },
     consumePause() { const p = pauseQ; pauseQ = false; return p; },
-    clearEdges() { S.aP = S.bP = S.cP = S.aR = S.bR = S.cR = S.dashP = S.pauseP = false; }
+    clearEdges() { S.aP = S.bP = S.cP = S.aR = S.bR = S.cR = S.dashP = false; }
   };
 })();
-// Клавіші B/C з клавіатури (KeyJ/KeyL) вже в KEYS; окремо нічого не треба.
 
 /* ================================================================
    9. ПУЛИ СУТНОСТЕЙ (масиви з компактуванням — не течуть)
@@ -1262,6 +1331,7 @@ function rayLen(x, y, dir, maxLen) {
 const P = {
   x: 0, y: 0, w: 10, h: 14, vx: 0, vy: 0, face: 1,
   onGround: false, coyote: 0, jbuf: 0, jumpHeld: false, ride: null,
+  jumps: 0, flipT: 0, downHold: 0, wallRestored: false,
   hp: 5, maxHp: 5, inv: 0, hurtT: 0, dead: false, deadT: 0,
   dashT: 0, dashCd: 0, dashDir: 1,
   crouch: false, dropT: 0,
@@ -1274,6 +1344,7 @@ const P = {
 
 function playerReset(full) {
   P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.coyote = 0; P.jbuf = 0;
+  P.jumps = 0; P.flipT = 0; P.downHold = 0; P.wallRestored = false;
   P.ride = null; P.inv = 1.0; P.hurtT = 0; P.dead = false; P.deadT = 0;
   P.dashT = 0; P.dashCd = 0; P.crouch = false; P.dropT = 0; P.h = 14;
   P.atkT = 0; P.atkIdx = 0; P.atkAct = false; P.comboT = 0; P.hitSet.length = 0;
@@ -1492,7 +1563,6 @@ function setCrouch(on) {
 }
 
 /* ---------------- головне оновлення героя ---------------- */
-let downPrev = false;
 function updatePlayer(dt) {
   const S = Input.S, g = world.grav;
 
@@ -1508,6 +1578,7 @@ function updatePlayer(dt) {
   if (P.dropT > 0) P.dropT -= dt;
   if (P.dischT > 0) P.dischT -= dt;
   if (P.spawnFx > 0) P.spawnFx -= dt;
+  if (P.flipT > 0) P.flipT -= dt;
 
   // ---- смерть ----
   if (P.dead) {
@@ -1530,21 +1601,24 @@ function updatePlayer(dt) {
     return;
   }
 
-  // ---- присідання / спуск крізь платформу ----
+  // ---- присідання; утримання ↓ 0.3 с — спуск крізь тонку платформу ----
   const wantDown = S.down;
-  if (wantDown && !downPrev && P.onGround && P.dashT <= 0 && g > 0) {
+  if (wantDown && P.onGround && P.dashT <= 0 && g > 0) P.downHold += dt;
+  else P.downHold = 0;
+  if (P.downHold >= PH.DROP_HOLD) {
+    P.downHold = 0;
     const fx = Math.floor((P.x + P.w / 2) / TS), fy = Math.floor((P.y + P.h + 2) / TS);
     if (tAt(fx, fy) === T_PLAT || P.ride) {
       P.dropT = 0.26; P.onGround = false; P.ride = null; P.y += 3;
+      burst(P.x + P.w / 2, P.y + P.h, 4, '#9a7fb5', 60, 0.2, 40, 1);
     }
   }
-  downPrev = wantDown;
   if (g > 0) setCrouch(wantDown && P.onGround && P.dashT <= 0);
   else setCrouch(false);
 
   // ---- горизонтальний рух ----
   if (P.dashT <= 0) {
-    const acc = P.onGround ? PH.ACC : PH.AIRACC;
+    const acc = P.onGround ? PH.ACC : PH.ACC * PH.AIRCTRL;
     const maxs = (P.crouch ? PH.RUN * 0.45 : PH.RUN);
     const target = Math.abs(S.ax) > 0.12 ? S.ax * maxs : 0;
     if (target !== 0) {
@@ -1552,30 +1626,44 @@ function updatePlayer(dt) {
       else if (P.vx > target) P.vx = Math.max(target, P.vx - acc * dt * (P.vx * target < 0 ? 1.7 : 0.55));
       if (P.atkT <= 0) P.face = target > 0 ? 1 : -1;
     } else {
-      const fr = (P.onGround ? PH.FRIC : PH.AIRFRIC) * dt;
+      const fr = (P.onGround ? PH.DEC : PH.AIRDEC) * dt;
       if (Math.abs(P.vx) <= fr) P.vx = 0; else P.vx -= sign(P.vx) * fr;
     }
   }
 
   // ---- стрибок: буфер + coyote + змінна висота ----
   if (S.aP) P.jbuf = PH.BUFFER;
-  if (P.onGround) P.coyote = PH.COYOTE;
-  const canJump = P.jbuf > 0 && P.coyote > 0 && P.dashT <= 0;
-  if (!canJump) {                                  // таймери спливають лише поки стрибок неможливий
+  if (P.onGround) { P.coyote = PH.COYOTE; P.jumps = 0; P.wallRestored = false; }
+  else if (P.coyote <= 0 && P.jumps === 0) P.jumps = 1;   // зійшов із краю, не стрибаючи
+  const groundJump = P.jbuf > 0 && P.coyote > 0 && P.jumps === 0 && P.dashT <= 0;
+  const airJump = !groundJump && P.jbuf > 0 && P.dashT <= 0 &&
+                  !P.onGround && P.coyote <= 0 && P.jumps <= PH.AIRJUMPS;
+  if (!groundJump && !airJump) {                   // таймери спливають лише поки стрибок неможливий
     if (P.jbuf > 0) P.jbuf -= dt;
     if (!P.onGround && P.coyote > 0) P.coyote -= dt;
-  }
-  if (canJump) {
-    P.vy = -PH.JUMP * g;
+  } else {
+    P.vy = -(groundJump ? PH.JUMP : PH.JUMP2) * g;
     P.onGround = false; P.coyote = 0; P.jbuf = 0; P.jumpHeld = true; P.ride = null;
+    P.jumps = groundJump ? 1 : P.jumps + 1;
     if (P.crouch) setCrouch(false);
     Sfx.jump();
-    for (let i = 0; i < 4; i++)
-      part(P.x + P.w / 2 + rnd(-4, 4), P.y + P.h, rnd(-40, 40), 30 * g, 0.2, '#7b2fbe', 1, 0, 1);
+    if (airJump) {                                 // подвійний стрибок: сальто + кільце частинок
+      P.flipT = 0.40;
+      Sfx.dash();
+      ring(P.x + P.w / 2, P.y + P.h / 2, 3, 22, 0.32, '#22e0ff', 2);
+      for (let i = 0; i < 10; i++) {
+        const a = i / 10 * Math.PI * 2;
+        part(P.x + P.w / 2 + Math.cos(a) * 6, P.y + P.h / 2 + Math.sin(a) * 6,
+             Math.cos(a) * 70, Math.sin(a) * 70, 0.3, '#7df9ff', 1, 20, 1);
+      }
+    } else {
+      for (let i = 0; i < 4; i++)
+        part(P.x + P.w / 2 + rnd(-4, 4), P.y + P.h, rnd(-40, 40), 30 * g, 0.2, '#7b2fbe', 1, 0, 1);
+    }
   }
   if (P.jumpHeld && !S.a) {
     P.jumpHeld = false;
-    if (P.vy * g < -PH.CUT) P.vy = -PH.CUT * g;
+    if (P.vy * g < 0) P.vy *= PH.CUT;              // змінна висота стрибка
   }
 
   // ---- ривок ----
@@ -1593,9 +1681,11 @@ function updatePlayer(dt) {
     part(P.x + P.w / 2 - P.dashDir * 4, P.y + rnd(2, 12), -P.dashDir * rnd(20, 70), rnd(-20, 20),
          0.22, '#22e0ff', 2, 0, 1);
   } else {
-    // ---- гравітація ----
-    const falling = P.vy * g > 0;
-    P.vy += PH.GRAV * g * (falling ? PH.FALL : 1) * dt;
+    // ---- гравітація: біля вершини слабша, на падінні сильніша ----
+    let gr = PH.GRAV;
+    if (Math.abs(P.vy) < PH.APEX_V) gr *= PH.APEX;
+    else if (P.vy * g > 0) gr *= PH.FALL;
+    P.vy += gr * g * dt;
     if (P.vy * g > PH.MAXFALL) P.vy = PH.MAXFALL * g;
   }
 
@@ -1604,7 +1694,15 @@ function updatePlayer(dt) {
     if (P.ride.dx) moveX(P, P.ride.dx);
     if (P.ride.dy) P.y += P.ride.dy;
   }
-  if (moveX(P, P.vx * dt)) P.vx = 0;
+  if (moveX(P, P.vx * dt)) {
+    P.vx = 0;
+    // чіпнув стіну в повітрі — повертаємо один повітряний стрибок (щоб не було
+    // нескінченного «залізання» по стіні, лише раз за політ)
+    if (!P.onGround && !P.wallRestored && P.jumps > 1) {
+      P.jumps = 1; P.wallRestored = true;
+      part(P.x + (P.face > 0 ? P.w : 0), P.y + 6, -P.face * 40, -20, 0.25, '#22e0ff', 1, 0, 1);
+    }
+  }
   P.x = clamp(P.x, 0, world.pw - P.w);
 
   const prevBottom = P.y + P.h;
@@ -3311,7 +3409,12 @@ function drawPlayer() {
   const dx = Math.round(P.x - 1 - camX);
   const dy = Math.round(P.y - (P.crouch ? 4 : 0) - camY);
   ctx.save();
-  if (world.grav < 0) {                              // перевернута гравітація
+  if (P.flipT > 0) {                                 // сальто подвійного стрибка
+    const k = 1 - P.flipT / 0.40;
+    ctx.translate(dx + HERO_W / 2, dy + HERO_H / 2);
+    ctx.rotate(k * Math.PI * 2 * P.face);
+    ctx.drawImage(spr, -HERO_W / 2, -HERO_H / 2);
+  } else if (world.grav < 0) {                       // перевернута гравітація
     ctx.translate(0, dy + HERO_H); ctx.scale(1, -1); ctx.translate(0, -dy);
     ctx.drawImage(spr, dx, 0);
   } else {
@@ -3687,7 +3790,7 @@ const Game = {
     clearEntities();
     bossReset();
     ZONES.length = 0; PENDING.length = 0; GHOSTS.length = 0; TRAIL.length = 0;
-    hitStopT = 0; downPrev = false;
+    hitStopT = 0;
     loadLevel(this.level);
     buildBackground();
     spawnAllEnemies();
@@ -3810,6 +3913,10 @@ function bindUI() {
   $('sMus').addEventListener('input', e => {
     Store.data.mus = parseInt(e.target.value, 10) || 0; Sfx.setVol(); Store.save();
   });
+  $('sOp').addEventListener('input', e => {
+    Store.data.op = clamp(parseInt(e.target.value, 10) || 55, 30, 90);
+    Input.layout(); Store.save();
+  });
   segBind('sVib', v => { Store.data.vib = parseInt(v, 10); if (Store.data.vib) buzz(20); });
   segBind('sSize', v => { Store.data.size = v; Input.layout(); });
   segBind('sHand', v => { Store.data.hand = parseInt(v, 10); Input.layout(); });
@@ -3834,6 +3941,7 @@ function segBind(id, fn) {
 function syncSettings() {
   $('sVol').value = Store.data.vol;
   $('sMus').value = Store.data.mus;
+  $('sOp').value = Store.data.op;
   segSet('sVib', String(Store.data.vib));
   segSet('sSize', Store.data.size);
   segSet('sHand', String(Store.data.hand));
@@ -4004,7 +4112,7 @@ window.__DEV = {
   moveX: moveX, moveY: moveY, tAt: tAt, solidAtPx: solidAtPx,
   BULL: BULL, ENEM: ENEM, PICKS: PICKS, BEAMS: BEAMS,
   shoot: shoot, spawnEnemy: spawnEnemy, damageEnemy: damageEnemy,
-  BL: BL, RG: RG, S: Input.S, btn: Input.btn,
+  BL: BL, RG: RG, S: Input.S, btn: Input.btn, pad: Input.pad, CONFIG: CONFIG,
   hitboxes: () => bossHitBoxes(),
   levels: () => LEVELS.length,
   levelInfo: i => ({ n: LEVELS[i].n, w: LEVELS[i].rows[0].length, h: LEVELS[i].rows.length,

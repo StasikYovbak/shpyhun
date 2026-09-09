@@ -113,6 +113,7 @@ const R = await page.evaluate(() => {
   // --- буфер стрибка ---
   reset();
   P.y = 182; P.vy = 160; P.onGround = false; P.coyote = 0; P.jbuf = 0;   // до землі ~0.07 с
+  P.jumps = 2;                                      // обидва стрибки вже витрачені
   D.kb.a = 1; D.step();                             // натиснули ЩЕ в повітрі й тримаємо
   let jumped = false, landed = false, air0 = P.vy;
   for (let i = 0; i < 14; i++) { D.step(); if (P.vy < -300) jumped = true; if (P.onGround) landed = true; }
@@ -150,6 +151,40 @@ const R = await page.evaluate(() => {
   out.varJump = { holdY: Math.round(hiTop), tapY: Math.round(loTop),
                   height: Math.round(194 - hiTop) };
 
+  // --- подвійний стрибок ---
+  reset();
+  let single = 999, dbl = 999;
+  D.kb.a = 1;
+  for (let i = 0; i < 26; i++) { D.step(); single = Math.min(single, P.y); }
+  D.kb.a = 0; D.step();                             // відпустили — і одразу другий
+  D.kb.a = 1; D.step();
+  const jumpsUsed = P.jumps;                        // рахуємо одразу, поки в повітрі
+  for (let i = 0; i < 60; i++) { D.step(); dbl = Math.min(dbl, P.y); }
+  D.kb.a = 0;
+  let third = dbl;
+  D.step(); D.kb.a = 1;
+  for (let i = 0; i < 20; i++) { D.step(); third = Math.min(third, P.y); }
+  D.kb.a = 0;
+  out.dbl = { single: Math.round(194 - single), total: Math.round(194 - dbl),
+              extra: Math.round(single - dbl), jumps: jumpsUsed,
+              noThird: Math.abs(third - dbl) < 2 };
+
+  // --- удар головою об стелю: vY має обнулятись, героя не має затягувати в тайл ---
+  D.Game.startLevel(4, false); D.god(true);         // метро: суцільна стеля
+  P.x = 60; P.y = 194; P.vy = 0; P.jumps = 0;
+  D.kb.l = D.kb.r = D.kb.a = 0;
+  for (let i = 0; i < 4; i++) D.step();
+  D.kb.a = 1;
+  let inside = false, minY2 = 999;
+  for (let i = 0; i < 40; i++) {
+    D.step(); minY2 = Math.min(minY2, P.y);
+    if (D.solidAtPx(P.x + 5, P.y + 1)) inside = true;   // голова всередині тайла
+  }
+  D.kb.a = 0;
+  for (let i = 0; i < 80; i++) D.step();
+  out.ceil = { inside: inside, landed: P.onGround, minY: Math.round(minY2),
+               insideAfter: D.solidAtPx(P.x + 5, P.y + 7) };
+
   return out;
 });
 
@@ -183,14 +218,24 @@ ok(R.dash.iframes, 'і-фрейми: під час ривка шкода не п
 ok(R.dash.moved > 40, 'ривок переносить героя на ' + R.dash.moved + ' px');
 ok(R.varJump.holdY < R.varJump.tapY - 10, 'змінна висота стрибка (утримання вище за тап)',
    'утримання y=' + R.varJump.holdY + ', тап y=' + R.varJump.tapY);
-ok(Math.abs(R.varJump.height - 48) <= 3, 'висота повного стрибка = 48 px (3 тайли)',
+ok(Math.abs(R.varJump.height - 66) <= 3, 'фактична висота повного стрибка ≈ 66 px (4,1 тайла)',
    R.varJump.height + ' px');
+ok(R.dbl.extra >= 30 && R.dbl.jumps === 2,
+   'подвійний стрибок додає ще ' + R.dbl.extra + ' px (разом ' + R.dbl.total + ' px)',
+   JSON.stringify(R.dbl));
+ok(R.dbl.noThird, 'третього стрибка в повітрі немає');
+ok(!R.ceil.inside && R.ceil.landed && !R.ceil.insideAfter,
+   'удар головою об стелю не затягує героя в тайл', JSON.stringify(R.ceil));
 
 // --- мультитач: рух + стрибок + постріл одночасно ---
 console.log('\nМУЛЬТИТАЧ');
 const pos = await page.evaluate(() => {
-  const b = window.__DEV.btn;
-  return { A: { x: b.A.x, y: b.A.y }, C: { x: b.C.x, y: b.C.y } };
+  const b = window.__DEV.btn, p = window.__DEV.pad;
+  return { A: { x: b.A.x, y: b.A.y }, C: { x: b.C.x, y: b.C.y },
+           Dash: { x: b.Dash.x, y: b.Dash.y },
+           padR: { x: p.x + p.half * 0.62, y: p.y },
+           padL: { x: p.x - p.half * 0.62, y: p.y },
+           padU: { x: p.x, y: p.y - p.half * 0.62 } };
 });
 await page.evaluate(() => {
   const D = window.__DEV;
@@ -211,21 +256,51 @@ await page.evaluate(() => {
 const cdp = await ctx.newCDPSession(page);
 await cdp.send('Input.dispatchTouchEvent', {
   type: 'touchStart',
-  touchPoints: [{ x: 120, y: 300, id: 1 }, { x: pos.A.x, y: pos.A.y, id: 2 }, { x: pos.C.x, y: pos.C.y, id: 3 }]
+  touchPoints: [{ x: pos.padR.x, y: pos.padR.y, id: 1 },
+                { x: pos.A.x, y: pos.A.y, id: 2 }, { x: pos.C.x, y: pos.C.y, id: 3 }]
 });
 await cdp.send('Input.dispatchTouchEvent', {
   type: 'touchMove',
-  touchPoints: [{ x: 190, y: 300, id: 1 }, { x: pos.A.x, y: pos.A.y, id: 2 }, { x: pos.C.x, y: pos.C.y, id: 3 }]
+  touchPoints: [{ x: pos.padR.x, y: pos.padR.y, id: 1 },
+                { x: pos.A.x, y: pos.A.y, id: 2 }, { x: pos.C.x, y: pos.C.y, id: 3 }]
 });
 await page.waitForTimeout(900);
 const multi = await page.evaluate(() => window.__DEV.multi);
 await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-ok(multi.ax > 0.2, 'джойстик дає рух вправо при трьох пальцях', 'ax=' + multi.ax.toFixed(2));
+ok(multi.ax > 0.2, 'стрілка → дає рух вправо при трьох пальцях', 'ax=' + multi.ax.toFixed(2));
 ok(multi.a === true, 'кнопка A (стрибок) натиснута одночасно');
 ok(multi.c === true, 'кнопка C (постріл) натиснута одночасно');
 ok(multi.moved > 4 && multi.jumped && multi.shot,
    'герой одночасно біжить, стрибає і стріляє',
    'Δx=' + multi.moved.toFixed(1) + ' постріл=' + multi.shot);
+
+// --- ковзання пальцем ← -> → без відриву й діагональ ---
+await page.evaluate(() => { const D = window.__DEV; D.Game.startLevel(0, false); D.god(true); });
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart',
+  touchPoints: [{ x: pos.padL.x, y: pos.padL.y, id: 7 }] });
+await page.waitForTimeout(140);
+const slideL = await page.evaluate(() => window.__DEV.S.ax);
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove',
+  touchPoints: [{ x: pos.padR.x, y: pos.padR.y, id: 7 }] });
+await page.waitForTimeout(140);
+const slideR = await page.evaluate(() => window.__DEV.S.ax);
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove',
+  touchPoints: [{ x: pos.padL.x, y: pos.padU.y, id: 7 }] });
+await page.waitForTimeout(140);
+const diag = await page.evaluate(() => ({ ax: window.__DEV.S.ax, a: window.__DEV.S.a }));
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+ok(slideL < -0.2 && slideR > 0.2, 'ковзання з ← на → міняє напрямок без відриву',
+   'ax ' + slideL + ' -> ' + slideR);
+ok(diag.ax < -0.2 && diag.a === true, 'діагональ ←+↑ працює одночасно (біг + стрибок)');
+
+// --- окрема кнопка ривка D ---
+await page.evaluate(() => { const D = window.__DEV; D.P.dashCd = 0; D.P.dashT = 0; });
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart',
+  touchPoints: [{ x: pos.Dash.x, y: pos.Dash.y, id: 9 }] });
+await page.waitForTimeout(220);
+const dashed = await page.evaluate(() => ({ cd: window.__DEV.P.dashCd }));
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+ok(dashed.cd > 0, 'кнопка D запускає ривок', 'кулдаун ' + dashed.cd.toFixed(2) + ' с');
 
 ok(errors.length === 0, 'без помилок JS' + (errors.length ? ': ' + errors[0] : ''));
 console.log('\n' + (fails === 0 ? 'МЕХАНІКИ: УСЕ ЧИСТО' : 'МЕХАНІКИ: ПРОБЛЕМ ' + fails));

@@ -33,6 +33,8 @@ for (let lvl = 0; lvl < n; lvl++) {
 
     // Один прогін: старт зі стоячої точки, керування = dir, тримання стрибка = hold,
     // опційний ривок. Повертає точку приземлення або null.
+    // Симуляція повторює блок руху героя з index.html, але БЕЗ подвійного
+    // стрибка — щоб доказ прохідності мав запас.
     function run(sx, sy, dir, vx0, hold, dash) {
       const e = { x: sx, y: sy, w: HW, h: HH };
       let vx = vx0, vy = hold > 0 ? -PH.JUMP : 0;
@@ -44,16 +46,19 @@ for (let lvl = 0; lvl < n; lvl++) {
         if (dashT > 0) { dashT -= DT; vx = dir * PH.DASHV; vy = 0; }
         else {
           const target = dir * PH.RUN;
-          const acc = onGround ? PH.ACC : PH.AIRACC;
+          const acc = onGround ? PH.ACC : PH.ACC * PH.AIRCTRL;
           if (target !== 0) {
             if (vx < target) vx = Math.min(target, vx + acc * DT);
             else if (vx > target) vx = Math.max(target, vx - acc * DT * (vx * target < 0 ? 1.7 : 0.55));
           } else {
-            const fr = (onGround ? PH.FRIC : PH.AIRFRIC) * DT;
+            const fr = (onGround ? PH.DEC : PH.AIRDEC) * DT;
             if (Math.abs(vx) <= fr) vx = 0; else vx -= Math.sign(vx) * fr;
           }
-          if (jumpHeld && t >= hold) { jumpHeld = false; if (vy < -PH.CUT) vy = -PH.CUT; }
-          vy += PH.GRAV * (vy > 0 ? PH.FALL : 1) * DT;
+          if (jumpHeld && t >= hold) { jumpHeld = false; if (vy < 0) vy *= PH.CUT; }
+          let gr = PH.GRAV;
+          if (Math.abs(vy) < PH.APEX_V) gr *= PH.APEX;
+          else if (vy > 0) gr *= PH.FALL;
+          vy += gr * DT;
           if (vy > PH.MAXFALL) vy = PH.MAXFALL;
         }
         if (D.moveX(e, vx * DT)) vx = 0;
@@ -93,8 +98,8 @@ for (let lvl = 0; lvl < n; lvl++) {
       for (const dir of [-1, 1]) {
         for (const vx0 of [0, dir * PH.RUN]) {
           acts.push([dir, vx0, 0, false]);                 // зійти/впасти
-          for (const hold of [0.09, 0.18, 0.40]) acts.push([dir, vx0, hold, false]);
-          acts.push([dir, vx0, 0.40, true]);               // стрибок + ривок
+          for (const hold of [0.10, 0.20, 0.50]) acts.push([dir, vx0, hold, false]);
+          acts.push([dir, vx0, 0.50, true]);               // стрибок + ривок
           acts.push([dir, vx0, 0, true]);                  // ривок по землі
         }
       }
