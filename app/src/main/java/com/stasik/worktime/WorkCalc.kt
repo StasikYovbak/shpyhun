@@ -11,13 +11,19 @@ import kotlin.math.abs
 data class DayResult(
     val date: LocalDate,
     val day: WorkDay?,
-    val workedMinutes: Int,
+    /** Час від приходу до виходу, ще без вирахування обіду. */
+    val rawWorkedMinutes: Int,
+    /** Скільки хвилин обіду відняли від цієї зміни. */
+    val lunchMinutes: Int,
     val normMinutes: Int,
     val unfinished: Boolean
 ) {
+    /** Чистий відпрацьований час: зміна мінус обід. */
+    val workedMinutes: Int get() = rawWorkedMinutes - lunchMinutes
     val diffMinutes: Int get() = workedMinutes - normMinutes
     val status: DayStatus get() = day?.status ?: DayStatus.WORK
     val hasRecord: Boolean get() = day != null
+    val hasLunch: Boolean get() = lunchMinutes > 0
 }
 
 /** Підсумок за період. */
@@ -27,6 +33,8 @@ data class PeriodResult(
     val items: List<DayResult>
 ) {
     val workedMinutes: Int get() = items.sumOf { it.workedMinutes }
+    val rawWorkedMinutes: Int get() = items.sumOf { it.rawWorkedMinutes }
+    val lunchMinutes: Int get() = items.sumOf { it.lunchMinutes }
     val normMinutes: Int get() = items.sumOf { it.normMinutes }
     val diffMinutes: Int get() = workedMinutes - normMinutes
     val unfinishedCount: Int get() = items.count { it.unfinished }
@@ -53,7 +61,7 @@ object WorkCalc {
     const val MINUTES_IN_DAY: Int = 24 * 60
 
     /**
-     * Відпрацьовано за день у хвилинах.
+     * Тривалість зміни у хвилинах (ще без обіду).
      * Нічна зміна: якщо час виходу <= часу приходу — вихід вважається наступною добою
      * (22:00 -> 06:00 = 8 год, а не мінус 16).
      * Повертає null, якщо день не заповнений повністю.
@@ -79,14 +87,31 @@ object WorkCalc {
         return settings.normFor(date.dayOfWeek)
     }
 
+    /**
+     * Скільки хвилин обіду віднімається від зміни.
+     * Обід не віднімається якщо: вимкнений у налаштуваннях, для цього дня стоїть
+     * "без обіду", або зміна коротша за мінімальну. Ніколи не заганяє день у мінус.
+     */
+    fun lunchMinutes(day: WorkDay?, rawWorkedMinutes: Int, settings: Settings): Int {
+        if (day == null || day.noLunch) return 0
+        if (!settings.lunchEnabled || settings.lunchMinutes <= 0) return 0
+        if (rawWorkedMinutes <= 0) return 0
+        if (rawWorkedMinutes < settings.lunchMinShiftMinutes) return 0
+        return minOf(settings.lunchMinutes, rawWorkedMinutes)
+    }
+
     /** Результат за один день. */
-    fun dayResult(date: LocalDate, day: WorkDay?, settings: Settings): DayResult = DayResult(
-        date = date,
-        day = day,
-        workedMinutes = workedMinutes(day) ?: 0,
-        normMinutes = normMinutes(date, day, settings),
-        unfinished = isUnfinished(day)
-    )
+    fun dayResult(date: LocalDate, day: WorkDay?, settings: Settings): DayResult {
+        val raw = workedMinutes(day) ?: 0
+        return DayResult(
+            date = date,
+            day = day,
+            rawWorkedMinutes = raw,
+            lunchMinutes = lunchMinutes(day, raw, settings),
+            normMinutes = normMinutes(date, day, settings),
+            unfinished = isUnfinished(day)
+        )
+    }
 
     /**
      * Підсумок за період [from..to] включно. Працює і через межу місяця чи року.

@@ -53,6 +53,12 @@ object Repo {
         it.withDay(current.copy(end = time?.let { t -> TimeFormat.time(t) }))
     }
 
+    /** Позначає, що цього дня обіду не було (або був). */
+    fun setNoLunch(date: LocalDate, noLunch: Boolean) = update {
+        val current = it.day(date) ?: WorkDay(date.toString())
+        it.withDay(current.copy(noLunch = noLunch))
+    }
+
     fun setStatus(date: LocalDate, status: DayStatus) = update {
         val current = it.day(date) ?: WorkDay(date.toString())
         it.withDay(current.copy(status = status))

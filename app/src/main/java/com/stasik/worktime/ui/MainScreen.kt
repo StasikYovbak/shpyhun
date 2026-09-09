@@ -21,6 +21,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -147,11 +148,29 @@ fun MainScreen() {
                         }
                     }
 
+                    if (data.settings.lunchEnabled) {
+                        Spacer(Modifier.height(10.dp))
+                        LunchRow(
+                            checked = !(todayDay?.noLunch ?: false),
+                            lunchMinutes = todayResult.lunchMinutes,
+                            settingsLunch = data.settings.lunchMinutes,
+                            onCheckedChange = { Repo.setNoLunch(today, !it) }
+                        )
+                    }
+
                     Spacer(Modifier.height(14.dp))
                     HorizontalDivider()
                     Spacer(Modifier.height(10.dp))
 
                     InfoRow("Відпрацьовано", TimeFormat.full(todayResult.workedMinutes))
+                    if (todayResult.hasLunch) {
+                        Text(
+                            text = "зміна ${TimeFormat.hoursMinutes(todayResult.rawWorkedMinutes)} " +
+                                "\u2212 обід ${TimeFormat.hoursMinutes(todayResult.lunchMinutes)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     InfoRow("Норма", TimeFormat.full(todayResult.normMinutes))
                     InfoRow(
                         label = TimeFormat.diffTitle(todayResult.diffMinutes),
@@ -242,6 +261,35 @@ fun MainScreen() {
  * і окремо норму днів, які вже минули — саме проти неї рахується баланс,
  * інакше в понеділок вранці завжди висів би мінус на цілий тиждень.
  */
+/** Перемикач "чи був обід" для конкретного дня. */
+@Composable
+fun LunchRow(
+    checked: Boolean,
+    lunchMinutes: Int,
+    settingsLunch: Int,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Обід", style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = when {
+                    !checked -> "цього дня обіду не було"
+                    lunchMinutes > 0 -> "\u2212${TimeFormat.hoursMinutes(lunchMinutes)} від зміни"
+                    else -> "зміна закоротка, обід не віднімається"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
 @Composable
 fun SummaryLine(title: String, normLabel: String, full: PeriodResult, today: LocalDate) {
     val toDate = full.upTo(today)

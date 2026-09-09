@@ -104,6 +104,87 @@ fun SettingsScreen() {
             }
         }
 
+        // --- Обід ---
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Обід", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "Автоматично віднімати обід від зміни. " +
+                                    "З 09:00 до 18:00 буде 8 год, а не 9.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.lunchEnabled,
+                            onCheckedChange = { checked ->
+                                Repo.updateSettings { it.copy(lunchEnabled = checked) }
+                            }
+                        )
+                    }
+
+                    if (settings.lunchEnabled) {
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { normPicker = null; timePicker = "lunch" }
+                                .padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Тривалість обіду", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = TimeFormat.hoursMinutes(settings.lunchMinutes),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        HorizontalDivider()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { normPicker = null; timePicker = "lunchMin" }
+                                .padding(vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Мінімальна зміна", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = "Від коротших змін обід не віднімається",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = TimeFormat.hoursMinutes(settings.lunchMinShiftMinutes),
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Якщо якогось дня обіду не було — вимкни перемикач " +
+                                "\"Обід\" у картці цього дня.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
         // --- Нагадування ---
         item {
             Card(Modifier.fillMaxWidth()) {
@@ -204,7 +285,7 @@ fun SettingsScreen() {
                     Text("Як рахується", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "• Відпрацьовано = час виходу − час приходу, без обіду.\n" +
+                        text = "• Відпрацьовано = час виходу − час приходу − обід.\n" +
                             "• Якщо вихід раніший за прихід — це нічна зміна, години зараховуються дню, коли зміна почалась (22:00 → 06:00 = 8 год).\n" +
                             "• Відпустка, лікарняний і святковий мають норму 0 — це не недоробіток.\n" +
                             "• Робота в неділю за стандартної норми повністю йде в переробіток.\n" +
@@ -244,6 +325,38 @@ fun SettingsScreen() {
                 timePicker = null
             },
             onDismiss = { timePicker = null }
+        )
+        "lunch" -> TimePickerDialog(
+            title = "Тривалість обіду",
+            initial = LocalTime.of(
+                (settings.lunchMinutes / 60).coerceIn(0, 23),
+                settings.lunchMinutes % 60
+            ),
+            onConfirm = { time ->
+                Repo.updateSettings { it.copy(lunchMinutes = time.hour * 60 + time.minute) }
+                timePicker = null
+            },
+            onDismiss = { timePicker = null },
+            onClear = {
+                Repo.updateSettings { it.copy(lunchMinutes = 0) }
+                timePicker = null
+            }
+        )
+        "lunchMin" -> TimePickerDialog(
+            title = "Мінімальна зміна для обіду",
+            initial = LocalTime.of(
+                (settings.lunchMinShiftMinutes / 60).coerceIn(0, 23),
+                settings.lunchMinShiftMinutes % 60
+            ),
+            onConfirm = { time ->
+                Repo.updateSettings { it.copy(lunchMinShiftMinutes = time.hour * 60 + time.minute) }
+                timePicker = null
+            },
+            onDismiss = { timePicker = null },
+            onClear = {
+                Repo.updateSettings { it.copy(lunchMinShiftMinutes = 0) }
+                timePicker = null
+            }
         )
         "evening" -> TimePickerDialog(
             title = "Час вечірнього нагадування",

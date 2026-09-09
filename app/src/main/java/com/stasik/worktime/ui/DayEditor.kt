@@ -45,13 +45,15 @@ fun DayEditorDialog(date: LocalDate, onDismiss: () -> Unit) {
     var start by remember(date) { mutableStateOf(existing?.startTime) }
     var end by remember(date) { mutableStateOf(existing?.endTime) }
     var status by remember(date) { mutableStateOf(existing?.status ?: DayStatus.WORK) }
+    var noLunch by remember(date) { mutableStateOf(existing?.noLunch ?: false) }
     var picker by remember(date) { mutableStateOf<String?>(null) }
 
     val draft = WorkDay(
         date = date.toString(),
         start = start?.let { TimeFormat.time(it) },
         end = end?.let { TimeFormat.time(it) },
-        status = status
+        status = status,
+        noLunch = noLunch
     )
     val result = WorkCalc.dayResult(date, draft, Repo.settings)
 
@@ -113,11 +115,29 @@ fun DayEditorDialog(date: LocalDate, onDismiss: () -> Unit) {
                     }
                 }
 
+                if (Repo.settings.lunchEnabled) {
+                    Spacer(Modifier.height(12.dp))
+                    LunchRow(
+                        checked = !noLunch,
+                        lunchMinutes = result.lunchMinutes,
+                        settingsLunch = Repo.settings.lunchMinutes,
+                        onCheckedChange = { noLunch = !it }
+                    )
+                }
+
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(8.dp))
 
                 InfoRow("Відпрацьовано", TimeFormat.full(result.workedMinutes))
+                if (result.hasLunch) {
+                    Text(
+                        text = "зміна ${TimeFormat.hoursMinutes(result.rawWorkedMinutes)} " +
+                            "\u2212 обід ${TimeFormat.hoursMinutes(result.lunchMinutes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 InfoRow("Норма", TimeFormat.full(result.normMinutes))
                 InfoRow(
                     label = TimeFormat.diffTitle(result.diffMinutes),

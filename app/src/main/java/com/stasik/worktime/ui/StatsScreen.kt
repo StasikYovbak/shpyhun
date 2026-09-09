@@ -141,6 +141,10 @@ fun StatsScreen() {
 
                     Spacer(Modifier.height(12.dp))
                     InfoRow("Відпрацьовано", TimeFormat.full(period.workedMinutes), bold = true)
+                    if (period.lunchMinutes > 0) {
+                        InfoRow("У змінах / обід", "${TimeFormat.decimal(period.rawWorkedMinutes)} " +
+                            "\u2212 ${TimeFormat.decimal(period.lunchMinutes)}")
+                    }
                     InfoRow("Норма за період", TimeFormat.full(period.normMinutes))
                     if (hasFuture) {
                         InfoRow("Норма по сьогодні включно", TimeFormat.full(shown.normMinutes))

@@ -15,7 +15,18 @@ import java.time.LocalTime
  */
 class WorkCalcTest {
 
-    private val settings = Settings()
+    /**
+     * Базові тести з ТЗ рахувалися без обіду (відпрацьовано = вихід - прихід),
+     * тому тут обід вимкнений явно. Логіку обіду перевіряють окремі тести нижче.
+     */
+    private val settings = Settings(lunchEnabled = false)
+
+    /** Налаштування з обідом: 1 год, від змін не коротших за 6 год. */
+    private val lunchSettings = Settings(
+        lunchEnabled = true,
+        lunchMinutes = 60,
+        lunchMinShiftMinutes = 360
+    )
 
     private val monday = LocalDate.of(2026, 9, 7)
     private val friday = LocalDate.of(2026, 9, 11)
@@ -183,6 +194,123 @@ class WorkCalcTest {
         assertEquals(60, period.diffMinutes)
     }
 
+    // --- Обід ---
+
+    @Test
+    fun testDefaultSettingsHaveLunchOn() {
+        val defaults = Settings()
+        assertTrue(defaults.lunchEnabled)
+        assertEquals(60, defaults.lunchMinutes)
+        assertEquals(360, defaults.lunchMinShiftMinutes)
+
+        // саме те, що просив користувач: з 09:00 до 18:00 -> 8 год
+        val r = WorkCalc.dayResult(monday, day(monday, "09:00", "18:00"), defaults)
+        assertEquals(8 * 60, r.workedMinutes)
+        assertEquals("8.0", TimeFormat.decimal(r.workedMinutes))
+    }
+
+    @Test
+    fun testLunchSubtractsOneHour() {
+        // 09:00-18:00 = 9 год зміни, з них 1 год обід -> 8 год роботи, рівно за нормою
+        val r = WorkCalc.dayResult(monday, day(monday, "09:00", "18:00"), lunchSettings)
+
+        assertEquals(9 * 60, r.rawWorkedMinutes)
+        assertEquals(60, r.lunchMinutes)
+        assertEquals(8 * 60, r.workedMinutes)
+        assertEquals("8.0", TimeFormat.decimal(r.workedMinutes))
+        assertEquals(8 * 60, r.normMinutes)
+        assertEquals(0, r.diffMinutes)
+        assertEquals("Рівно за нормою", TimeFormat.diffTitle(r.diffMinutes))
+        assertTrue(r.hasLunch)
+    }
+
+    @Test
+    fun testLunchNotSubtractedFromShortShift() {
+        // 5 год — коротше за мінімальні 6, обід не віднімається
+        val short = WorkCalc.dayResult(monday, day(monday, "09:00", "14:00"), lunchSettings)
+        assertEquals(5 * 60, short.rawWorkedMinutes)
+        assertEquals(0, short.lunchMinutes)
+        assertEquals(5 * 60, short.workedMinutes)
+        assertFalse(short.hasLunch)
+
+        // рівно 6 год — обід уже віднімається
+        val exact = WorkCalc.dayResult(monday, day(monday, "09:00", "15:00"), lunchSettings)
+        assertEquals(60, exact.lunchMinutes)
+        assertEquals(5 * 60, exact.workedMinutes)
+    }
+
+    @Test
+    fun testLunchNeverGoesNegative() {
+        val noMin = lunchSettings.copy(lunchMinShiftMinutes = 0, lunchMinutes = 120)
+        // зміна 30 хв, обід 2 год -> віднімаємо не більше самої зміни
+        val r = WorkCalc.dayResult(monday, day(monday, "09:00", "09:30"), noMin)
+        assertEquals(30, r.rawWorkedMinutes)
+        assertEquals(30, r.lunchMinutes)
+        assertEquals(0, r.workedMinutes)
+        assertTrue(r.workedMinutes >= 0)
+    }
+
+    @Test
+    fun testPerDayNoLunchOverride() {
+        val withLunch = WorkCalc.dayResult(monday, day(monday, "09:00", "18:00"), lunchSettings)
+        assertEquals(8 * 60, withLunch.workedMinutes)
+
+        // цього дня обіду не було
+        val skipped = WorkDay(monday.toString(), "09:00", "18:00", DayStatus.WORK, noLunch = true)
+        val r = WorkCalc.dayResult(monday, skipped, lunchSettings)
+        assertEquals(0, r.lunchMinutes)
+        assertEquals(9 * 60, r.workedMinutes)
+        assertEquals(60, r.diffMinutes)
+    }
+
+    @Test
+    fun testLunchDisabledKeepsRawTime() {
+        val r = WorkCalc.dayResult(monday, day(monday, "09:00", "18:00"), settings)
+        assertEquals(0, r.lunchMinutes)
+        assertEquals(9 * 60, r.workedMinutes)
+    }
+
+    @Test
+    fun testLunchOnNightShift() {
+        // 22:00 -> 06:00 = 8 год зміни, мінус обід = 7 год
+        val r = WorkCalc.dayResult(friday, day(friday, "22:00", "06:00"), lunchSettings)
+        assertEquals(8 * 60, r.rawWorkedMinutes)
+        assertEquals(60, r.lunchMinutes)
+        assertEquals(7 * 60, r.workedMinutes)
+    }
+
+    @Test
+    fun testLunchAcrossWeek() {
+        // Пн-Пт по 09:00-18:00 (9 год зміни, 8 год роботи) + Сб 09:00-16:00 (7 -> 6)
+        val days = ArrayList<WorkDay>()
+        var d = monday
+        while (d <= friday) {
+            days.add(day(d, "09:00", "18:00"))
+            d = d.plusDays(1)
+        }
+        days.add(day(saturday, "09:00", "16:00"))
+
+        val data = AppData(days.associateBy { it.date }, lunchSettings)
+        val week = WorkCalc.period(monday, sunday, data)
+
+        assertEquals(52 * 60, week.rawWorkedMinutes)   // 9*5 + 7
+        assertEquals(6 * 60, week.lunchMinutes)        // 6 днів по годині
+        assertEquals(46 * 60, week.workedMinutes)      // 8*5 + 6
+        assertEquals(46 * 60, week.normMinutes)
+        assertEquals(0, week.diffMinutes)              // рівно за нормою
+    }
+
+    @Test
+    fun testLunchAlsoAppliesToNonWorkingStatuses() {
+        // робота у відпустці: зміна 9 год, обід віднімається, норма 0
+        val vacation = WorkDay(monday.toString(), "09:00", "18:00", DayStatus.VACATION)
+        val r = WorkCalc.dayResult(monday, vacation, lunchSettings)
+        assertEquals(60, r.lunchMinutes)
+        assertEquals(8 * 60, r.workedMinutes)
+        assertEquals(0, r.normMinutes)
+        assertEquals(8 * 60, r.diffMinutes)
+    }
+
     // --- Норма всього тижня проти норми днів, що вже минули ---
 
     @Test
@@ -299,7 +427,7 @@ class WorkCalcTest {
 
     @Test
     fun testCustomNorm() {
-        val custom = Settings().withNorm(DayOfWeek.SATURDAY, 0).withNorm(DayOfWeek.MONDAY, 420)
+        val custom = settings.withNorm(DayOfWeek.SATURDAY, 0).withNorm(DayOfWeek.MONDAY, 420)
         assertEquals(0, custom.normFor(DayOfWeek.SATURDAY))
         assertEquals(420, custom.normFor(DayOfWeek.MONDAY))
         assertEquals(480, custom.normFor(DayOfWeek.TUESDAY))
@@ -354,13 +482,30 @@ class WorkCalcTest {
 
     @Test
     fun testJsonRoundTrip() {
-        val data = dataOf(day(monday, "08:00", "17:00"), day(sunday, "09:00", "13:00"))
+        val data = AppData(
+            days = listOf(
+                day(monday, "08:00", "17:00"),
+                WorkDay(sunday.toString(), "09:00", "13:00", DayStatus.WORK, noLunch = true)
+            ).associateBy { it.date },
+            settings = lunchSettings
+        )
         val text = Storage.encode(data)
         val restored = Storage.decode(text)
 
         assertEquals(data.days, restored.days)
         assertEquals(data.settings, restored.settings)
         assertTrue(text.contains("2026-09-07"))
+        assertTrue(restored.day(sunday)!!.noLunch)
+        assertEquals(60, restored.settings.lunchMinutes)
+
+        // старий файл без полів обіду читається, поля беруть значення за замовчуванням
+        val legacy = Storage.decode(
+            "{\"days\":{\"2026-09-07\":{\"date\":\"2026-09-07\",\"start\":\"09:00\",\"end\":\"18:00\"}}}"
+        )
+        assertEquals(false, legacy.day(monday)!!.noLunch)
+        assertTrue(legacy.settings.lunchEnabled)
+        assertEquals(60, legacy.settings.lunchMinutes)
+        assertEquals(8 * 60, WorkCalc.dayResult(monday, legacy.day(monday), legacy.settings).workedMinutes)
 
         // пошкоджений файл не валить додаток
         assertEquals(AppData(), Storage.decode("{ це не json"))

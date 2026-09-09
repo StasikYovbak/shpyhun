@@ -34,14 +34,17 @@ data class WorkDay(
     val date: String,
     val start: String? = null,
     val end: String? = null,
-    val status: DayStatus = DayStatus.WORK
+    val status: DayStatus = DayStatus.WORK,
+    /** Цього дня обіду не було — не віднімати його від зміни. */
+    val noLunch: Boolean = false
 ) {
     val localDate: LocalDate get() = LocalDate.parse(date)
     val startTime: LocalTime? get() = start?.let { LocalTime.parse(it) }
     val endTime: LocalTime? get() = end?.let { LocalTime.parse(it) }
 
     /** День порожній — його можна не зберігати. */
-    val isEmpty: Boolean get() = start == null && end == null && status == DayStatus.WORK
+    val isEmpty: Boolean
+        get() = start == null && end == null && status == DayStatus.WORK && !noLunch
 }
 
 /** Налаштування додатка. Норма зберігається у хвилинах для кожного дня тижня. */
@@ -49,6 +52,11 @@ data class WorkDay(
 data class Settings(
     // Індекси: 0 = понеділок ... 6 = неділя
     val normMinutes: List<Int> = DEFAULT_NORM,
+    /** Автоматично віднімати обід від відпрацьованого часу. */
+    val lunchEnabled: Boolean = true,
+    val lunchMinutes: Int = 60,
+    /** Обід віднімається лише від змін, не коротших за це. */
+    val lunchMinShiftMinutes: Int = 360,
     val morningEnabled: Boolean = true,
     val morningTime: String = "08:00",
     val eveningEnabled: Boolean = true,
