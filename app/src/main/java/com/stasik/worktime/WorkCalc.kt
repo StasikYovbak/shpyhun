@@ -30,6 +30,18 @@ data class PeriodResult(
     val normMinutes: Int get() = items.sumOf { it.normMinutes }
     val diffMinutes: Int get() = workedMinutes - normMinutes
     val unfinishedCount: Int get() = items.count { it.unfinished }
+
+    /**
+     * Частина періоду, що вже настала (включно з [date]).
+     * Потрібна, щоб посеред тижня показувати баланс не проти норми всього
+     * тижня, а проти норми днів, які вже минули.
+     */
+    fun upTo(date: LocalDate): PeriodResult =
+        if (!date.isBefore(to)) this
+        else PeriodResult(from, date, items.filter { !it.date.isAfter(date) })
+
+    /** true — якщо в періоді є дні, які ще не настали. */
+    fun hasFutureDays(today: LocalDate): Boolean = to.isAfter(today)
 }
 
 /**

@@ -183,6 +183,55 @@ class WorkCalcTest {
         assertEquals(60, period.diffMinutes)
     }
 
+    // --- Норма всього тижня проти норми днів, що вже минули ---
+
+    @Test
+    fun testWeekNormFullVsToDate() {
+        val week = WorkCalc.period(monday, sunday, dataOf())
+
+        // норма всього тижня: Пн–Пт по 8 + Сб 6 + Нд 0
+        assertEquals(46 * 60, week.normMinutes)
+        assertEquals("46.0", TimeFormat.decimal(week.normMinutes))
+
+        // станом на середу минуло лише Пн, Вт, Ср -> 24 год
+        val wednesday = monday.plusDays(2)
+        val toWednesday = week.upTo(wednesday)
+        assertEquals(3, toWednesday.items.size)
+        assertEquals(24 * 60, toWednesday.normMinutes)
+        assertTrue(week.hasFutureDays(wednesday))
+
+        // у неділю тиждень закінчився — обидва числа збігаються
+        val toSunday = week.upTo(sunday)
+        assertEquals(46 * 60, toSunday.normMinutes)
+        assertFalse(week.hasFutureDays(sunday))
+        assertEquals(7, toSunday.items.size)
+
+        // дата після кінця періоду нічого не змінює
+        assertEquals(46 * 60, week.upTo(sunday.plusDays(5)).normMinutes)
+        // дата до початку періоду -> нічого ще не минуло
+        assertEquals(0, week.upTo(monday.minusDays(1)).normMinutes)
+    }
+
+    @Test
+    fun testBalanceIsCountedAgainstElapsedDays() {
+        // Пн і Вт по 9 год, середа ще попереду
+        val days = listOf(
+            day(monday, "08:00", "17:00"),
+            day(monday.plusDays(1), "08:00", "17:00")
+        )
+        val week = WorkCalc.period(monday, sunday, dataOf(*days.toTypedArray()))
+        val toTuesday = week.upTo(monday.plusDays(1))
+
+        assertEquals(18 * 60, toTuesday.workedMinutes)
+        assertEquals(16 * 60, toTuesday.normMinutes)
+        assertEquals(2 * 60, toTuesday.diffMinutes)          // +2 год, а не -28
+        assertEquals("Переробіток", TimeFormat.diffTitle(toTuesday.diffMinutes))
+
+        // проти норми всього тижня це виглядало б як великий мінус
+        assertEquals(-28 * 60, week.diffMinutes)
+        assertEquals(46 * 60, week.normMinutes)
+    }
+
     // --- Довільний період через межу місяця ---
 
     @Test

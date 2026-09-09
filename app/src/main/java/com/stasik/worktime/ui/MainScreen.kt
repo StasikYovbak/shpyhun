@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.stasik.worktime.DayStatus
+import com.stasik.worktime.PeriodResult
 import com.stasik.worktime.Repo
 import com.stasik.worktime.TimeFormat
 import com.stasik.worktime.UaDate
@@ -50,8 +51,10 @@ fun MainScreen() {
     var picker by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<LocalDate?>(null) }
 
-    val week = WorkCalc.period(WorkCalc.weekStart(today), today, data)
-    val month = WorkCalc.period(WorkCalc.monthStart(today), today, data)
+    val weekStart = WorkCalc.weekStart(today)
+    val week = WorkCalc.period(weekStart, weekStart.plusDays(6), data)
+    val monthStart = WorkCalc.monthStart(today)
+    val month = WorkCalc.period(monthStart, today.withDayOfMonth(today.lengthOfMonth()), data)
 
     val recentDays = (0..13).map { today.minusDays(it.toLong()) }
 
@@ -175,9 +178,14 @@ fun MainScreen() {
                 Column(Modifier.padding(16.dp)) {
                     Text("Коротко", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
-                    SummaryLine("Цей тиждень", week.workedMinutes, week.normMinutes, week.diffMinutes)
-                    Spacer(Modifier.height(10.dp))
-                    SummaryLine("Цей місяць", month.workedMinutes, month.normMinutes, month.diffMinutes)
+                    SummaryLine("Цей тиждень (пн\u2013нд)", "норма тижня", week, today)
+                    Spacer(Modifier.height(12.dp))
+                    SummaryLine(
+                        title = "Цей місяць (${UaDate.monthName(today).lowercase()})",
+                        normLabel = "норма місяця",
+                        full = month,
+                        today = today
+                    )
                 }
             }
         }
@@ -229,15 +237,31 @@ fun MainScreen() {
     }
 }
 
+/**
+ * Підсумок за період. Показує норму всього періоду (щоб було видно ціль)
+ * і окремо норму днів, які вже минули — саме проти неї рахується баланс,
+ * інакше в понеділок вранці завжди висів би мінус на цілий тиждень.
+ */
 @Composable
-fun SummaryLine(title: String, worked: Int, norm: Int, diff: Int) {
+fun SummaryLine(title: String, normLabel: String, full: PeriodResult, today: LocalDate) {
+    val toDate = full.upTo(today)
+    val hasFuture = full.hasFutureDays(today)
     Column {
         Text(title, style = MaterialTheme.typography.labelLarge)
-        InfoRow("Відпрацьовано / норма", "${TimeFormat.decimal(worked)} / ${TimeFormat.decimal(norm)}")
         InfoRow(
-            label = TimeFormat.diffTitle(diff),
-            value = TimeFormat.signedFull(diff),
-            valueColor = diffColor(diff),
+            label = "Відпрацьовано / $normLabel",
+            value = "${TimeFormat.decimal(full.workedMinutes)} / ${TimeFormat.decimal(full.normMinutes)}"
+        )
+        if (hasFuture) {
+            InfoRow(
+                label = "Норма по сьогодні включно",
+                value = TimeFormat.decimal(toDate.normMinutes)
+            )
+        }
+        InfoRow(
+            label = TimeFormat.diffTitle(toDate.diffMinutes) + if (hasFuture) " на сьогодні" else "",
+            value = TimeFormat.signedFull(toDate.diffMinutes),
+            valueColor = diffColor(toDate.diffMinutes),
             bold = true
         )
     }
@@ -249,6 +273,8 @@ fun DayRow(date: LocalDate, onClick: () -> Unit) {
     val data = Repo.data
     val result = WorkCalc.dayResult(date, data.day(date), data.settings)
     val day = result.day
+    // День, який ще не настав, не показуємо як недоробіток
+    val isFuture = date.isAfter(LocalDate.now()) && !result.hasRecord
 
     Card(
         modifier = Modifier
@@ -297,9 +323,10 @@ fun DayRow(date: LocalDate, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = TimeFormat.signedDecimal(result.diffMinutes),
+                    text = if (isFuture) "—" else TimeFormat.signedDecimal(result.diffMinutes),
                     style = MaterialTheme.typography.labelLarge,
-                    color = diffColor(result.diffMinutes)
+                    color = if (isFuture) MaterialTheme.colorScheme.onSurfaceVariant
+                    else diffColor(result.diffMinutes)
                 )
             }
         }

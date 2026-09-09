@@ -72,6 +72,10 @@ fun StatsScreen() {
     }
 
     val period = WorkCalc.period(from, to, data)
+    // Посеред тижня/місяця баланс рахуємо тільки за дні, які вже минули,
+    // інакше майбутні дні виглядали б як недоробіток.
+    val hasFuture = period.hasFutureDays(today)
+    val shown = period.upTo(today)
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -138,23 +142,37 @@ fun StatsScreen() {
                     Spacer(Modifier.height(12.dp))
                     InfoRow("Відпрацьовано", TimeFormat.full(period.workedMinutes), bold = true)
                     InfoRow("Норма за період", TimeFormat.full(period.normMinutes))
+                    if (hasFuture) {
+                        InfoRow("Норма по сьогодні включно", TimeFormat.full(shown.normMinutes))
+                    }
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Text(
-                        text = TimeFormat.diffTitle(period.diffMinutes),
+                        text = TimeFormat.diffTitle(shown.diffMinutes) +
+                            if (hasFuture) " на сьогодні" else "",
                         style = MaterialTheme.typography.titleMedium,
-                        color = diffColor(period.diffMinutes)
+                        color = diffColor(shown.diffMinutes)
                     )
                     Text(
-                        text = TimeFormat.signedHoursMinutes(period.diffMinutes),
+                        text = TimeFormat.signedHoursMinutes(shown.diffMinutes),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
-                        color = diffColor(period.diffMinutes)
+                        color = diffColor(shown.diffMinutes)
                     )
                     Text(
-                        text = "${TimeFormat.signedDecimal(period.diffMinutes)} год",
+                        text = "${TimeFormat.signedDecimal(shown.diffMinutes)} год",
                         style = MaterialTheme.typography.titleMedium,
-                        color = diffColor(period.diffMinutes)
+                        color = diffColor(shown.diffMinutes)
                     )
+                    if (hasFuture) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "Баланс рахується проти норми днів, які вже минули. " +
+                                "До кінця періоду лишилось відпрацювати " +
+                                TimeFormat.hoursMinutes(period.normMinutes - shown.normMinutes) + ".",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
                     if (period.unfinishedCount > 0) {
                         Spacer(Modifier.height(8.dp))
