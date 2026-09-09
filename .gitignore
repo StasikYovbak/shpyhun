@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+*/build/
+local.properties
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+captures/
+.cxx/
+output.json
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+
+# Логи
+*.log
