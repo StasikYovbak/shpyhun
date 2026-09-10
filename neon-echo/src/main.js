@@ -7,8 +7,9 @@ import '@fontsource/handjet/cyrillic-500.css';
 import '@fontsource/handjet/latin-500.css';
 import './style.css';
 
-import { DT, MAXDT, PH, BL, RG, CONFIG } from './config.js';
-import { Store } from './store.js';
+import { DT, MAXDT, PH, BL, RG, CONFIG, DEV_MODE } from './config.js';
+import { CH, cheating } from './cheats.js';
+import { Store, SAVE_KEY } from './store.js';
 import { initAudio, resumeAudio, applyVolume, Sfx, Music, setHaptics } from './audio.js';
 import { TRACKS } from './music.js';
 import { Input } from './input.js';
@@ -71,17 +72,29 @@ function frame(now) {
     G.Cut.step(dt);
     acc = 0;
   } else if (G.Game.state === 'play') {
-    acc += dt;
+    // Покадровий режим: гра стоїть, панель дає рівно один крок на запит.
+    if (DEV_MODE && CH.frozen) {
+      acc = 0;
+      if (CH.stepOnce) { CH.stepOnce = 0; G.stepGame(DT); }
+      Gfx.draw();
+      return;
+    }
+    acc += dt * (DEV_MODE ? CH.speed : 1);          // чит: множник швидкості гри
+    const cap = DEV_MODE && CH.speed > 1 ? Math.ceil(6 * CH.speed) : 6;
     let steps = 0;
-    while (acc >= DT && steps < 6) {
+    while (acc >= DT && steps < cap) {
       if (G.timing.hitStop > 0) G.timing.sub(DT);
       else G.stepGame(DT);
       acc -= DT; steps++;
     }
-    if (acc > DT * 6) acc = 0;
+    if (acc > DT * cap) acc = 0;
   } else acc = 0;
+  // Червона рамка GOD MODE, поки активний хоч один чит: без неї легко
+  // протестувати баланс безсмертним і зробити хибні висновки.
+  if (DEV_MODE && dbg) dbg.frame(cheating());
   Gfx.draw();
 }
+let dbg = null;                                    // панель розробника, лише при DEV_MODE
 
 /* -------------------------------------------------------------- старт */
 async function boot() {
@@ -131,11 +144,21 @@ async function boot() {
   } catch (e) { }
   await setupNative();
   document.getElementById('boot').remove();
+
+  // Панель розробника. Динамічний import під статичним `if (DEV_MODE)`:
+  // при false Rollup викидає і гілку, і сам чанк — у релізі коду немає.
+  if (DEV_MODE) {
+    const { Debug } = await import('./debug.js');
+    Debug.init({ G, P: G.P, Input, Gfx, Store, Music, Sfx });
+    dbg = Debug;
+    window.__DBG = Debug;
+  }
+
   requestAnimationFrame(frame);
 
   // службовий доступ для автотестів
   window.__DEV = {
-    G, Game: G.Game, P: G.P, world: G.world, BOSS: G.BOSS, Store, kb: Input.kb, S: Input.S,
+    G, Game: G.Game, P: G.P, world: G.world, BOSS: G.BOSS, Store, SAVE_KEY, kb: Input.kb, S: Input.S,
     btn: Input.btn, pad: Input.pad, Gfx,
     levels: () => G.LEVELS.length,
     god: v => G.setGod(v),

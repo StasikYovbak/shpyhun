@@ -3,7 +3,7 @@
  * Перенесено з версії 1.x майже дослівно: змінився лише шар малювання,
  * який тепер живе в src/render/. Тут немає жодного звертання до canvas.
  */
-import {
+import { DEV_MODE,
   VW, VH, TS, DT, MAXDT, CONFIG, PH, BL, RG,
   clamp, lerp, sign, rnd, rndi, aabb, boxHit, dist2, mulberry
 } from './config.js';
@@ -13,6 +13,7 @@ import { THEME } from './themes.js';
 import { Sfx, Music, buzz } from './audio.js';
 import { Input } from './input.js';
 import { Cut, script as cutScript } from './cutscene.js';
+import { CH } from './cheats.js';
 import { WEAPONS, LEVEL_REWARD, FRAG_LEVELS } from './weapons.js';
 
 /** Гачки в бік інтерфейсу — щоб ядро не знало нічого про DOM. */
@@ -400,6 +401,7 @@ function playerSpawnAt(x, y) {
 let GOD = false;                       // використовується лише автотестами
 function playerHurt(dmg, srcX, force) {
   if (GOD) return false;
+  if (DEV_MODE && CH.invuln) return false;              // чит: безсмертя
   if (P.dead || (P.inv > 0 && !force)) return false;
   if (P.dashT > 0 && P.dashT > PH.DASHT - PH.DASHI) return false;   // і-фрейми ривка
   P.hp -= dmg;
@@ -547,6 +549,7 @@ function railShoot() {
   wfx({ k: 'rings', x: mx, y: y, face: P.face, t: 0.22, chg: 0 });
   railCase(mx, y);
   P.heat = Math.min(120, P.heat + RG.SHOT);
+  if (DEV_MODE && CH.res) P.heat = 0;                   // чит: тепло не росте
   P.fireCd = RG.CD; P.recoil = 0.12;
   P.noise = 0.7;
   P.vx -= P.face * (P.onGround ? RG.RECOIL * 0.35 : RG.RECOIL);
@@ -575,6 +578,7 @@ function railBeam() {
   wfx({ k: 'rift', x: sx, y: y, face: P.face, len: len, t: 0.32 });
   railCase(sx, y);
   P.heat = Math.min(130, P.heat + RG.BEAM);
+  if (DEV_MODE && CH.res) P.heat = 0;
   P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0;
   P.vx -= P.face * (P.onGround ? 60 : 130);
   Sfx.wRail(); Sfx.beam(); buzz(22); cam.hit(3.5);
@@ -1147,8 +1151,9 @@ function rangedUpdate(dt, S) {
 }
 /** Ехо-Призма: один постріл коштує ядро, далі все робить рикошет. */
 function prismFire() {
-  if (P.cores < 1) { Sfx.blocked(); return; }
+  if (P.cores < 1 && !(DEV_MODE && CH.res)) { Sfx.blocked(); return; }
   P.cores--;
+  if (DEV_MODE && CH.res) P.cores = 3;                   // чит: ядра не витрачаються
   const y = P.y + 6;
   const b = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * 300, 0,
     { own: 'p', dmg: EQ.r.dmg, w: 5, h: 5, col: '#8fdcff', life: 2.4, kind: 6 });
@@ -1212,6 +1217,7 @@ function osaScan() {
 function shotFire() {
   const y = P.y + 6;
   P.shells--;
+  if (DEV_MODE && CH.res) { P.shells = 6; P.reloadT = 0; }
   for (let i = 0; i < 6; i++) {
     const a = (i - 2.5) / 5 * (45 * Math.PI / 180);
     const sp = 420 + rnd(-30, 30);
@@ -1248,7 +1254,7 @@ function launchDrone() {
   const d = DRONES.find(q => q.st === 'orbit' && q.cd <= 0);
   if (!d) { Sfx.blocked(); return; }
   d.st = 'strike'; d.t = DRONE_LIFE; d.target = best; d.tr.length = 0;
-  P.droneCd = 3;
+  P.droneCd = (DEV_MODE && CH.res) ? 0 : 3;               // чит: дрони без перезарядки
   Sfx.wSwarm();
 }
 const DRONE_LIFE = 7;                               // скільки дрон працює по цілі
@@ -1311,7 +1317,7 @@ function updateDrones(dt) {
           }
         }
       }
-      if (d.t <= 0) { d.st = 'back'; d.cd = DRONE_RECHARGE; d.target = null; }
+      if (d.t <= 0) { d.st = 'back'; d.cd = (DEV_MODE && CH.res) ? 0 : DRONE_RECHARGE; d.target = null; }
       continue;
     }
 
@@ -1327,8 +1333,9 @@ function updateDrones(dt) {
 }
 /** Гліч-Код: перехоплює ворога або глушить боса. */
 function glitchFire() {
-  if (P.cores < 1) { Sfx.blocked(); return; }
+  if (P.cores < 1 && !(DEV_MODE && CH.res)) { Sfx.blocked(); return; }
   P.cores--;
+  if (DEV_MODE && CH.res) P.cores = 3;
   const y = P.y + 6;
   const g = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * 240, 0,
     { own: 'p', dmg: 0, w: 7, h: 7, col: '#00ffcc', life: 2, kind: 5 });
@@ -1404,6 +1411,25 @@ function updatePlayer(dt) {
     return;
   }
 
+  // ---- ЧИТ: політ і noclip ----
+  // Повністю обходить фізику й колізії: ← → ведуть убік, утримання A —
+  // вгору, без A — повільно вниз. Нічого з гри не переписує: вимкнув —
+  // і наступний кадр рахується звичайним кодом нижче.
+  if (DEV_MODE && CH.fly) {
+    const FLYV = 210;
+    P.vx = 0; P.vy = 0; P.dropHold = 0; P.dashT = 0;
+    P.x = clamp(P.x + S.ax * FLYV * dt, 0, world.pw - P.w);
+    P.y += (S.a ? -FLYV : FLYV * 0.35) * dt;
+    P.y = clamp(P.y, -32, world.th * TS + 32);
+    P.onGround = false; P.ride = null; P.jumps = 0; P.coyote = 0;
+    P.moveIntent = Math.abs(S.ax) > 0.12;
+    if (Math.abs(S.ax) > 0.12) P.face = S.ax > 0 ? 1 : -1;
+    meleeUpdate(dt, S);                             // зброя в польоті працює
+    rangedUpdate(dt, S);
+    stepAnim(dt, world.grav);
+    return;
+  }
+
   // ---- спуск крізь тонку платформу: утримання A 0,4 с ----
   // Лічильник іде лише поки героїня стоїть на тонкій платформі й кнопка
   // вже була натиснута до приземлення (свіже натискання = стрибок, і воно
@@ -1448,7 +1474,8 @@ function updatePlayer(dt) {
   else if (P.coyote <= 0 && P.jumps === 0) P.jumps = 1;   // зійшов із краю, не стрибаючи
   const groundJump = P.jbuf > 0 && P.coyote > 0 && P.jumps === 0 && P.dashT <= 0;
   const airJump = !groundJump && P.jbuf > 0 && P.dashT <= 0 &&
-                  !P.onGround && P.coyote <= 0 && P.jumps <= PH.AIRJUMPS;
+                  !P.onGround && P.coyote <= 0 &&
+                  P.jumps <= PH.AIRJUMPS + (DEV_MODE && CH.jump3 ? 1 : 0);
   if (!groundJump && !airJump) {                   // таймери спливають лише поки стрибок неможливий
     if (P.jbuf > 0) P.jbuf -= dt;
     if (!P.onGround && P.coyote > 0) P.coyote -= dt;
@@ -1478,7 +1505,7 @@ function updatePlayer(dt) {
 
   // ---- ривок ----
   if (S.dashP && P.dashCd <= 0 && P.dashT <= 0) {
-    P.dashT = PH.DASHT; P.dashCd = PH.DASHCD;
+    P.dashT = PH.DASHT; P.dashCd = (DEV_MODE && CH.dash) ? 0 : PH.DASHCD;
     P.dashDir = S.dashDir !== 0 ? S.dashDir : (Math.abs(S.ax) > 0.3 ? sign(S.ax) : P.face);
     P.face = P.dashDir; P.noise = 0.5;
     Sfx.dash(); buzz(10);
@@ -1555,7 +1582,7 @@ function updatePlayer(dt) {
 
   // ---- падіння за межі карти ----
   if (P.y > world.ph + 24 || P.y < -80) {
-    if (!GOD) P.hp -= 1;
+    if (!GOD && !(DEV_MODE && CH.invuln)) P.hp -= 1;
     if (P.hp <= 0) { P.hp = 0; P.x = world.cp.x; P.y = world.cp.y; playerDie(); }
     else {
       Sfx.hurt(); buzz(30); cam.hit(3);
@@ -1870,6 +1897,8 @@ function killEnemy(e) {
 function damageEnemy(e, dmg, kb, opt) {
   opt = opt || {};
   if (e.dead || dmg <= 0) return false;
+  // Чит-множник накладається поверх: базові числа зброї не міняються.
+  if (DEV_MODE) dmg = CH.oneShot ? 1e6 : dmg * CH.dmgK;
   // Щитоносець: фронтальний щит тримає все, крім зарядженого пострілу й ударів у спину.
   if (e.t === 'shield' && !opt.pierce && !opt.shock && !e.open) {
     const fromFront = ((P.x + P.w / 2) - (e.x + e.w / 2)) * e.face > 0;
@@ -2809,6 +2838,7 @@ function bossHitBoxes() {
 function bossDamage(hb, dmg, opt) {
   opt = opt || {};
   if (!BOSS.on || BOSS.st === 'die' || BOSS.intro > 0) return false;
+  if (DEV_MODE) dmg = CH.oneShot ? 1e6 : dmg * CH.dmgK;
   const part = hb.part;
   if (part) {
     if (!part.alive) return false;
