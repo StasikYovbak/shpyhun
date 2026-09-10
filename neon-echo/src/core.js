@@ -1,0 +1,2202 @@
+/**
+ * ЯДРО ГРИ — фізика, світ, герой, вороги, боси, стан гри.
+ * Перенесено з версії 1.x майже дослівно: змінився лише шар малювання,
+ * який тепер живе в src/render/. Тут немає жодного звертання до canvas.
+ */
+import {
+  VW, VH, TS, DT, MAXDT, CONFIG, PH, BL, RG,
+  clamp, lerp, sign, rnd, rndi, aabb, boxHit, dist2, mulberry
+} from './config.js';
+import { Store } from './store.js';
+import { LEVELS } from './levels.js';
+import { THEME } from './themes.js';
+import { Sfx, Music, buzz } from './audio.js';
+import { Input } from './input.js';
+
+/** Гачки в бік інтерфейсу — щоб ядро не знало нічого про DOM. */
+export const hooks = {
+  showScreen() { }, refreshLevels() { }, refreshProgress() { },
+  setClear() { }, setWinStat() { }
+};
+
+/* ---------------- частинки (масив із компактуванням) ---------------- */
+const PARTS = [];
+const PART_MAX = 260;
+function part(x, y, vx, vy, life, col, size, grav, kind) {
+  if (PARTS.length >= PART_MAX) PARTS.shift();
+  PARTS.push({ x: x, y: y, vx: vx, vy: vy, t: life, max: life, col: col,
+               s: size || 1, g: grav === undefined ? 260 : grav, k: kind || 0 });
+}
+function burst(x, y, n, col, spd, life, grav, size) {
+  for (let i = 0; i < n; i++) {
+    const a = rnd(0, Math.PI * 2), v = rnd(spd * 0.35, spd);
+    part(x, y, Math.cos(a) * v, Math.sin(a) * v, rnd(life * 0.55, life), col,
+         size || 1, grav === undefined ? 220 : grav, 0);
+  }
+}
+function updateParts(dt) {
+  for (let i = PARTS.length - 1; i >= 0; i--) {
+    const p = PARTS[i];
+    p.t -= dt;
+    if (p.t <= 0) { PARTS[i] = PARTS[PARTS.length - 1]; PARTS.pop(); continue; }
+    p.vy += p.g * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+}
+
+
+/* ---------------- спливаючі кільця/хвилі ---------------- */
+const RINGS = [];
+function ring(x, y, r0, r1, life, col, width) {
+  if (RINGS.length > 30) RINGS.shift();
+  RINGS.push({ x: x, y: y, r0: r0, r1: r1, t: life, max: life, col: col, w: width || 1 });
+}
+function updateRings(dt) {
+  for (let i = RINGS.length - 1; i >= 0; i--) {
+    RINGS[i].t -= dt;
+    if (RINGS[i].t <= 0) { RINGS[i] = RINGS[RINGS.length - 1]; RINGS.pop(); }
+  }
+}
+
+
+/* ---------------- камера ---------------- */
+/** Ширина/висота видимого кадру. Рендер розширює w до 528 px на витягнутих
+ *  екранах — щоб замість чорних смуг було більше огляду. */
+export const view = { w: VW, h: VH };
+const cam = {
+  x: 0, y: 0, shake: 0, shakeT: 0, lockX0: -1, lockX1: -1,
+  reset(px, py) {
+    this.shake = 0; this.shakeT = 0; this.lockX0 = -1; this.lockX1 = -1;
+    this.x = clamp(px - view.w / 2, 0, Math.max(0, world.pw - view.w));
+    this.y = clamp(py - view.h / 2, 0, Math.max(0, world.ph - view.h));
+  },
+  hit(mag) { this.shake = Math.max(this.shake, mag); this.shakeT = 0.28; },
+  update(dt, tx, ty) {
+    let minX = 0, maxX = Math.max(0, world.pw - view.w);
+    if (this.lockX0 >= 0) {
+      const span = this.lockX1 - this.lockX0;
+      if (span <= view.w) {
+        // кадр ширший за арену — центруємо арену, а не показуємо порожнечу за нею
+        const c = clamp((this.lockX0 + this.lockX1) / 2 - view.w / 2, 0, Math.max(0, world.pw - view.w));
+        minX = maxX = c;
+      } else { minX = this.lockX0; maxX = this.lockX1 - view.w; }
+    }
+    const gx = clamp(tx - view.w / 2, minX, maxX);
+    const gy = clamp(ty - view.h * 0.55, 0, Math.max(0, world.ph - view.h));
+    this.x = lerp(this.x, gx, clamp(dt * 9, 0, 1));
+    this.y = lerp(this.y, gy, clamp(dt * 7, 0, 1));
+    if (this.shakeT > 0) {
+      this.shakeT -= dt;
+      if (this.shakeT <= 0) this.shake = 0; else this.shake *= 0.90;
+    }
+  },
+  // Зсув для малювання (з тремтінням), завжди цілі пікселі.
+  ox() { return Math.round(this.x + (this.shake > 0.2 ? rnd(-this.shake, this.shake) : 0)); },
+  oy() { return Math.round(this.y + (this.shake > 0.2 ? rnd(-this.shake, this.shake) : 0)); }
+};
+
+/* ================================================================
+   7. СВІТ: розбір карти, доступ до тайлів, AABB-колізії
+   ================================================================ */
+const T_EMPTY = 0, T_SOLID = 1, T_PLAT = 2, T_SPIKE = 3, T_CONVR = 4, T_CONVL = 5;
+const TILE_CODE = { '.': T_EMPTY, '#': T_SOLID, '=': T_PLAT, '^': T_SPIKE, '>': T_CONVR, '<': T_CONVL };
+const ENEMY_CODE = {
+  s: 'skreb', h: 'thug', t: 'turret', w: 'wasp', k: 'kami',
+  d: 'shield', a: 'adept', f: 'phantom', p: 'spider'
+};
+
+const world = {
+  idx: 0, def: null, tw: 0, th: 0, pw: 0, ph: 0, tiles: null,
+  theme: 'slum', bossType: null, bossX: 0,
+  spawn: { x: 32, y: 32 }, cp: { x: 32, y: 32 }, cpTaken: false,
+  exit: { x: 0, y: 0 }, exitOpen: true,
+  mp: [], off: null, grav: 1, dark: false, time: 0, rng: null,
+  spawnList: [], pickList: []
+};
+
+function tAt(tx, ty) {
+  if (tx < 0 || tx >= world.tw) return T_SOLID;      // краї карти — стіни
+  if (ty < 0 || ty >= world.th) return T_EMPTY;      // вгорі небо, внизу прірва
+  const i = ty * world.tw + tx;
+  if (world.off && world.off[i]) return T_EMPTY;     // «вимкнено» ГЛІТЧ-ЯДРОМ
+  return world.tiles[i];
+}
+const isSolidCode = c => (c === T_SOLID || c === T_CONVR || c === T_CONVL);
+function solidAtPx(px, py) { return isSolidCode(tAt(Math.floor(px / TS), Math.floor(py / TS))); }
+
+// Чи є під точкою тверда опора (для ІІ ворогів — щоб не падали з країв).
+function groundAhead(x, y) { return solidAtPx(x, y) || tAt(Math.floor(x / TS), Math.floor(y / TS)) === T_PLAT; }
+
+/* --- рух по осі X: спочатку X, потім Y (прибирає застрягання в кутах) --- */
+function moveX(e, dx) {
+  if (dx === 0) return false;
+  const steps = Math.max(1, Math.ceil(Math.abs(dx) / 6));
+  const sd = dx / steps;
+  let hit = false;
+  for (let s = 0; s < steps; s++) {
+    e.x += sd;
+    const x0 = Math.floor(e.x / TS), x1 = Math.floor((e.x + e.w - 1) / TS);
+    const y0 = Math.floor(e.y / TS), y1 = Math.floor((e.y + e.h - 1) / TS);
+    let col = false;
+    for (let ty = y0; ty <= y1 && !col; ty++)
+      for (let tx = x0; tx <= x1 && !col; tx++)
+        if (isSolidCode(tAt(tx, ty))) col = true;
+    if (col) {
+      if (sd > 0) e.x = Math.floor((e.x + e.w - 1) / TS) * TS - e.w;
+      else e.x = (Math.floor(e.x / TS) + 1) * TS;
+      hit = true;
+      break;
+    }
+  }
+  return hit;
+}
+
+/* --- рух по осі Y; oneWay=true означає, що сутність зважає на платформи '=' --- */
+function moveY(e, dy, oneWay) {
+  if (dy === 0) return 0;
+  const steps = Math.max(1, Math.ceil(Math.abs(dy) / 6));
+  const sd = dy / steps;
+  let res = 0;                                     // 1 = вдарився низом, -1 = стелею
+  for (let s = 0; s < steps; s++) {
+    const prevBottom = e.y + e.h;
+    e.y += sd;
+    const x0 = Math.floor(e.x / TS), x1 = Math.floor((e.x + e.w - 1) / TS);
+    const y0 = Math.floor(e.y / TS), y1 = Math.floor((e.y + e.h - 1) / TS);
+    let col = false;
+    for (let ty = y0; ty <= y1 && !col; ty++)
+      for (let tx = x0; tx <= x1 && !col; tx++)
+        if (isSolidCode(tAt(tx, ty))) col = true;
+    if (col) {
+      if (sd > 0) { e.y = Math.floor((e.y + e.h - 1) / TS) * TS - e.h; res = 1; }
+      else { e.y = (Math.floor(e.y / TS) + 1) * TS; res = -1; }
+      break;
+    }
+    // односторонні платформи — тільки при русі вниз і якщо були вище краю
+    if (sd > 0 && oneWay) {
+      const ty = Math.floor((e.y + e.h - 1) / TS);
+      const top = ty * TS;
+      if (prevBottom <= top + 1 && e.y + e.h > top) {
+        let plat = false;
+        for (let tx = x0; tx <= x1 && !plat; tx++) if (tAt(tx, ty) === T_PLAT) plat = true;
+        if (plat) { e.y = top - e.h; res = 1; break; }
+      }
+    }
+  }
+  return res;
+}
+
+// Рухома платформа під сутністю (одностороння, як '=').
+function mpUnder(e) {
+  for (let i = 0; i < world.mp.length; i++) {
+    const m = world.mp[i];
+    if (e.x + e.w > m.x + 1 && e.x < m.x + m.w - 1 &&
+        e.y + e.h >= m.y - 1 && e.y + e.h <= m.y + 6) return m;
+  }
+  return null;
+}
+function landOnMP(e, prevBottom) {
+  for (let i = 0; i < world.mp.length; i++) {
+    const m = world.mp[i];
+    if (e.x + e.w > m.x + 1 && e.x < m.x + m.w - 1 &&
+        prevBottom <= m.y + 1 && e.y + e.h > m.y && e.y + e.h < m.y + 10) {
+      e.y = m.y - e.h; return m;
+    }
+  }
+  return null;
+}
+
+/* --- завантаження рівня --- */
+function loadLevel(idx) {
+  const def = LEVELS[idx];
+  world.idx = idx; world.def = def;
+  world.theme = def.th; world.bossType = def.boss;
+  const rows = def.rows;
+  world.th = rows.length; world.tw = rows[0].length;
+  world.pw = world.tw * TS; world.ph = world.th * TS;
+  world.tiles = new Uint8Array(world.tw * world.th);
+  world.off = null; world.grav = 1;
+  world.dark = (def.th === 'metro');
+  world.time = 0; world.rng = mulberry(1337 + idx * 7919);
+  world.spawnList = []; world.pickList = [];
+  world.bossX = 0; world.exitOpen = !def.boss;
+  world.cpTaken = false;
+  world.mp = []; world.cpPos = null;
+  for (let i = 0; i < def.mp.length; i++) {
+    const m = def.mp[i];
+    const px = m[0] * TS, py = m[1] * TS, pw = m[2] * TS;
+    world.mp.push({
+      x: px, y: py, w: pw, h: 5, axis: m[3], sp: m[5], dir: 1,
+      a: m[3] === 'h' ? px : py, b: m[3] === 'h' ? px + m[4] * TS : py + m[4] * TS,
+      dx: 0, dy: 0
+    });
+  }
+  for (let ty = 0; ty < world.th; ty++) {
+    const r = rows[ty];
+    for (let tx = 0; tx < world.tw; tx++) {
+      const ch = r.charAt(tx);
+      const code = TILE_CODE[ch];
+      if (code !== undefined) { world.tiles[ty * world.tw + tx] = code; continue; }
+      world.tiles[ty * world.tw + tx] = T_EMPTY;
+      const px = tx * TS, py = ty * TS;
+      if (ch === '@') { world.spawn.x = px + 2; world.spawn.y = py + 1;
+                        world.cp.x = world.spawn.x; world.cp.y = world.spawn.y; }
+      else if (ch === '$') { world.cpPos = { x: px + 2, y: py + 1 }; }
+      else if (ch === 'E') { world.exit.x = px; world.exit.y = py - TS; }
+      else if (ch === '+') { world.pickList.push({ x: px + 3, y: py + 4, t: 'med' }); }
+      else if (ch === '!') { world.bossX = px; }
+      else {
+        const low = ch.toLowerCase();
+        const type = ENEMY_CODE[low];
+        if (type) world.spawnList.push({ t: type, x: px, y: py, elite: ch !== low });
+      }
+    }
+  }
+  if (!world.cpPos) world.cpPos = { x: world.spawn.x, y: world.spawn.y };
+}
+
+
+/* ================================================================
+   9. ПУЛИ СУТНОСТЕЙ (масиви з компактуванням — не течуть)
+   ================================================================ */
+const BULL = [];     // кулі (гравця й ворогів)
+const ENEM = [];     // вороги
+const PICKS = [];    // аптечки
+const BEAMS = [];    // променеві постріли
+const TELE = [];     // телеграфи атак (попереджувальні зони)
+const BULL_MAX = 90, TELE_MAX = 40;
+
+function shoot(x, y, vx, vy, opt) {
+  if (BULL.length >= BULL_MAX) BULL.shift();
+  BULL.push({
+    x: x, y: y, vx: vx, vy: vy,
+    w: opt.w || 5, h: opt.h || 4, dmg: opt.dmg || 1,
+    own: opt.own || 'e', col: opt.col || '#ff6b3d',
+    life: opt.life || 3, kind: opt.kind || 0, grav: opt.grav || 0,
+    parried: false, hitSet: null
+  });
+  return BULL[BULL.length - 1];
+}
+function beam(x, y, dir, len, dmg, col) {
+  BEAMS.push({ x: x, y: y, dir: dir, len: len, dmg: dmg, t: 0.16, max: 0.16,
+               col: col || '#7df9ff', hitSet: [] });
+}
+function telegraph(x, y, w, h, t, col, kind) {
+  if (TELE.length >= TELE_MAX) TELE.shift();
+  TELE.push({ x: x, y: y, w: w, h: h, t: t, max: t, col: col || '#ff2e88', kind: kind || 0 });
+}
+function clearEntities() {
+  BULL.length = 0; ENEM.length = 0; PICKS.length = 0;
+  BEAMS.length = 0; TELE.length = 0; PARTS.length = 0; RINGS.length = 0;
+}
+// Промінь до найближчої стіни (для рейкострила й лазерів босів).
+function rayLen(x, y, dir, maxLen) {
+  let d = 0;
+  while (d < maxLen) {
+    d += 4;
+    if (solidAtPx(x + dir * d, y)) return d - 4;
+  }
+  return maxLen;
+}
+
+/* ================================================================
+   10. ГЕРОЙ «ЕХО»
+   ================================================================ */
+const P = {
+  x: 0, y: 0, w: 10, h: 14, vx: 0, vy: 0, face: 1,
+  onGround: false, coyote: 0, jbuf: 0, jumpHeld: false, ride: null,
+  jumps: 0, flipT: 0, downHold: 0, wallRestored: false,
+  hp: 5, maxHp: 5, inv: 0, hurtT: 0, dead: false, deadT: 0,
+  dashT: 0, dashCd: 0, dashDir: 1,
+  crouch: false, dropT: 0,
+  atkT: 0, atkIdx: 0, atkAct: false, comboT: 0, hitSet: [],
+  parryT: 0, bHold: 0, q: 0, dischT: 0,
+  heat: 0, lock: false, lockT: 0, arA: 0.4, arB: 0.55, arUsed: false, arMark: 0,
+  cHold: 0, fireCd: 0, chargeReady: false, recoil: 0,
+  anim: 'idle', animT: 0, noise: 0, exiting: 0, spawnFx: 0
+};
+
+function playerReset(full) {
+  P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.coyote = 0; P.jbuf = 0;
+  P.jumps = 0; P.flipT = 0; P.downHold = 0; P.wallRestored = false;
+  P.ride = null; P.inv = 1.0; P.hurtT = 0; P.dead = false; P.deadT = 0;
+  P.dashT = 0; P.dashCd = 0; P.crouch = false; P.dropT = 0; P.h = 14;
+  P.atkT = 0; P.atkIdx = 0; P.atkAct = false; P.comboT = 0; P.hitSet.length = 0;
+  P.parryT = 0; P.bHold = 0; P.dischT = 0;
+  P.heat = 0; P.lock = false; P.lockT = 0; P.arUsed = false; P.arMark = 0;
+  P.cHold = 0; P.fireCd = 0; P.chargeReady = false; P.recoil = 0;
+  P.anim = 'idle'; P.animT = 0; P.noise = 0; P.exiting = 0; P.spawnFx = 0.5;
+  if (full) { P.hp = P.maxHp; P.q = 0; }
+}
+function playerSpawnAt(x, y) {
+  P.x = x; P.y = y;
+  playerReset(false);
+  burst(P.x + P.w / 2, P.y + P.h / 2, 14, '#22e0ff', 120, 0.4, 40, 2);
+}
+
+let GOD = false;                       // використовується лише автотестами
+function playerHurt(dmg, srcX, force) {
+  if (GOD) return false;
+  if (P.dead || (P.inv > 0 && !force)) return false;
+  if (P.dashT > 0 && P.dashT > PH.DASHT - PH.DASHI) return false;   // і-фрейми ривка
+  P.hp -= dmg;
+  P.inv = 1.0; P.hurtT = 0.3;
+  P.vx = (srcX !== undefined ? sign(P.x + P.w / 2 - srcX) || 1 : -P.face) * 120;
+  P.vy = -150 * world.grav;
+  P.onGround = false;
+  P.atkT = 0; P.atkAct = false;
+  cam.hit(4);
+  Sfx.hurt(); buzz(28);
+  burst(P.x + P.w / 2, P.y + P.h / 2, 10, '#ff2e88', 140, 0.4, 200, 2);
+  if (P.hp <= 0) { P.hp = 0; playerDie(); }
+  return true;
+}
+function playerHeal(n) {
+  if (P.hp >= P.maxHp) return false;
+  P.hp = Math.min(P.maxHp, P.hp + n);
+  Sfx.pickup();
+  burst(P.x + P.w / 2, P.y + 4, 10, '#3dff9a', 90, 0.5, -30, 2);
+  return true;
+}
+function playerDie() {
+  if (P.dead) return;
+  P.dead = true; P.deadT = 1.1; P.vy = -220 * world.grav; P.vx = -P.face * 60;
+  Sfx.die(); buzz([40, 60, 90]); cam.hit(6);
+  burst(P.x + P.w / 2, P.y + P.h / 2, 26, '#ff2e88', 190, 0.8, 220, 2);
+}
+
+/* ---------------- зброя 1: «Арк-тесак» ---------------- */
+function bladeBox() {
+  const idx = P.atkIdx;
+  const cx = P.x + P.w / 2, cy = P.y + P.h / 2;
+  if (idx === 2) return { x: P.face > 0 ? cx : cx - 26, y: cy - 10, w: 26, h: 20 };
+  return { x: P.face > 0 ? cx : cx - 19, y: cy - 7, w: 19, h: 14 };
+}
+function bladeStart() {
+  const idx = (P.comboT > 0 && P.atkIdx < 2) ? P.atkIdx + 1 : 0;
+  P.atkIdx = idx;
+  P.atkT = BL.DUR[idx];
+  P.atkAct = true;
+  P.hitSet.length = 0;
+  P.comboT = 0;
+  P.anim = 'atk'; P.animT = 0;
+  Sfx.slash(idx);
+  const b = bladeBox();
+  for (let i = 0; i < (idx === 2 ? 9 : 5); i++)
+    part(b.x + rnd(0, b.w), b.y + rnd(0, b.h), P.face * rnd(20, 90), rnd(-40, 40),
+         rnd(0.10, 0.22), idx === 2 ? '#ffd23f' : '#7df9ff', 1, 0, 1);
+}
+function bladeHits() {
+  if (!P.atkAct) return;
+  const total = BL.DUR[P.atkIdx];
+  const k = 1 - P.atkT / total;
+  if (k < 0.20 || k > 0.85) return;              // активна фаза удару
+  const b = bladeBox();
+  const dmg = BL.DMG[P.atkIdx], kb = P.atkIdx === 2 ? 190 : 70;
+  for (let i = 0; i < ENEM.length; i++) {
+    const e = ENEM[i];
+    if (e.dead || P.hitSet.indexOf(e.id) >= 0) continue;
+    if (!boxHit(b.x, b.y, b.w, b.h, e.x, e.y, e.w, e.h)) continue;
+    P.hitSet.push(e.id);
+    damageEnemy(e, dmg, P.face * kb, { melee: true, combo: P.atkIdx });
+  }
+  if (BOSS.on) {
+    const parts = bossHitBoxes();
+    for (let i = 0; i < parts.length; i++) {
+      const hb = parts[i];
+      const key = 'B' + (hb.id === undefined ? 0 : hb.id);
+      if (P.hitSet.indexOf(key) >= 0) continue;
+      if (!boxHit(b.x, b.y, b.w, b.h, hb.x, hb.y, hb.w, hb.h)) continue;
+      P.hitSet.push(key);
+      bossDamage(hb, dmg, { melee: true, combo: P.atkIdx, kb: P.face * kb });
+    }
+  }
+  // рикошет від стін теж дає іскри
+  if (P.atkIdx === 2 && P.hitSet.length === 0 && Math.random() < 0.25)
+    part(b.x + b.w / 2, b.y + b.h / 2, 0, 0, 0.1, '#ffd23f', 2, 0, 1);
+}
+function bladeCharge(n) {
+  P.q = Math.min(BL.MAXQ, P.q + n);
+}
+function discharge() {
+  P.q = 0; P.dischT = 0.35;
+  Sfx.discharge(); buzz(60); cam.hit(6);
+  const cx = P.x + P.w / 2, cy = P.y + P.h / 2;
+  ring(cx, cy, 6, BL.RAD, 0.42, '#22e0ff', 3);
+  ring(cx, cy, 2, BL.RAD * 0.7, 0.30, '#ffffff', 2);
+  burst(cx, cy, 26, '#7df9ff', 220, 0.5, 30, 2);
+  for (let i = 0; i < ENEM.length; i++) {
+    const e = ENEM[i];
+    if (e.dead) continue;
+    if (dist2(cx, cy, e.x + e.w / 2, e.y + e.h / 2) <= BL.RAD * BL.RAD)
+      damageEnemy(e, BL.DDMG, sign(e.x + e.w / 2 - cx) * 150, { stun: BL.STUN, shock: true });
+  }
+  if (BOSS.on) {
+    const parts = bossHitBoxes();
+    for (let i = 0; i < parts.length; i++) {
+      const hb = parts[i];
+      if (dist2(cx, cy, hb.x + hb.w / 2, hb.y + hb.h / 2) <= (BL.RAD + 10) * (BL.RAD + 10))
+        bossDamage(hb, BL.DDMG, { shock: true });
+    }
+  }
+  // розряд збиває ворожі кулі
+  for (let i = BULL.length - 1; i >= 0; i--) {
+    const b = BULL[i];
+    if (b.own === 'e' && dist2(cx, cy, b.x, b.y) <= BL.RAD * BL.RAD) {
+      burst(b.x, b.y, 3, '#ffd23f', 70, 0.2, 0, 1);
+      BULL[i] = BULL[BULL.length - 1]; BULL.pop();
+    }
+  }
+}
+// Парирування: куля летить назад із подвійною шкодою.
+function tryParry(b) {
+  if (P.parryT <= 0 || b.own !== 'e' || b.parried) return false;
+  const px = P.x - 8, py = P.y - 6, pw = P.w + 16, ph = P.h + 12;
+  if (!boxHit(px, py, pw, ph, b.x - b.w / 2, b.y - b.h / 2, b.w, b.h)) return false;
+  b.own = 'p'; b.parried = true;
+  b.dmg *= 2; b.col = '#ffd23f';
+  const sp = Math.hypot(b.vx, b.vy) * 1.7 + 60;
+  const ang = Math.atan2(b.vy, b.vx) + Math.PI;
+  b.vx = Math.cos(ang) * sp; b.vy = Math.sin(ang) * sp * 0.35;
+  b.life = 3;
+  bladeCharge(1);
+  Sfx.parry(); buzz(18); cam.hit(2.5);
+  ring(b.x, b.y, 2, 16, 0.25, '#ffd23f', 2);
+  burst(b.x, b.y, 8, '#ffd23f', 140, 0.3, 0, 1);
+  hitStop(0.07);
+  return true;
+}
+
+/* ---------------- зброя 2: «Рейкострил» ---------------- */
+function railShoot() {
+  const y = P.y + (P.crouch ? 5 : 6);
+  shoot(P.x + P.w / 2 + P.face * 8, y, P.face * RG.V, 0,
+        { own: 'p', dmg: RG.DMG, w: 7, h: 3, col: '#7df9ff', life: 1.4, kind: 1 });
+  P.heat = Math.min(120, P.heat + RG.SHOT);
+  P.fireCd = RG.CD; P.recoil = 0.12;
+  P.noise = 0.7;
+  P.vx -= P.face * (P.onGround ? RG.RECOIL * 0.35 : RG.RECOIL);
+  Sfx.shoot();
+  burst(P.x + P.w / 2 + P.face * 10, y, 4, '#bff4ff', 90, 0.16, 0, 1);
+  if (P.heat >= 100) overheat();
+}
+function railBeam() {
+  const y = P.y + (P.crouch ? 5 : 6);
+  const sx = P.x + P.w / 2 + P.face * 6;
+  const len = rayLen(sx, y, P.face, 300);
+  beam(sx, y, P.face, len, RG.BDMG, '#ffd23f');
+  P.heat = Math.min(130, P.heat + RG.BEAM);
+  P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0;
+  P.vx -= P.face * (P.onGround ? 60 : 130);
+  Sfx.beam(); buzz(22); cam.hit(3.5);
+  for (let i = 0; i < 14; i++)
+    part(sx + P.face * rnd(0, len), y + rnd(-3, 3), rnd(-30, 30), rnd(-60, 60),
+         rnd(0.15, 0.4), '#ffd23f', 1, 10, 1);
+  if (P.heat >= 100) overheat();
+}
+function overheat() {
+  P.lock = true; P.lockT = RG.LOCK; P.arUsed = false; P.arMark = 0;
+  P.arA = rnd(0.30, 0.66); P.arB = P.arA + 0.14;
+  P.chargeReady = false; P.cHold = 0;
+  Sfx.overheat(); buzz(14);
+  for (let i = 0; i < 10; i++)
+    part(P.x + P.w / 2 + P.face * 8, P.y + 6, P.face * rnd(10, 50), rnd(-50, -10),
+         rnd(0.3, 0.7), '#ff6b3d', 1, -20, 1);
+}
+function activeReload() {
+  if (P.arUsed) { Sfx.blocked(); return; }
+  P.arUsed = true;
+  if (P.arMark >= P.arA && P.arMark <= P.arB) {
+    P.lock = false; P.lockT = 0; P.heat = 0; P.cHold = 0;
+    Sfx.reload(); buzz(12);
+    burst(P.x + P.w / 2, P.y + 6, 10, '#3dff9a', 120, 0.35, 0, 1);
+  } else {
+    Sfx.blocked();
+  }
+}
+
+/* ---------------- допоміжне ---------------- */
+function rectSolid(x, y, w, h) {
+  const x0 = Math.floor(x / TS), x1 = Math.floor((x + w - 1) / TS);
+  const y0 = Math.floor(y / TS), y1 = Math.floor((y + h - 1) / TS);
+  for (let ty = y0; ty <= y1; ty++)
+    for (let tx = x0; tx <= x1; tx++)
+      if (isSolidCode(tAt(tx, ty))) return true;
+  return false;
+}
+let hitStopT = 0;
+function hitStop(t) { hitStopT = Math.max(hitStopT, t); }
+
+function setCrouch(on) {
+  if (on === P.crouch) return;
+  if (on) { P.y += 5; P.h = 9; P.crouch = true; }
+  else {
+    const ny = P.y - 5;
+    if (!rectSolid(P.x, ny, P.w, 14)) { P.y = ny; P.h = 14; P.crouch = false; }
+  }
+}
+
+/* ---------------- головне оновлення героя ---------------- */
+function updatePlayer(dt) {
+  const S = Input.S, g = world.grav;
+
+  // ---- таймери ----
+  if (P.inv > 0) P.inv -= dt;
+  if (P.hurtT > 0) P.hurtT -= dt;
+  if (P.dashCd > 0) P.dashCd -= dt;
+  if (P.comboT > 0) P.comboT -= dt;
+  if (P.parryT > 0) P.parryT -= dt;
+  P.fireCd -= dt; if (P.fireCd < -1) P.fireCd = -1;
+  if (P.recoil > 0) P.recoil -= dt;
+  if (P.noise > 0) P.noise -= dt;
+  if (P.dropT > 0) P.dropT -= dt;
+  if (P.dischT > 0) P.dischT -= dt;
+  if (P.spawnFx > 0) P.spawnFx -= dt;
+  if (P.flipT > 0) P.flipT -= dt;
+
+  // ---- смерть ----
+  if (P.dead) {
+    P.vy += PH.GRAV * g * dt;
+    moveX(P, P.vx * dt); moveY(P, P.vy * dt, false);
+    P.vx *= 0.94;
+    P.deadT -= dt;
+    if (P.deadT <= 0) Game.onDeath();
+    return;
+  }
+
+  // ---- вихід із рівня ----
+  if (P.exiting > 0) {
+    P.exiting -= dt;
+    P.vx *= 0.86;
+    moveX(P, P.vx * dt);
+    P.vy += PH.GRAV * g * dt;
+    if (moveY(P, P.vy * dt, true) === g) P.vy = 0;
+    if (P.exiting <= 0) Game.levelClear();
+    return;
+  }
+
+  // ---- присідання; утримання ↓ 0.3 с — спуск крізь тонку платформу ----
+  const wantDown = S.down;
+  if (wantDown && P.onGround && P.dashT <= 0 && g > 0) P.downHold += dt;
+  else P.downHold = 0;
+  if (P.downHold >= PH.DROP_HOLD) {
+    P.downHold = 0;
+    const fx = Math.floor((P.x + P.w / 2) / TS), fy = Math.floor((P.y + P.h + 2) / TS);
+    if (tAt(fx, fy) === T_PLAT || P.ride) {
+      P.dropT = 0.26; P.onGround = false; P.ride = null; P.y += 3;
+      burst(P.x + P.w / 2, P.y + P.h, 4, '#9a7fb5', 60, 0.2, 40, 1);
+    }
+  }
+  if (g > 0) setCrouch(wantDown && P.onGround && P.dashT <= 0);
+  else setCrouch(false);
+
+  // ---- горизонтальний рух ----
+  if (P.dashT <= 0) {
+    const acc = P.onGround ? PH.ACC : PH.ACC * PH.AIRCTRL;
+    const maxs = (P.crouch ? PH.RUN * 0.45 : PH.RUN);
+    const target = Math.abs(S.ax) > 0.12 ? S.ax * maxs : 0;
+    if (target !== 0) {
+      if (P.vx < target) P.vx = Math.min(target, P.vx + acc * dt);
+      else if (P.vx > target) P.vx = Math.max(target, P.vx - acc * dt * (P.vx * target < 0 ? 1.7 : 0.55));
+      if (P.atkT <= 0) P.face = target > 0 ? 1 : -1;
+    } else {
+      const fr = (P.onGround ? PH.DEC : PH.AIRDEC) * dt;
+      if (Math.abs(P.vx) <= fr) P.vx = 0; else P.vx -= sign(P.vx) * fr;
+    }
+  }
+
+  // ---- стрибок: буфер + coyote + змінна висота ----
+  if (S.aP) P.jbuf = PH.BUFFER;
+  if (P.onGround) { P.coyote = PH.COYOTE; P.jumps = 0; P.wallRestored = false; }
+  else if (P.coyote <= 0 && P.jumps === 0) P.jumps = 1;   // зійшов із краю, не стрибаючи
+  const groundJump = P.jbuf > 0 && P.coyote > 0 && P.jumps === 0 && P.dashT <= 0;
+  const airJump = !groundJump && P.jbuf > 0 && P.dashT <= 0 &&
+                  !P.onGround && P.coyote <= 0 && P.jumps <= PH.AIRJUMPS;
+  if (!groundJump && !airJump) {                   // таймери спливають лише поки стрибок неможливий
+    if (P.jbuf > 0) P.jbuf -= dt;
+    if (!P.onGround && P.coyote > 0) P.coyote -= dt;
+  } else {
+    P.vy = -(groundJump ? PH.JUMP : PH.JUMP2) * g;
+    P.onGround = false; P.coyote = 0; P.jbuf = 0; P.jumpHeld = true; P.ride = null;
+    P.jumps = groundJump ? 1 : P.jumps + 1;
+    if (P.crouch) setCrouch(false);
+    Sfx.jump();
+    if (airJump) {                                 // подвійний стрибок: сальто + кільце частинок
+      P.flipT = 0.40;
+      Sfx.dash();
+      ring(P.x + P.w / 2, P.y + P.h / 2, 3, 22, 0.32, '#22e0ff', 2);
+      for (let i = 0; i < 10; i++) {
+        const a = i / 10 * Math.PI * 2;
+        part(P.x + P.w / 2 + Math.cos(a) * 6, P.y + P.h / 2 + Math.sin(a) * 6,
+             Math.cos(a) * 70, Math.sin(a) * 70, 0.3, '#7df9ff', 1, 20, 1);
+      }
+    } else {
+      for (let i = 0; i < 4; i++)
+        part(P.x + P.w / 2 + rnd(-4, 4), P.y + P.h, rnd(-40, 40), 30 * g, 0.2, '#7b2fbe', 1, 0, 1);
+    }
+  }
+  if (P.jumpHeld && !S.a) {
+    P.jumpHeld = false;
+    if (P.vy * g < 0) P.vy *= PH.CUT;              // змінна висота стрибка
+  }
+
+  // ---- ривок ----
+  if (S.dashP && P.dashCd <= 0 && P.dashT <= 0) {
+    P.dashT = PH.DASHT; P.dashCd = PH.DASHCD;
+    P.dashDir = S.dashDir !== 0 ? S.dashDir : (Math.abs(S.ax) > 0.3 ? sign(S.ax) : P.face);
+    P.face = P.dashDir; P.noise = 0.5;
+    if (P.crouch) setCrouch(false);
+    Sfx.dash(); buzz(10);
+  }
+  if (P.dashT > 0) {
+    P.dashT -= dt;
+    P.vx = P.dashDir * PH.DASHV;
+    P.vy = 0;
+    part(P.x + P.w / 2 - P.dashDir * 4, P.y + rnd(2, 12), -P.dashDir * rnd(20, 70), rnd(-20, 20),
+         0.22, '#22e0ff', 2, 0, 1);
+  } else {
+    // ---- гравітація: біля вершини слабша, на падінні сильніша ----
+    let gr = PH.GRAV;
+    if (Math.abs(P.vy) < PH.APEX_V) gr *= PH.APEX;
+    else if (P.vy * g > 0) gr *= PH.FALL;
+    P.vy += gr * g * dt;
+    if (P.vy * g > PH.MAXFALL) P.vy = PH.MAXFALL * g;
+  }
+
+  // ---- рух: рухома платформа, потім X, потім Y ----
+  if (P.ride) {
+    if (P.ride.dx) moveX(P, P.ride.dx);
+    if (P.ride.dy) P.y += P.ride.dy;
+  }
+  if (moveX(P, P.vx * dt)) {
+    P.vx = 0;
+    // чіпнув стіну в повітрі — повертаємо один повітряний стрибок (щоб не було
+    // нескінченного «залізання» по стіні, лише раз за політ)
+    if (!P.onGround && !P.wallRestored && P.jumps > 1) {
+      P.jumps = 1; P.wallRestored = true;
+      part(P.x + (P.face > 0 ? P.w : 0), P.y + 6, -P.face * 40, -20, 0.25, '#22e0ff', 1, 0, 1);
+    }
+  }
+  P.x = clamp(P.x, 0, world.pw - P.w);
+
+  const prevBottom = P.y + P.h;
+  const r = moveY(P, P.vy * dt, P.dropT <= 0 && g > 0);
+  let grounded = (r === g);
+  let ride = null;
+  if (g > 0 && !grounded && P.vy > 0 && P.dropT <= 0) {
+    const m = landOnMP(P, prevBottom);
+    if (m) { grounded = true; ride = m; }
+  }
+  if (grounded) {
+    if (!P.onGround && Math.abs(P.vy) > 150) {
+      Sfx.land(); P.noise = 0.35;
+      for (let i = 0; i < 5; i++)
+        part(P.x + P.w / 2 + rnd(-5, 5), P.y + (g > 0 ? P.h : 0), rnd(-60, 60), -20 * g, 0.22, '#9a7fb5', 1, 60 * g, 1);
+    }
+    P.onGround = true; P.vy = 0; P.jumpHeld = false;
+    P.ride = ride || (P.ride && mpUnder(P) === P.ride ? P.ride : null);
+  } else {
+    if (r === -g) P.vy = 0;
+    P.onGround = false; P.ride = null;
+  }
+
+  // ---- конвеєри ----
+  if (P.onGround && !P.ride) {
+    const c = tAt(Math.floor((P.x + P.w / 2) / TS), Math.floor((P.y + P.h + 1) / TS));
+    if (c === T_CONVR) moveX(P, PH.CONV * dt);
+    else if (c === T_CONVL) moveX(P, -PH.CONV * dt);
+  }
+
+  // ---- шипи ----
+  {
+    const x0 = Math.floor((P.x + 1) / TS), x1 = Math.floor((P.x + P.w - 2) / TS);
+    const y0 = Math.floor((P.y + 2) / TS), y1 = Math.floor((P.y + P.h - 1) / TS);
+    let sp = false;
+    for (let ty = y0; ty <= y1 && !sp; ty++)
+      for (let tx = x0; tx <= x1 && !sp; tx++)
+        if (tAt(tx, ty) === T_SPIKE) sp = true;
+    if (sp) playerHurt(1, P.x + P.w / 2 - P.face * 10);
+  }
+
+  // ---- падіння за межі карти ----
+  if (P.y > world.ph + 24 || P.y < -80) {
+    if (!GOD) P.hp -= 1;
+    if (P.hp <= 0) { P.hp = 0; P.x = world.cp.x; P.y = world.cp.y; playerDie(); }
+    else {
+      Sfx.hurt(); buzz(30); cam.hit(3);
+      playerSpawnAt(world.cp.x, world.cp.y);
+      P.inv = 1.4;
+    }
+    return;
+  }
+
+  // ---- клинок ----
+  if (S.bP && P.dashT <= 0) {
+    P.parryT = BL.PARRY;
+    if (P.atkT <= 0 && P.dischT <= 0) bladeStart();
+  }
+  if (S.b) P.bHold += dt; else P.bHold = 0;
+  if (P.q >= BL.MAXQ && P.bHold >= BL.HOLD && P.dischT <= 0) { discharge(); P.bHold = -1; }
+  if (P.atkT > 0) {
+    bladeHits();
+    P.atkT -= dt;
+    if (P.atkT <= 0) { P.atkAct = false; P.comboT = BL.WIN; }
+  }
+
+  // ---- рейкострил ----
+  if (P.lock) {
+    P.lockT -= dt;
+    P.arMark = clamp(1 - P.lockT / RG.LOCK, 0, 1);
+    if (S.cP) activeReload();
+    if (P.lockT <= 0) { P.lock = false; P.heat = 0; P.cHold = 0; }
+  } else {
+    if (S.cP && P.fireCd <= 0 && P.dashT <= 0) railShoot();
+    if (S.c && !P.lock) {
+      P.cHold += dt;
+      if (P.cHold >= RG.CHARGE && !P.chargeReady) {
+        P.chargeReady = true; Sfx.charge();
+      }
+      if (P.chargeReady && Math.random() < 0.5)
+        part(P.x + P.w / 2 + P.face * 9, P.y + 6, rnd(-25, 25), rnd(-25, 25), 0.2, '#ffd23f', 1, 0, 1);
+    } else P.cHold = 0;
+    if (S.cR) {
+      if (P.chargeReady && !P.lock) railBeam();
+      P.chargeReady = false; P.cHold = 0;
+    }
+    // охолодження після паузи
+    if (P.fireCd <= -RG.DELAY + RG.CD) {
+      P.heat = Math.max(0, P.heat - RG.COOL * dt);
+    }
+    if (P.fireCd < -1) P.fireCd = -1;
+  }
+
+  // ---- підбирання аптечок ----
+  for (let i = PICKS.length - 1; i >= 0; i--) {
+    const pk = PICKS[i];
+    pk.t += dt;
+    if (boxHit(P.x, P.y, P.w, P.h, pk.x, pk.y, 10, 9)) {
+      if (playerHeal(1)) { PICKS[i] = PICKS[PICKS.length - 1]; PICKS.pop(); }
+    }
+  }
+
+  // ---- чекпоінт ----
+  if (!world.cpTaken && Math.abs(P.x - world.cpPos.x) < 14 && Math.abs(P.y - world.cpPos.y) < 30) {
+    world.cpTaken = true;
+    Game.cpTaken = true;                          // щоб перезапуск після смерті був звідси
+    world.cp.x = world.cpPos.x; world.cp.y = world.cpPos.y;
+    Sfx.checkpoint();
+    ring(world.cpPos.x + 5, world.cpPos.y + 7, 4, 26, 0.5, '#3dff9a', 2);
+    for (let i = 0; i < 12; i++)
+      part(world.cpPos.x + 5, world.cpPos.y + 12, rnd(-40, 40), rnd(-90, -20), rnd(0.3, 0.7), '#3dff9a', 1, 90, 1);
+  }
+
+  // ---- тригер боса ----
+  if (world.bossX > 0 && !BOSS.on && !BOSS.done && P.x + P.w > world.bossX + 8) startBoss();
+
+  // ---- вихід ----
+  if (world.exitOpen && boxHit(P.x, P.y, P.w, P.h, world.exit.x + 2, world.exit.y, 14, 32)) {
+    P.exiting = 0.8;
+    Sfx.win();
+    ring(world.exit.x + 9, world.exit.y + 16, 4, 30, 0.6, '#ffd23f', 2);
+  }
+
+  // ---- анімація ----
+  P.animT += dt;
+  if (P.atkT > 0) P.anim = 'atk';
+  else if (P.hurtT > 0) P.anim = 'hurt';
+  else if (P.dashT > 0) P.anim = 'jump';
+  else if (!P.onGround) P.anim = (P.vy * g < 0) ? 'jump' : 'fall';
+  else if (P.crouch) P.anim = 'crouch';
+  else if (Math.abs(P.vx) > 12) {
+    const f = Math.floor(P.animT * (6 + Math.abs(P.vx) / 26)) % 4;
+    P.anim = ['run1', 'run2', 'run3', 'run2'][f];
+  } else P.anim = 'idle';
+}
+
+/* ================================================================
+   11. ВОРОГИ — 9 типів, у кожного власна поведінка.
+        Велика літера в карті = елітна версія (міцніша, швидша,
+        з додатковим прийомом).
+   ================================================================ */
+const ETYPE = {
+  skreb:  { w: 12, h: 9,  hp: 2, sp: 30,  dmg: 1, fly: false },
+  thug:   { w: 12, h: 15, hp: 4, sp: 52,  dmg: 1, fly: false },
+  turret: { w: 14, h: 14, hp: 5, sp: 0,   dmg: 1, fly: false },
+  wasp:   { w: 12, h: 10, hp: 3, sp: 46,  dmg: 1, fly: true },
+  kami:   { w: 11, h: 11, hp: 2, sp: 96,  dmg: 2, fly: true },
+  shield: { w: 14, h: 16, hp: 8, sp: 32,  dmg: 1, fly: false },
+  adept:  { w: 12, h: 15, hp: 6, sp: 60,  dmg: 1, fly: false },
+  phantom:{ w: 12, h: 15, hp: 5, sp: 90,  dmg: 1, fly: true },
+  spider: { w: 12, h: 10, hp: 3, sp: 40,  dmg: 1, fly: false }
+};
+let enemyId = 1;
+const TRAIL = [];                       // слід гравця для фантомів (1 с = 60 кроків)
+const TRAIL_MAX = 70;
+
+function spawnEnemy(type, px, py, elite) {
+  const d = ETYPE[type];
+  if (!d) return null;
+  const e = {
+    id: enemyId++, t: type, elite: !!elite,
+    w: d.w, h: d.h, x: px + (TS - d.w) / 2, y: d.fly ? py + 2 : py + TS - d.h,
+    hx: px, hy: py,                       // «домашня» точка
+    vx: 0, vy: 0, face: -1, hp: 0, maxHp: 0, dmg: d.dmg, sp: d.sp,
+    st: 'idle', tm: 0, tm2: 0, stun: 0, flash: 0, dead: false, onGround: false,
+    anim: 0, guard: 0, guardT: 0, parryCd: 0, stagger: 0, broken: false,
+    tx: 0, ty: 0, mount: 'floor', blind: false, shots: 0, alert: 0
+  };
+  e.hp = e.maxHp = elite ? Math.round(d.hp * 1.75) : d.hp;
+  if (elite) { e.sp = d.sp * 1.22; e.dmg = d.dmg; }
+  if (type === 'turret') {
+    const tx = Math.floor(px / TS), ty = Math.floor(py / TS);
+    if (isSolidCode(tAt(tx, ty + 1))) e.mount = 'floor';
+    else if (isSolidCode(tAt(tx, ty - 1))) e.mount = 'ceil';
+    else if (isSolidCode(tAt(tx - 1, ty))) e.mount = 'wallL';
+    else if (isSolidCode(tAt(tx + 1, ty))) e.mount = 'wallR';
+    e.y = py + (TS - e.h) / 2;
+    if (e.mount === 'floor') e.y = py + TS - e.h;
+    if (e.mount === 'ceil') e.y = py;
+  }
+  if (type === 'spider') { e.y = py; e.st = 'hang'; }
+  if (type === 'thug' && world.theme === 'metro') e.blind = true;   // сліпі мутанти
+  if (type === 'phantom') { e.ofs = rnd(-26, 26); }
+  ENEM.push(e);
+  return e;
+}
+function spawnAllEnemies() {
+  for (let i = 0; i < world.spawnList.length; i++) {
+    const s = world.spawnList[i];
+    spawnEnemy(s.t, s.x, s.y, s.elite);
+  }
+  for (let i = 0; i < world.pickList.length; i++) {
+    const p = world.pickList[i];
+    PICKS.push({ x: p.x, y: p.y, t: rnd(0, 3) });
+  }
+}
+
+function killEnemy(e) {
+  if (e.dead) return;
+  e.dead = true;
+  const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+  Sfx.hitEnemy();
+  burst(cx, cy, 12, e.elite ? '#ffd23f' : '#ff6b3d', 150, 0.5, 240, 2);
+  burst(cx, cy, 6, '#ffffff', 90, 0.25, 120, 1);
+  if (e.t === 'kami') kamiBoom(e);
+  if (Math.random() < 0.11 && P.hp < P.maxHp) PICKS.push({ x: cx - 5, y: cy - 4, t: 0 });
+  if (BOSS.on && BOSS.type === 'queen' && e.fromBoss) BOSS.spawned = Math.max(0, BOSS.spawned - 1);
+}
+
+function damageEnemy(e, dmg, kb, opt) {
+  opt = opt || {};
+  if (e.dead || dmg <= 0) return false;
+  // Щитоносець: фронтальний щит тримає все, крім зарядженого пострілу й ударів у спину.
+  if (e.t === 'shield' && !opt.pierce && !opt.shock) {
+    const fromFront = ((P.x + P.w / 2) - (e.x + e.w / 2)) * e.face > 0;
+    const srcFront = opt.srcX !== undefined ? (opt.srcX - (e.x + e.w / 2)) * e.face > 0 : fromFront;
+    if (srcFront) {
+      Sfx.blocked();
+      burst(e.x + e.w / 2 + e.face * 8, e.y + 6, 5, '#22e0ff', 90, 0.2, 0, 1);
+      return false;
+    }
+  }
+  // Клинковий адепт паріює ближній бій, поки не зламана серія.
+  if (e.t === 'adept' && opt.melee && e.parryCd <= 0 && e.stagger <= 0 && e.stun <= 0) {
+    e.guard++; e.guardT = 1.2; e.parryCd = 0.5;
+    Sfx.blocked();
+    burst(e.x + e.w / 2, e.y + 6, 6, '#22e0ff', 110, 0.25, 0, 1);
+    P.vx = -P.face * 90;
+    if (e.guard >= 3) { e.stagger = 1.4; e.guard = 0; e.st = 'stagger'; e.tm = 1.4; }
+    return false;
+  }
+  e.hp -= dmg;
+  e.flash = 0.12;
+  e.alert = 3;
+  if (kb) e.vx = kb;
+  if (opt.stun) e.stun = Math.max(e.stun, opt.stun);
+  if (opt.melee) { bladeCharge(1); hitStop(0.045); cam.hit(1.6); buzz(10); }
+  Sfx.hitEnemy();
+  const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+  burst(cx, cy, opt.melee ? 7 : 4, '#ffd23f', 130, 0.3, 120, 1);
+  if (e.hp <= 0) killEnemy(e);
+  return true;
+}
+
+function kamiBoom(e) {
+  const R = e.elite ? 40 : 32;
+  const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+  Sfx.explode(); cam.hit(5); buzz(24);
+  ring(cx, cy, 4, R, 0.4, '#ff6b3d', 3);
+  burst(cx, cy, 22, '#ffd23f', 210, 0.55, 180, 2);
+  if (dist2(cx, cy, P.x + P.w / 2, P.y + P.h / 2) < R * R) playerHurt(2, cx);
+  for (let i = 0; i < ENEM.length; i++) {
+    const o = ENEM[i];
+    if (o === e || o.dead) continue;
+    if (dist2(cx, cy, o.x + o.w / 2, o.y + o.h / 2) < R * R) damageEnemy(o, 2, sign(o.x - cx) * 90, {});
+  }
+}
+
+// Фізика «наземного» ворога.
+function groundPhys(e, dt) {
+  e.vy += PH.GRAV * dt;
+  if (e.vy > PH.MAXFALL) e.vy = PH.MAXFALL;
+  if (moveX(e, e.vx * dt)) { e.vx = 0; e.hitWall = true; } else e.hitWall = false;
+  const pb = e.y + e.h;
+  const r = moveY(e, e.vy * dt, true);
+  if (r === 1) { e.onGround = true; e.vy = 0; }
+  else {
+    if (r === -1) e.vy = 0;
+    e.onGround = false;
+    const m = (e.vy > 0) ? landOnMP(e, pb) : null;
+    if (m) { e.onGround = true; e.vy = 0; }
+  }
+  if (e.y > world.ph + 40) e.dead = true;      // випав із карти
+}
+const eSeesPlayer = (e, r) => dist2(e.x + e.w / 2, e.y + e.h / 2, P.x + P.w / 2, P.y + P.h / 2) < r * r;
+const toPlayer = e => sign((P.x + P.w / 2) - (e.x + e.w / 2)) || 1;
+
+/* ---- 1. Скребок: повзе, падає з платформ, слабкий ---- */
+function aiSkreb(e, dt) {
+  if (e.st === 'idle') { e.st = 'crawl'; e.face = -1; }
+  e.vx = e.face * e.sp;
+  if (e.hitWall) e.face = -e.face;
+  if (e.elite) {
+    e.tm -= dt;
+    if (e.tm <= 0 && eSeesPlayer(e, 130) && Math.abs((P.y + P.h) - (e.y + e.h)) < 26) {
+      e.tm = 2.4;
+      const d = toPlayer(e); e.face = d;
+      shoot(e.x + e.w / 2 + d * 6, e.y + 3, d * 105, -20,
+            { own: 'e', dmg: 1, col: '#8cff5a', w: 5, h: 5, grav: 130, life: 2.5 });
+    }
+  }
+  groundPhys(e, dt);
+}
+
+/* ---- 2. Хуліган: біжить на гравця, замахується 0.4 с ---- */
+function aiThug(e, dt) {
+  const canSee = e.blind ? (P.noise > 0 && eSeesPlayer(e, 200)) || eSeesPlayer(e, 34)
+                         : eSeesPlayer(e, 165);
+  if (e.st === 'idle' || e.st === 'walk') {
+    e.st = 'walk';
+    e.vx = e.face * e.sp * 0.42;
+    if (e.hitWall) e.face = -e.face;
+    e.tm -= dt;
+    if (e.tm <= 0) { e.tm = rnd(1.4, 3); if (!canSee) e.face = -e.face; }
+    if (canSee) { e.st = 'chase'; e.tm = 3.5; }
+  } else if (e.st === 'chase') {
+    e.face = toPlayer(e);
+    e.vx = e.face * e.sp;
+    e.tm -= dt;
+    if (e.hitWall && e.onGround) e.vy = -280;                 // перестрибує перешкоду
+    if (Math.abs((P.x + P.w / 2) - (e.x + e.w / 2)) < 22 && Math.abs(P.y - e.y) < 20) {
+      e.st = 'wind'; e.tm = 0.4; e.vx = 0; e.swings = e.elite ? 2 : 1;
+    } else if (e.tm <= 0 && !canSee) { e.st = 'walk'; e.tm = 1.5; }
+  } else if (e.st === 'wind' || e.st === 'wind2') {            // ЗАМАХ — телеграф 0.4 с
+    e.vx *= 0.8; e.tm -= dt;
+    if (e.tm <= 0) { e.st = 'swing'; e.tm = 0.22; e.hitDone = false; }
+  } else if (e.st === 'swing') {
+    e.tm -= dt;
+    if (!e.hitDone) {
+      const bx = e.face > 0 ? e.x + e.w : e.x - 18;
+      if (boxHit(bx, e.y + 1, 18, 13, P.x, P.y, P.w, P.h)) { e.hitDone = playerHurt(e.dmg, e.x + e.w / 2); }
+    }
+    if (e.tm <= 0) {
+      e.swings = (e.swings || 1) - 1;
+      if (e.swings > 0) { e.st = 'wind2'; e.tm = 0.32; }
+      else { e.st = 'rest'; e.tm = 0.55; }
+    }
+  } else if (e.st === 'rest') {
+    e.vx *= 0.7; e.tm -= dt;
+    if (e.tm <= 0) e.st = 'chase';
+  }
+  groundPhys(e, dt);
+}
+
+/* ---- 3. Турель: черга з 3 пострілів і пауза для парирування ---- */
+function aiTurret(e, dt) {
+  e.vx = 0;
+  const seeR = e.elite ? 260 : 215;
+  if (e.st === 'idle') {
+    e.tm -= dt;
+    if (eSeesPlayer(e, seeR) && Math.abs((P.y + P.h / 2) - (e.y + e.h / 2)) < 46 && e.tm <= 0) {
+      e.st = 'aim'; e.tm = 0.5; e.face = toPlayer(e);
+    }
+  } else if (e.st === 'aim') {
+    e.tm -= dt;
+    if (e.tm <= 0) { e.st = 'fire'; e.tm = 0; e.shots = e.elite ? 5 : 3; }
+  } else if (e.st === 'fire') {
+    e.tm -= dt;
+    if (e.tm <= 0) {
+      e.shots--;
+      const sx = e.x + e.w / 2 + e.face * 8, sy = e.y + e.h / 2 - 1;
+      let vy = 0;
+      if (e.elite) vy = clamp(((P.y + P.h / 2) - sy) * 0.55, -60, 60);
+      shoot(sx, sy, e.face * 128, vy, { own: 'e', dmg: 1, col: '#ff6b3d', w: 6, h: 4, life: 3 });
+      Sfx.shoot();
+      e.tm = 0.18;
+      if (e.shots <= 0) { e.st = 'rest'; e.tm = 1.25; }
+    }
+  } else if (e.st === 'rest') {
+    e.tm -= dt;
+    if (e.tm <= 0) { e.st = 'idle'; e.tm = 0.2; }
+  }
+}
+
+/* ---- 4. Дрон-оса: синусоїда + пікірування ---- */
+function aiWasp(e, dt) {
+  e.anim += dt;
+  if (e.st === 'idle' || e.st === 'fly') {
+    e.st = 'fly';
+    const d = toPlayer(e);
+    e.face = d;
+    e.vx = lerp(e.vx, d * e.sp * (eSeesPlayer(e, 220) ? 1 : 0.5), dt * 2);
+    e.y = e.hy + 2 + Math.sin(e.anim * 3.1) * 12;
+    e.x += e.vx * dt;
+    if (rectSolid(e.x, e.y, e.w, e.h)) { e.x -= e.vx * dt; e.vx = -e.vx; e.hx = e.x; }
+    e.tm -= dt;
+    if (eSeesPlayer(e, 135) && P.y > e.y && e.tm <= 0) {
+      e.st = 'tele'; e.tm = 0.35; e.tx = P.x + P.w / 2; e.ty = P.y + P.h / 2;
+    }
+  } else if (e.st === 'tele') {                       // телеграф пікірування
+    e.tm -= dt; e.vx *= 0.85; e.x += e.vx * dt;
+    if (e.tm <= 0) {
+      e.st = 'dive';
+      const dx = e.tx - (e.x + e.w / 2), dy = e.ty - (e.y + e.h / 2);
+      const L = Math.max(1, Math.hypot(dx, dy));
+      e.vx = dx / L * 240; e.vy = dy / L * 240;
+      e.tm = 0.75;
+      if (e.elite) shoot(e.x + e.w / 2, e.y + e.h, e.vx * 0.5, 120,
+                         { own: 'e', dmg: 1, col: '#ffd23f', w: 5, h: 5, life: 2 });
+    }
+  } else if (e.st === 'dive') {
+    e.tm -= dt;
+    e.x += e.vx * dt; e.y += e.vy * dt;
+    if (e.tm <= 0 || rectSolid(e.x, e.y, e.w, e.h)) {
+      if (rectSolid(e.x, e.y, e.w, e.h)) { e.x -= e.vx * dt; e.y -= e.vy * dt; }
+      e.st = 'back'; e.tm = 1.0; e.vx *= -0.2; e.vy = -70;
+    }
+  } else if (e.st === 'back') {
+    e.tm -= dt;
+    e.y += e.vy * dt; e.x += e.vx * dt;
+    if (e.y <= e.hy + 2 || e.tm <= 0) { e.st = 'fly'; e.vy = 0; e.hy = Math.min(e.hy, e.y); e.tm = 1.4; }
+  }
+  e.x = clamp(e.x, 4, world.pw - e.w - 4);
+  e.y = clamp(e.y, 4, world.ph - e.h - 4);
+}
+
+/* ---- 5. Камікадзе: летить і вибухає ---- */
+function aiKami(e, dt) {
+  e.anim += dt;
+  if (e.st === 'idle') { e.st = 'seek'; e.tm = 0; }
+  if (e.st === 'seek') {
+    const dx = (P.x + P.w / 2) - (e.x + e.w / 2), dy = (P.y + P.h / 2) - (e.y + e.h / 2);
+    const L = Math.max(1, Math.hypot(dx, dy));
+    const sp = e.sp;
+    e.vx = lerp(e.vx, dx / L * sp, dt * 2.2);
+    e.vy = lerp(e.vy, dy / L * sp, dt * 2.2);
+    e.face = sign(e.vx) || e.face;
+    const nx = e.x + e.vx * dt, ny = e.y + e.vy * dt;
+    if (rectSolid(nx, e.y, e.w, e.h)) e.vx = -e.vx * 0.4; else e.x = nx;
+    if (rectSolid(e.x, ny, e.w, e.h)) e.vy = -e.vy * 0.4; else e.y = ny;
+    if (L < 26) { e.st = 'beep'; e.tm = 0.36; }
+    if (e.anim > 14) { e.st = 'beep'; e.tm = 0.36; }      // не літає вічно
+  } else if (e.st === 'beep') {
+    e.tm -= dt;
+    e.vx *= 0.9; e.vy *= 0.9;
+    e.x += e.vx * dt; e.y += e.vy * dt;
+    if (e.tm <= 0) { kamiBoom(e); e.dead = true; }
+  }
+  e.y = clamp(e.y, 4, world.ph - e.h - 4);
+}
+
+/* ---- 6. Щитоносець: фронтальний щит ---- */
+function aiShield(e, dt) {
+  if (e.st === 'idle') { e.st = 'walk'; e.tm = 0; }
+  if (e.st === 'walk') {
+    if (eSeesPlayer(e, 200)) e.face = toPlayer(e);
+    e.vx = e.face * e.sp;
+    if (e.hitWall) e.face = -e.face;
+    if (Math.abs((P.x + P.w / 2) - (e.x + e.w / 2)) < 26 && Math.abs(P.y - e.y) < 22) {
+      e.st = 'wind'; e.tm = 0.5; e.vx = 0;
+    }
+  } else if (e.st === 'wind') {
+    e.tm -= dt; e.vx = 0;
+    if (e.tm <= 0) { e.st = 'bash'; e.tm = 0.3; e.hitDone = false; e.vx = e.face * (e.elite ? 150 : 90); }
+  } else if (e.st === 'bash') {
+    e.tm -= dt;
+    if (!e.hitDone) {
+      const bx = e.face > 0 ? e.x + e.w - 2 : e.x - 14;
+      if (boxHit(bx, e.y + 2, 16, 14, P.x, P.y, P.w, P.h)) e.hitDone = playerHurt(e.dmg, e.x + e.w / 2);
+    }
+    if (e.tm <= 0) { e.st = 'rest'; e.tm = 0.7; }
+  } else if (e.st === 'rest') {
+    e.vx *= 0.8; e.tm -= dt;
+    if (e.tm <= 0) e.st = 'walk';
+  }
+  groundPhys(e, dt);
+}
+
+/* ---- 7. Клинковий адепт: паріює удари, ламається серією ---- */
+function aiAdept(e, dt) {
+  if (e.parryCd > 0) e.parryCd -= dt;
+  if (e.guardT > 0) { e.guardT -= dt; if (e.guardT <= 0) e.guard = 0; }
+  if (e.stagger > 0) e.stagger -= dt;
+  if (e.st === 'stagger') {
+    e.vx *= 0.85; e.tm -= dt;
+    if (e.tm <= 0) e.st = 'idle';
+    groundPhys(e, dt); return;
+  }
+  if (e.st === 'idle') {
+    e.vx *= 0.85; e.tm -= dt;
+    if (eSeesPlayer(e, 170)) {
+      e.face = toPlayer(e);
+      const dx = Math.abs((P.x + P.w / 2) - (e.x + e.w / 2));
+      if (e.elite && dx > 60 && e.tm <= 0) {
+        e.st = 'throw'; e.tm = 0.45;
+      } else if (e.tm <= 0) { e.st = 'wind'; e.tm = 0.42; }
+    }
+  } else if (e.st === 'throw') {
+    e.tm -= dt; e.vx = 0;
+    if (e.tm <= 0) {
+      const d = toPlayer(e); e.face = d;
+      shoot(e.x + e.w / 2 + d * 7, e.y + 6, d * 140, 0,
+            { own: 'e', dmg: 1, col: '#e0f7ff', w: 6, h: 6, life: 2.4, kind: 2 });
+      Sfx.shoot();
+      e.st = 'idle'; e.tm = 1.1;
+    }
+  } else if (e.st === 'wind') {                    // телеграф випаду
+    e.tm -= dt; e.vx *= 0.8;
+    if (e.tm <= 0) {
+      e.st = 'lunge'; e.tm = 0.28; e.hitDone = false;
+      e.vx = e.face * 210;
+    }
+  } else if (e.st === 'lunge') {
+    e.tm -= dt;
+    if (!e.hitDone) {
+      const bx = e.face > 0 ? e.x + e.w - 4 : e.x - 16;
+      if (boxHit(bx, e.y + 2, 20, 13, P.x, P.y, P.w, P.h)) e.hitDone = playerHurt(e.dmg, e.x + e.w / 2);
+    }
+    if (e.tm <= 0) { e.st = 'idle'; e.tm = e.elite ? 0.55 : 0.8; e.vx *= 0.3; }
+  }
+  groundPhys(e, dt);
+}
+
+/* ---- 8. Фантом: телепорт + повтор рухів гравця із затримкою 1 с ---- */
+function aiPhantom(e, dt) {
+  e.anim += dt;
+  const idx = Math.min(TRAIL.length - 1, 60);
+  const t = TRAIL.length ? TRAIL[idx] : { x: P.x, y: P.y };
+  const tx = clamp(t.x + e.ofs, 4, world.pw - e.w - 4), ty = t.y;
+  const dx = tx - e.x, dy = ty - e.y;
+  if (Math.hypot(dx, dy) > 150 || e.tm2 > 3.4) {        // телепорт
+    e.tm2 = 0;
+    burst(e.x + e.w / 2, e.y + e.h / 2, 10, '#6ef7d8', 110, 0.35, 0, 1);
+    if (!rectSolid(tx, ty, e.w, e.h)) { e.x = tx; e.y = ty; }
+    burst(e.x + e.w / 2, e.y + e.h / 2, 10, '#6ef7d8', 110, 0.35, 0, 1);
+  } else {
+    e.tm2 += dt;
+    const nx = e.x + clamp(dx, -e.sp * dt * 2.4, e.sp * dt * 2.4);
+    const ny = e.y + clamp(dy, -e.sp * dt * 2.4, e.sp * dt * 2.4);
+    if (!rectSolid(nx, e.y, e.w, e.h)) e.x = nx;
+    if (!rectSolid(e.x, ny, e.w, e.h)) e.y = ny;
+  }
+  e.face = sign(P.x - e.x) || e.face;
+  e.tm -= dt;
+  if (e.tm <= 0 && eSeesPlayer(e, 190)) {
+    e.tm = e.elite ? 1.5 : 2.3;
+    const d = toPlayer(e);
+    shoot(e.x + e.w / 2 + d * 7, e.y + 7, d * 120, 0,
+          { own: 'e', dmg: 1, col: '#6ef7d8', w: 5, h: 5, life: 2.4 });
+    if (e.elite) shoot(e.x + e.w / 2 + d * 7, e.y + 7, d * 120, -55,
+                       { own: 'e', dmg: 1, col: '#6ef7d8', w: 5, h: 5, life: 2.4 });
+    Sfx.shoot();
+  }
+}
+
+/* ---- 9. Павук: висить на стелі, падає на гравця ---- */
+function aiSpider(e, dt) {
+  if (e.st === 'hang') {
+    e.vy = 0;
+    e.anim += dt;
+    if (Math.abs((P.x + P.w / 2) - (e.x + e.w / 2)) < 30 && P.y > e.y) {
+      e.st = 'drop'; e.tm = 0.28;
+    } else if (e.elite) {
+      e.tm -= dt;
+      if (e.tm <= 0 && eSeesPlayer(e, 150)) {
+        e.tm = 2.2;
+        shoot(e.x + e.w / 2, e.y + e.h, 0, 130, { own: 'e', dmg: 1, col: '#c98cff', w: 5, h: 5, life: 2.2 });
+      }
+    }
+    return;                                   // висить нерухомо, гравітація не діє
+  } else if (e.st === 'drop') {
+    e.tm -= dt;
+    if (e.tm <= 0) { e.st = 'crawl'; e.vy = 80; }
+  } else {
+    if (e.onGround) {
+      e.face = eSeesPlayer(e, 190) ? toPlayer(e) : e.face;
+      e.vx = e.face * e.sp;
+      if (e.hitWall) e.face = -e.face;
+    }
+    groundPhys(e, dt);
+    return;
+  }
+  groundPhys(e, dt);
+}
+
+const AI = { skreb: aiSkreb, thug: aiThug, turret: aiTurret, wasp: aiWasp, kami: aiKami,
+             shield: aiShield, adept: aiAdept, phantom: aiPhantom, spider: aiSpider };
+
+function updateEnemies(dt) {
+  // слід гравця для фантомів
+  TRAIL.unshift({ x: P.x, y: P.y });
+  if (TRAIL.length > TRAIL_MAX) TRAIL.pop();
+
+  const viewC = cam.x + view.w / 2;
+  for (let i = ENEM.length - 1; i >= 0; i--) {
+    const e = ENEM[i];
+    if (e.dead) { ENEM[i] = ENEM[ENEM.length - 1]; ENEM.pop(); continue; }
+    if (e.flash > 0) e.flash -= dt;
+    if (Math.abs((e.x + e.w / 2) - viewC) > 360) continue;      // сплять за екраном
+    if (e.stun > 0) {
+      e.stun -= dt;
+      e.vx *= 0.85;
+      if (!ETYPE[e.t].fly) groundPhys(e, dt);
+      continue;
+    }
+    const fn = AI[e.t];
+    if (fn) fn(e, dt);
+    // контактна шкода
+    if (!e.dead && P.inv <= 0 && !P.dead && aabb(P, e)) playerHurt(1, e.x + e.w / 2);
+  }
+}
+
+/* ================================================================
+   12. КУЛІ ТА ПРОМЕНІ
+   ================================================================ */
+function updateBullets(dt) {
+  for (let i = BULL.length - 1; i >= 0; i--) {
+    const b = BULL[i];
+    b.life -= dt;
+    if (b.grav) b.vy += b.grav * dt;
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    let kill = b.life <= 0;
+
+    if (!kill && solidAtPx(b.x, b.y)) {
+      kill = true;
+      burst(b.x, b.y, 3, b.col, 60, 0.18, 0, 1);
+    }
+    if (!kill && b.own === 'e') {
+      tryParry(b);                                   // може змінити власника кулі
+    }
+    if (!kill && b.own === 'e') {
+      if (boxHit(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, P.x, P.y, P.w, P.h)) {
+        if (playerHurt(b.dmg, b.x)) kill = true;
+      }
+    } else if (!kill && b.own === 'p') {
+      for (let j = 0; j < ENEM.length && !kill; j++) {
+        const e = ENEM[j];
+        if (e.dead) continue;
+        if (!boxHit(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, e.x, e.y, e.w, e.h)) continue;
+        damageEnemy(e, b.dmg, sign(b.vx) * 40, { srcX: b.x - b.vx * 0.05 });
+        kill = true;
+      }
+      if (!kill && BOSS.on) {
+        const hbs = bossHitBoxes();
+        for (let j = 0; j < hbs.length && !kill; j++) {
+          const hb = hbs[j];
+          if (!boxHit(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, hb.x, hb.y, hb.w, hb.h)) continue;
+          bossDamage(hb, b.dmg, { srcX: b.x, parried: b.parried });
+          kill = true;
+        }
+      }
+    }
+    if (kill) { BULL[i] = BULL[BULL.length - 1]; BULL.pop(); }
+  }
+}
+function updateBeams(dt) {
+  for (let i = BEAMS.length - 1; i >= 0; i--) {
+    const bm = BEAMS[i];
+    if (bm.t === bm.max) {                            // перший кадр — рахуємо влучання
+      const x0 = bm.dir > 0 ? bm.x : bm.x - bm.len;
+      for (let j = 0; j < ENEM.length; j++) {
+        const e = ENEM[j];
+        if (e.dead) continue;
+        if (boxHit(x0, bm.y - 3, bm.len, 6, e.x, e.y, e.w, e.h))
+          damageEnemy(e, bm.dmg, bm.dir * 60, { pierce: true });
+      }
+      if (BOSS.on) {
+        const hbs = bossHitBoxes();
+        for (let j = 0; j < hbs.length; j++) {
+          const hb = hbs[j];
+          if (boxHit(x0, bm.y - 3, bm.len, 6, hb.x, hb.y, hb.w, hb.h))
+            bossDamage(hb, bm.dmg, { pierce: true });
+        }
+      }
+      for (let j = BULL.length - 1; j >= 0; j--) {    // промінь випалює ворожі кулі
+        const b = BULL[j];
+        if (b.own === 'e' && boxHit(x0, bm.y - 4, bm.len, 8, b.x - 2, b.y - 2, 4, 4)) {
+          burst(b.x, b.y, 3, '#ffd23f', 60, 0.2, 0, 1);
+          BULL[j] = BULL[BULL.length - 1]; BULL.pop();
+        }
+      }
+    }
+    bm.t -= dt;
+    if (bm.t <= 0) { BEAMS[i] = BEAMS[BEAMS.length - 1]; BEAMS.pop(); }
+  }
+}
+function updateTele(dt) {
+  for (let i = TELE.length - 1; i >= 0; i--) {
+    TELE[i].t -= dt;
+    if (TELE[i].t <= 0) { TELE[i] = TELE[TELE.length - 1]; TELE.pop(); }
+  }
+}
+
+/* ================================================================
+   13. БОСИ — 5 штук, у кожного 2-3 фази й читані телеграфи атак
+   ================================================================ */
+const BOSSDEF = {
+  servotaur: { name: 'СЕРВОТАВР',  hp: 62,  w: 40, h: 30, sub: 'МЕХ-БИК ДОКІВ' },
+  queen:     { name: 'МАТКА-РІЙ',  hp: 58,  w: 36, h: 24, sub: 'ІНКУБАТОР ФАБРИКИ' },
+  chrono:    { name: 'ХРОНОКЛИНОК', hp: 56, w: 14, h: 22, sub: 'ДУЕЛЯНТ САДУ' },
+  glitch:    { name: 'ГЛІТЧ-ЯДРО', hp: 44,  w: 26, h: 26, sub: 'ЗБІЙ У МЕРЕЖІ' },
+  architect: { name: 'АРХІТЕКТОР', hp: 120, w: 22, h: 30, sub: 'ЯДРО КАЙЗЕН-ВОЛЬТ' }
+};
+const BOSS = {
+  on: false, done: false, type: null, def: null,
+  hp: 0, maxHp: 0, phase: 1, x: 0, y: 0, w: 0, h: 0, vx: 0, vy: 0,
+  st: 'idle', tm: 0, tm2: 0, tm3: 0, flash: 0, face: -1, anim: 0,
+  parts: [], intro: 0, nameT: 0, dieT: 0, spawned: 0, inv: 0,
+  a0: 0, a1: 0, cx: 0, gravT: 0, offT: 0, dupT: 0, shadow: null, ground: 208
+};
+
+function bossReset() {
+  BOSS.on = false; BOSS.done = false; BOSS.type = null; BOSS.def = null;
+  BOSS.parts.length = 0; BOSS.intro = 0; BOSS.nameT = 0; BOSS.dieT = 0;
+  BOSS.spawned = 0; BOSS.inv = 0; BOSS.phase = 1; BOSS.st = 'idle';
+  BOSS.tm = BOSS.tm2 = BOSS.tm3 = 0; BOSS.flash = 0; BOSS.anim = 0;
+  BOSS.gravT = 0; BOSS.offT = 0; BOSS.dupT = 0; BOSS.shadow = null;
+  world.grav = 1; world.off = null;
+}
+function startBoss() {
+  const type = world.bossType;
+  if (!type) return;
+  const d = BOSSDEF[type];
+  bossReset();
+  BOSS.on = true; BOSS.type = type; BOSS.def = d;
+  BOSS.hp = BOSS.maxHp = d.hp; BOSS.w = d.w; BOSS.h = d.h;
+  BOSS.a0 = world.bossX; BOSS.a1 = world.pw;
+  BOSS.cx = (BOSS.a0 + BOSS.a1) / 2;
+  BOSS.ground = 13 * TS;                      // рівень підлоги на аренах
+  BOSS.x = BOSS.a1 - 90; BOSS.y = BOSS.ground - d.h;
+  BOSS.face = -1; BOSS.intro = 1.9; BOSS.nameT = 3.2;
+  cam.lockX0 = BOSS.a0; cam.lockX1 = BOSS.a1;
+  Music.set('boss');
+  Sfx.bossIn(); cam.hit(5);
+  if (type === 'queen') {
+    BOSS.y = 104;
+    // дві опори стоять на підлозі, дві — над галереями (стріляти з платформи)
+    // дві опори на підлозі, дві — просто на галереях (стрибок із підлоги 32 px)
+    const pos = [[BOSS.a0 + 18, 192], [BOSS.a1 - 44, 192],
+                 [BOSS.a0 + 80, 160], [BOSS.a1 - 90, 160]];
+    for (let i = 0; i < 4; i++)
+      BOSS.parts.push({ id: i + 1, x: pos[i][0], y: pos[i][1], w: 14, h: 14,
+                        hp: 10, maxHp: 10, alive: true, flash: 0, kind: 'node' });
+  }
+  if (type === 'glitch') { BOSS.x = BOSS.cx - 13; BOSS.y = 96; BOSS.inv = 1; }
+  if (type === 'architect') { BOSS.y = BOSS.ground - d.h - 10; }
+}
+function bossInvulnerable() {
+  if (BOSS.type === 'queen') {
+    for (let i = 0; i < BOSS.parts.length; i++) if (BOSS.parts[i].alive) return true;
+    return false;
+  }
+  if (BOSS.type === 'glitch') return BOSS.st !== 'reboot';
+  if (BOSS.type === 'chrono') return BOSS.st !== 'stagger';
+  if (BOSS.type === 'architect') return BOSS.phase === 2;      // б'ються тільки ядра
+  return false;
+}
+function bossHitBoxes() {
+  const out = [];
+  if (!BOSS.on || BOSS.st === 'die') return out;
+  if (BOSS.type === 'queen' || BOSS.type === 'architect') {
+    for (let i = 0; i < BOSS.parts.length; i++) {
+      const p = BOSS.parts[i];
+      if (p.alive) out.push({ x: p.x, y: p.y, w: p.w, h: p.h, id: p.id, part: p });
+    }
+  }
+  if (!(BOSS.type === 'architect' && BOSS.phase === 2))
+    out.push({ x: BOSS.x, y: BOSS.y, w: BOSS.w, h: BOSS.h, id: 0, part: null });
+  return out;
+}
+function bossDamage(hb, dmg, opt) {
+  opt = opt || {};
+  if (!BOSS.on || BOSS.st === 'die' || BOSS.intro > 0) return false;
+  const part = hb.part;
+  if (part) {
+    if (!part.alive) return false;
+    part.hp -= dmg; part.flash = 0.12;
+    Sfx.hitEnemy();
+    burst(part.x + part.w / 2, part.y + part.h / 2, 5, '#ffd23f', 120, 0.3, 60, 1);
+    if (opt.melee) { bladeCharge(1); hitStop(0.05); }
+    if (part.hp <= 0) {
+      part.alive = false;
+      Sfx.explode(); cam.hit(4);
+      burst(part.x + part.w / 2, part.y + part.h / 2, 18, '#ff6b3d', 180, 0.6, 120, 2);
+      ring(part.x + part.w / 2, part.y + part.h / 2, 3, 30, 0.4, '#ffd23f', 2);
+      if (BOSS.type === 'architect') { BOSS.hp -= 14; bossCheckPhase(); }
+    }
+    return true;
+  }
+  if (bossInvulnerable() || BOSS.inv > 0) {
+    Sfx.blocked();
+    burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, '#22e0ff', 90, 0.22, 0, 1);
+    return false;
+  }
+  BOSS.hp -= dmg; BOSS.flash = 0.12;
+  Sfx.bossHurt();
+  if (opt.melee) { bladeCharge(1); hitStop(0.05); cam.hit(2); buzz(10); }
+  burst(BOSS.x + BOSS.w / 2 + rnd(-8, 8), BOSS.y + BOSS.h / 2 + rnd(-8, 8), 6, '#ffd23f', 140, 0.35, 90, 1);
+  if (BOSS.hp <= 0) { BOSS.hp = 0; bossDie(); } else bossCheckPhase();
+  return true;
+}
+function bossCheckPhase() {
+  const f = BOSS.hp / BOSS.maxHp;
+  if (BOSS.type === 'architect') {
+    if (BOSS.phase === 1 && f <= 0.66) bossArchPhase2();
+    else if (BOSS.phase === 2 && f <= 0.33) bossArchPhase3();
+    return;
+  }
+  if (BOSS.phase === 1 && f <= 0.5) {
+    BOSS.phase = 2; BOSS.inv = 0.9; BOSS.st = 'phase'; BOSS.tm = 0.9;
+    Sfx.bossIn(); cam.hit(6);
+    ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 6, 70, 0.7, '#ff2e88', 3);
+    burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 24, '#ff2e88', 200, 0.7, 40, 2);
+    if (BOSS.type === 'queen') {
+      // у фазі 2 матка піднімає лише дві нижні опори — бій не перетворюється на марафон
+      for (let i = 0; i < 2 && i < BOSS.parts.length; i++) {
+        const p = BOSS.parts[i];
+        p.alive = true; p.hp = p.maxHp = 8;
+      }
+    }
+  }
+}
+function bossDie() {
+  if (BOSS.st === 'die') return;                 // смерть програється лише раз
+  BOSS.st = 'die'; BOSS.dieT = 2.6; BOSS.inv = 99;
+  Sfx.bossDie(); buzz([60, 40, 120]); cam.hit(8);
+  world.grav = 1; world.off = null;
+}
+function bossContact(dmg) {
+  if (BOSS.st === 'die' || BOSS.intro > 0) return;
+  if (boxHit(BOSS.x, BOSS.y, BOSS.w, BOSS.h, P.x, P.y, P.w, P.h))
+    playerHurt(dmg || 1, BOSS.x + BOSS.w / 2);
+}
+
+/* ---- зони шкоди (лазери, ударні хвилі, промені босів) ---- */
+const ZONES = [];
+function zone(x, y, w, h, t, dmg, col, kind) {
+  if (ZONES.length > 30) ZONES.shift();
+  const z = { x: x, y: y, w: w, h: h, t: t, max: t, dmg: dmg, col: col || '#ff2e88',
+              kind: kind || 0, hit: false, vx: 0 };
+  ZONES.push(z);
+  return z;
+}
+function updateZones(dt) {
+  for (let i = ZONES.length - 1; i >= 0; i--) {
+    const z = ZONES[i];
+    z.t -= dt;
+    if (z.vx) z.x += z.vx * dt;
+    if (!z.hit && boxHit(z.x, z.y, z.w, z.h, P.x, P.y, P.w, P.h)) {
+      if (playerHurt(z.dmg, z.x + z.w / 2)) z.hit = true;
+    }
+    if (z.t <= 0) { ZONES[i] = ZONES[ZONES.length - 1]; ZONES.pop(); }
+  }
+}
+/* ---- «тіні» ХРОНОКЛИНКА ---- */
+const GHOSTS = [];
+function updateGhosts(dt) {
+  for (let i = GHOSTS.length - 1; i >= 0; i--) {
+    const g = GHOSTS[i];
+    if (g.delay > 0) { g.delay -= dt; if (g.delay <= 0) Sfx.slash(0); continue; }
+    g.t -= dt;
+    g.x += g.vx * dt;
+    if (!g.hit && boxHit(g.x - 8, g.y, 20, 16, P.x, P.y, P.w, P.h)) g.hit = playerHurt(1, g.x);
+    if (Math.random() < 0.5) part(g.x + rnd(-6, 6), g.y + rnd(0, 16), 0, 0, 0.2, '#8f6fff', 1, 0, 1);
+    if (g.t <= 0) { GHOSTS[i] = GHOSTS[GHOSTS.length - 1]; GHOSTS.pop(); }
+  }
+}
+function explosion(x, y, r, dmg, col) {
+  Sfx.explode(); cam.hit(4);
+  ring(x, y, 3, r, 0.4, col || '#ff6b3d', 3);
+  burst(x, y, 18, col || '#ffd23f', 190, 0.5, 160, 2);
+  if (dist2(x, y, P.x + P.w / 2, P.y + P.h / 2) < r * r) playerHurt(dmg, x);
+}
+
+/* ---------------- БОС 1: СЕРВОТАВР ---------------- */
+function bossServotaur(dt) {
+  const gy = BOSS.ground - BOSS.h;
+  BOSS.vy += PH.GRAV * dt;
+  BOSS.y += BOSS.vy * dt;
+  if (BOSS.y >= gy) {
+    if (BOSS.st === 'air') {                       // приземлення з ударною хвилею
+      BOSS.st = 'landed'; BOSS.tm = 0.8;
+      cam.hit(7); Sfx.explode(); buzz(30);
+      for (const d of [-1, 1])
+        shoot(BOSS.x + BOSS.w / 2, BOSS.ground - 9, d * 150, 0,
+              { own: 'e', dmg: 1, col: '#ffd23f', w: 12, h: 16, life: 3.2, kind: 3 });
+      for (let i = 0; i < 16; i++)
+        part(BOSS.x + rnd(0, BOSS.w), BOSS.ground - 2, rnd(-160, 160), rnd(-140, -30),
+             rnd(0.3, 0.7), '#ffd23f', 2, 300, 1);
+    }
+    BOSS.y = gy; BOSS.vy = 0;
+  }
+  switch (BOSS.st) {
+    case 'phase': case 'landed':
+      BOSS.vx *= 0.8; BOSS.tm -= dt;
+      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.7; }
+      break;
+    case 'idle': {
+      BOSS.face = sign((P.x + P.w / 2) - (BOSS.x + BOSS.w / 2)) || BOSS.face;
+      BOSS.vx = BOSS.face * 26;
+      moveX(BOSS, BOSS.vx * dt);
+      BOSS.tm -= dt;
+      if (BOSS.tm <= 0) {
+        if (BOSS.phase === 2 && Math.random() < 0.45) { BOSS.st = 'jumpTel'; BOSS.tm = 0.5; }
+        else { BOSS.st = 'paw'; BOSS.tm = 0.6; }
+      }
+      break;
+    }
+    case 'paw':                                     // ТЕЛЕГРАФ: риє копитом
+      BOSS.vx = 0; BOSS.tm -= dt;
+      if (Math.random() < 0.6)
+        part(BOSS.x + (BOSS.face > 0 ? BOSS.w : 0), BOSS.ground - 2,
+             -BOSS.face * rnd(40, 130), rnd(-90, -20), 0.4, '#ff6b3d', 2, 260, 1);
+      if (BOSS.tm <= 0) { BOSS.st = 'charge'; BOSS.tm = 2.4; BOSS.vx = BOSS.face * 235; Sfx.dash(); }
+      break;
+    case 'charge': {
+      BOSS.tm -= dt;
+      const hit = moveX(BOSS, BOSS.vx * dt);
+      if (BOSS.x <= BOSS.a0 + 4) { BOSS.x = BOSS.a0 + 4; }
+      if (BOSS.x + BOSS.w >= BOSS.a1 - 4) { BOSS.x = BOSS.a1 - 4 - BOSS.w; }
+      const atWall = hit || BOSS.x <= BOSS.a0 + 5 || BOSS.x + BOSS.w >= BOSS.a1 - 5;
+      if (boxHit(BOSS.x, BOSS.y, BOSS.w, BOSS.h, P.x, P.y, P.w, P.h)) playerHurt(2, BOSS.x + BOSS.w / 2);
+      if (atWall) {
+        BOSS.st = 'stun'; BOSS.tm = 2.0; BOSS.vx = 0;
+        cam.hit(6); Sfx.explode(); buzz(26);
+        burst(BOSS.x + (BOSS.face > 0 ? BOSS.w : 0), BOSS.y + BOSS.h / 2, 18, '#ffd23f', 200, 0.6, 240, 2);
+      } else if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.6; }
+      break;
+    }
+    case 'stun':                                    // ВІКНО ШКОДИ
+      BOSS.tm -= dt;
+      if (Math.random() < 0.3)
+        part(BOSS.x + rnd(0, BOSS.w), BOSS.y, rnd(-20, 20), -30, 0.5, '#22e0ff', 1, -10, 1);
+      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.5; }
+      break;
+    case 'jumpTel':                                 // ТЕЛЕГРАФ стрибка
+      BOSS.vx = 0; BOSS.tm -= dt;
+      if (BOSS.tm <= 0) {
+        BOSS.st = 'air'; BOSS.vy = -450;
+        BOSS.face = sign((P.x + P.w / 2) - (BOSS.x + BOSS.w / 2)) || BOSS.face;
+        BOSS.vx = BOSS.face * 105; Sfx.jump();
+      }
+      break;
+    case 'air':
+      moveX(BOSS, BOSS.vx * dt);
+      BOSS.x = clamp(BOSS.x, BOSS.a0 + 4, BOSS.a1 - 4 - BOSS.w);
+      break;
+  }
+  if (BOSS.st !== 'charge') bossContact(1);
+}
+
+/* ---------------- БОС 2: МАТКА-РІЙ ---------------- */
+function bossQueen(dt) {
+  const span = (BOSS.a1 - BOSS.a0) / 2 - 74;
+  BOSS.x = BOSS.cx - BOSS.w / 2 + Math.sin(BOSS.anim * 0.55) * span;
+  BOSS.y = 104 + Math.sin(BOSS.anim * 1.25) * 10;   // висота, куди дістає стрибок із галереї
+  BOSS.face = sign((P.x + P.w / 2) - (BOSS.x + BOSS.w / 2)) || BOSS.face;
+  const p2 = BOSS.phase === 2;
+  // хвилі ос
+  BOSS.tm -= dt;
+  if (BOSS.tm <= 0) {
+    BOSS.tm = p2 ? 2.2 : 3.4;
+    if (BOSS.spawned < (p2 ? 5 : 4)) {
+      const e = spawnEnemy('wasp', BOSS.x + BOSS.w / 2 - 8, BOSS.y + BOSS.h, p2);
+      if (e) { e.fromBoss = true; e.hy = BOSS.y + BOSS.h + 10; BOSS.spawned++; Sfx.shoot(); }
+    }
+  }
+  // бомби з телеграфом
+  BOSS.tm2 -= dt;
+  if (BOSS.tm2 <= 0) {
+    BOSS.tm2 = p2 ? 1.9 : 2.8;
+    BOSS.st = 'bombTel'; BOSS.tm3 = 0.5;
+    telegraph(P.x - 12, BOSS.ground - 26, P.w + 24, 26, 0.5, '#ff6b3d', 1);
+  }
+  if (BOSS.st === 'bombTel') {
+    BOSS.tm3 -= dt;
+    if (BOSS.tm3 <= 0) {
+      BOSS.st = 'fly';
+      const dx = (P.x + P.w / 2) - (BOSS.x + BOSS.w / 2);
+      shoot(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h, clamp(dx * 0.85, -150, 150), 30,
+            { own: 'e', dmg: 1, col: '#ff6b3d', w: 8, h: 8, life: 4, grav: 300, kind: 4 });
+      Sfx.shoot();
+    }
+  }
+  // вузли-генератори живлять щит матки
+  let alive = 0;
+  for (let i = 0; i < BOSS.parts.length; i++) {
+    const nd = BOSS.parts[i];
+    if (nd.flash > 0) nd.flash -= dt;
+    if (!nd.alive) continue;
+    alive++;
+    if (Math.random() < 0.06)
+      part(nd.x + rnd(0, nd.w), nd.y + rnd(0, nd.h), rnd(-20, 20), rnd(-30, 0), 0.4, '#22e0ff', 1, -20, 1);
+  }
+  BOSS.shielded = alive > 0;
+  bossContact(1);
+}
+
+/* ---------------- БОС 3: ХРОНОКЛИНОК ---------------- */
+function bossChrono(dt) {
+  const gy = BOSS.ground - BOSS.h;
+  BOSS.vy += PH.GRAV * dt;
+  BOSS.y = Math.min(gy, BOSS.y + BOSS.vy * dt);
+  if (BOSS.y >= gy) { BOSS.y = gy; BOSS.vy = 0; }
+  BOSS.face = sign((P.x + P.w / 2) - (BOSS.x + BOSS.w / 2)) || BOSS.face;
+
+  switch (BOSS.st) {
+    case 'phase': BOSS.tm -= dt; if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.4; } break;
+    case 'idle':
+      BOSS.tm -= dt;
+      if (BOSS.tm <= 0) {
+        BOSS.st = 'tp'; BOSS.tm = 0.45;
+        const side = (P.x < BOSS.cx) ? 1 : -1;
+        BOSS.tx = clamp(P.x + side * 54, BOSS.a0 + 12, BOSS.a1 - BOSS.w - 12);
+        BOSS.ty = gy;
+      }
+      break;
+    case 'tp':                                     // ТЕЛЕГРАФ телепорту
+      BOSS.tm -= dt;
+      if (Math.random() < 0.7)
+        part(BOSS.tx + rnd(0, BOSS.w), BOSS.ty + rnd(0, BOSS.h), 0, -20, 0.3, '#8f6fff', 1, 0, 1);
+      if (BOSS.tm <= 0) {
+        burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 10, '#8f6fff', 120, 0.3, 0, 1);
+        BOSS.x = BOSS.tx; BOSS.y = BOSS.ty;
+        BOSS.st = 'wind'; BOSS.tm = 0.5; BOSS.tm3 = 0;
+        burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 10, '#8f6fff', 120, 0.3, 0, 1);
+      }
+      break;
+    case 'wind':                                    // ТЕЛЕГРАФ випаду
+      BOSS.tm -= dt;
+      if (BOSS.tm <= 0) {
+        BOSS.st = 'lunge'; BOSS.tm = 0.30; BOSS.hitDone = false;
+        BOSS.vx = BOSS.face * 250; BOSS.tm3++;
+        Sfx.slash(1);
+        if (BOSS.phase === 2)
+          GHOSTS.push({ x: BOSS.x, y: BOSS.y, vx: BOSS.vx, t: 0.30, delay: 1.2, hit: false });
+      }
+      break;
+    case 'lunge': {
+      BOSS.tm -= dt;
+      moveX(BOSS, BOSS.vx * dt);
+      BOSS.x = clamp(BOSS.x, BOSS.a0 + 4, BOSS.a1 - BOSS.w - 4);
+      const bx = BOSS.face > 0 ? BOSS.x + BOSS.w - 6 : BOSS.x - 16;
+      const box = { x: bx, y: BOSS.y + 2, w: 22, h: 18 };
+      if (!BOSS.hitDone && boxHit(box.x, box.y, box.w, box.h, P.x - 6, P.y - 4, P.w + 12, P.h + 8)) {
+        if (P.parryT > 0) {                        // ПАРИРУВАННЯ — єдиний спосіб пробити захист
+          BOSS.hitDone = true;
+          BOSS.st = 'stagger'; BOSS.tm = 1.6; BOSS.vx = -BOSS.face * 90;
+          Sfx.parry(); buzz(20); cam.hit(4); hitStop(0.10);
+          ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 34, 0.4, '#ffd23f', 2);
+          bladeCharge(2);
+        } else if (boxHit(box.x, box.y, box.w, box.h, P.x, P.y, P.w, P.h)) {
+          BOSS.hitDone = playerHurt(1, BOSS.x + BOSS.w / 2);
+        }
+      }
+      if (BOSS.tm <= 0) {
+        BOSS.vx = 0;
+        if (BOSS.tm3 < 3) { BOSS.st = 'wind'; BOSS.tm = 0.34; }
+        else { BOSS.st = 'idle'; BOSS.tm = 0.9; BOSS.tm3 = 0; }
+      }
+      break;
+    }
+    case 'stagger':                                 // ВІКНО ШКОДИ
+      BOSS.tm -= dt; BOSS.vx *= 0.9;
+      moveX(BOSS, BOSS.vx * dt);
+      if (Math.random() < 0.4)
+        part(BOSS.x + rnd(0, BOSS.w), BOSS.y + rnd(0, 8), rnd(-20, 20), -25, 0.4, '#ffd23f', 1, -10, 1);
+      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.5; }
+      break;
+  }
+  if (BOSS.st !== 'lunge') bossContact(1);
+}
+
+/* ---------------- БОС 4: ГЛІТЧ-ЯДРО ---------------- */
+function glitchLasers() {
+  const horiz = Math.random() < 0.5;
+  const n = BOSS.phase === 2 ? 3 : 2;
+  for (let i = 0; i < n; i++) {
+    if (horiz) {
+      const y = BOSS.ground - 20 - i * 46 - rnd(0, 14);
+      telegraph(BOSS.a0, y - 2, BOSS.a1 - BOSS.a0, 5, 0.55, '#ff2e88', 2);
+      setTimeoutZone(BOSS.a0, y - 2, BOSS.a1 - BOSS.a0, 5, 0.55, 0.35);
+    } else {
+      const x = BOSS.a0 + 40 + Math.random() * (BOSS.a1 - BOSS.a0 - 80);
+      telegraph(x - 2, 16, 5, BOSS.ground - 16, 0.55, '#ff2e88', 2);
+      setTimeoutZone(x - 2, 16, 5, BOSS.ground - 16, 0.55, 0.35);
+    }
+  }
+  Sfx.charge();
+}
+const PENDING = [];
+function setTimeoutZone(x, y, w, h, delay, dur) {
+  PENDING.push({ x: x, y: y, w: w, h: h, t: delay, dur: dur });
+}
+function updatePending(dt) {
+  for (let i = PENDING.length - 1; i >= 0; i--) {
+    const p = PENDING[i];
+    p.t -= dt;
+    if (p.t <= 0) {
+      if (p.crumble !== undefined) archCrumble(p.crumble);
+      else if (p.shootVX !== undefined) {
+        shoot(p.x, p.y, p.shootVX, p.shootVY,
+              { own: 'e', dmg: 1, col: '#ff2e88', w: 6, h: 6, life: 3.2 });
+        Sfx.shoot();
+      } else {
+        const z = zone(p.x, p.y, p.w, p.h, p.dur, 1, '#ff2e88', 1);
+        if (p.sweep) z.vx = p.sweep;
+        Sfx.beam();
+      }
+      PENDING[i] = PENDING[PENDING.length - 1]; PENDING.pop();
+    }
+  }
+}
+function glitchArenaFx() {
+  const r = Math.floor(rnd(0, 3));
+  if (r === 0) {                                   // інверсія гравітації
+    world.grav = -1; BOSS.gravT = 5.0;
+    Sfx.overheat(); cam.hit(4);
+    P.vy = -80; P.onGround = false;
+  } else if (r === 1) {                            // платформи зникають
+    const off = new Uint8Array(world.tw * world.th);
+    for (let tx = Math.floor(BOSS.a0 / TS); tx < world.tw; tx++)
+      for (let ty = 0; ty < world.th; ty++) {
+        const i = ty * world.tw + tx;
+        if (world.tiles[i] === T_PLAT) off[i] = 1;
+      }
+    world.off = off; BOSS.offT = 4.5;
+    Sfx.blocked();
+  } else {                                         // дублювання екрана
+    BOSS.dupT = 3.4; Sfx.overheat();
+  }
+}
+function bossGlitch(dt) {
+  BOSS.x = BOSS.cx - BOSS.w / 2 + Math.sin(BOSS.anim * 0.45) * 96;
+  // під час перезавантаження ядро сідає низько — саме тоді його можна дістати
+  const wantY = BOSS.st === 'reboot' ? 138 : 78 + Math.cos(BOSS.anim * 0.75) * 30;
+  BOSS.y = lerp(BOSS.y, wantY, clamp(dt * 4, 0, 1));
+  if (BOSS.gravT > 0) { BOSS.gravT -= dt; if (BOSS.gravT <= 0) { world.grav = 1; P.vy = 40; } }
+  if (BOSS.offT > 0) { BOSS.offT -= dt; if (BOSS.offT <= 0) world.off = null; }
+  if (BOSS.dupT > 0) BOSS.dupT -= dt;
+
+  BOSS.tm -= dt;
+  if (BOSS.st === 'reboot') {                       // ВІКНО ШКОДИ
+    if (Math.random() < 0.5)
+      part(BOSS.x + rnd(0, BOSS.w), BOSS.y + rnd(0, BOSS.h), rnd(-40, 40), rnd(-40, 40),
+           0.3, '#ffffff', 1, 0, 1);
+    if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = BOSS.phase === 2 ? 9 : 12; }
+  } else if (BOSS.tm <= 0) {
+    BOSS.st = 'reboot'; BOSS.tm = 3.0; Sfx.bossIn(); cam.hit(3);
+    ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 50, 0.5, '#ffffff', 2);
+  }
+  BOSS.tm2 -= dt;
+  if (BOSS.tm2 <= 0 && BOSS.st !== 'reboot') {
+    BOSS.tm2 = BOSS.phase === 2 ? 2.8 : 3.8;
+    glitchLasers();
+  }
+  BOSS.tm3 -= dt;
+  if (BOSS.tm3 <= 0) { BOSS.tm3 = BOSS.phase === 2 ? 6.0 : 8.0; glitchArenaFx(); }
+  bossContact(1);
+}
+
+/* ---------------- БОС 5: АРХІТЕКТОР (3 фази) ---------------- */
+function bossArchPhase2() {
+  BOSS.phase = 2; BOSS.inv = 1.2; BOSS.st = 'orbit'; BOSS.tm = 1.2;
+  BOSS.parts.length = 0;
+  for (let i = 0; i < 3; i++)
+    BOSS.parts.push({ id: i + 1, x: BOSS.cx, y: 110, w: 16, h: 16, hp: 16, maxHp: 16,
+                      alive: true, flash: 0, kind: 'core', ang: i * Math.PI * 2 / 3, tm: rnd(0.5, 2) });
+  Sfx.bossIn(); cam.hit(7);
+  ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 6, 90, 0.8, '#22e0ff', 3);
+  burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 30, '#22e0ff', 220, 0.8, 30, 2);
+}
+function bossArchPhase3() {
+  BOSS.phase = 3; BOSS.inv = 1.4; BOSS.st = 'head'; BOSS.tm = 1.4;
+  BOSS.parts.length = 0;
+  BOSS.w = 60; BOSS.h = 52;
+  BOSS.x = BOSS.a1 - 84; BOSS.y = BOSS.ground - BOSS.h - 26;
+  BOSS.crumble = 0; BOSS.crumbleStep = 0;
+  Sfx.bossIn(); cam.hit(9);
+  burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 34, '#ff2e88', 240, 0.9, 30, 2);
+}
+// Арена руйнується: щоразу зникає пара колонок підлоги (з попередженням).
+const CRUMBLE = [[5, 2], [11, 2], [17, 2], [23, 2]];
+function archCrumble(step) {
+  if (step >= CRUMBLE.length) return;
+  const t0 = Math.floor(BOSS.a0 / TS) + CRUMBLE[step][0], n = CRUMBLE[step][1];
+  if (!world.off) world.off = new Uint8Array(world.tw * world.th);
+  for (let i = 0; i < n; i++) {
+    const tx = t0 + i;
+    for (let ty = 0; ty < world.th; ty++) {
+      const idx = ty * world.tw + tx;
+      if (world.tiles[idx] === T_SOLID || world.tiles[idx] === T_PLAT) world.off[idx] = 1;
+    }
+    for (let k = 0; k < 10; k++)
+      part(tx * TS + rnd(0, TS), BOSS.ground + rnd(0, 20), rnd(-40, 40), rnd(-60, 40),
+           rnd(0.4, 0.9), '#7b2fbe', 2, 260, 1);
+  }
+  cam.hit(5); Sfx.explode();
+}
+function bossArchitect(dt) {
+  if (BOSS.phase === 1) {
+    const gy = BOSS.ground - BOSS.h - 4;
+    BOSS.y = gy + Math.sin(BOSS.anim * 1.6) * 4;
+    BOSS.face = sign((P.x + P.w / 2) - (BOSS.x + BOSS.w / 2)) || BOSS.face;
+    switch (BOSS.st) {
+      case 'idle': {
+        BOSS.vx = BOSS.face * 34;
+        moveX(BOSS, BOSS.vx * dt);
+        BOSS.x = clamp(BOSS.x, BOSS.a0 + 6, BOSS.a1 - BOSS.w - 6);
+        BOSS.tm -= dt;
+        if (BOSS.tm <= 0) {
+          if (Math.random() < 0.35) { BOSS.st = 'dashTel'; BOSS.tm = 0.6; }
+          else { BOSS.st = 'aimTel'; BOSS.tm = 0.5; }
+        }
+        break;
+      }
+      case 'aimTel':                                // ТЕЛЕГРАФ залпу
+        BOSS.vx = 0; BOSS.tm -= dt;
+        if (Math.random() < 0.6)
+          part(BOSS.x + BOSS.w / 2 + BOSS.face * 10, BOSS.y + 12, rnd(-20, 20), rnd(-20, 20),
+               0.25, '#22e0ff', 1, 0, 1);
+        if (BOSS.tm <= 0) {
+          BOSS.st = 'idle'; BOSS.tm = 1.1;
+          const sx = BOSS.x + BOSS.w / 2 + BOSS.face * 10, sy = BOSS.y + 12;
+          for (let i = -1; i <= 1; i++)
+            shoot(sx, sy, BOSS.face * 135, i * 52, { own: 'e', dmg: 1, col: '#22e0ff', w: 6, h: 5, life: 3 });
+          Sfx.shoot();
+        }
+        break;
+      case 'dashTel':                               // ТЕЛЕГРАФ ривка
+        BOSS.vx = 0; BOSS.tm -= dt;
+        telegraph(BOSS.face > 0 ? BOSS.x : BOSS.a0, BOSS.y, BOSS.face > 0 ? BOSS.a1 - BOSS.x : BOSS.x - BOSS.a0,
+                  BOSS.h, 0.06, '#ff2e88', 1);
+        if (BOSS.tm <= 0) { BOSS.st = 'dash'; BOSS.tm = 1.1; BOSS.vx = BOSS.face * 210; Sfx.dash(); }
+        break;
+      case 'dash':
+        BOSS.tm -= dt;
+        moveX(BOSS, BOSS.vx * dt);
+        if (BOSS.x <= BOSS.a0 + 6 || BOSS.x + BOSS.w >= BOSS.a1 - 6 || BOSS.tm <= 0) {
+          BOSS.x = clamp(BOSS.x, BOSS.a0 + 6, BOSS.a1 - BOSS.w - 6);
+          BOSS.st = 'idle'; BOSS.tm = 0.8; BOSS.vx = 0;
+        }
+        if (boxHit(BOSS.x, BOSS.y, BOSS.w, BOSS.h, P.x, P.y, P.w, P.h)) playerHurt(2, BOSS.x + BOSS.w / 2);
+        break;
+      case 'phase': BOSS.tm -= dt; if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.6; } break;
+    }
+    if (BOSS.st !== 'dash') bossContact(1);
+
+  } else if (BOSS.phase === 2) {
+    // Три орбітальні ядра — тіло невразливе.
+    BOSS.tm -= dt;
+    let aliveN = 0;
+    for (let i = 0; i < BOSS.parts.length; i++) {
+      const c = BOSS.parts[i];
+      if (c.flash > 0) c.flash -= dt;
+      if (!c.alive) continue;
+      aliveN++;
+      c.ang += dt * 0.85;
+      c.x = BOSS.cx - 8 + Math.cos(c.ang) * 78;
+      c.y = 132 - 8 + Math.sin(c.ang) * 44;
+      c.tm -= dt;
+      if (c.tm <= 0 && BOSS.tm <= 0) {
+        c.tm = 2.6; BOSS.tm = 0.7;
+        const dx = (P.x + P.w / 2) - (c.x + c.w / 2), dy = (P.y + P.h / 2) - (c.y + c.h / 2);
+        const L = Math.max(1, Math.hypot(dx, dy));
+        telegraph(c.x - 1, c.y - 1, 18, 18, 0.45, '#ff2e88', 1);
+        const vx = dx / L * 150, vy = dy / L * 150;
+        PENDING.push({ x: c.x + 8, y: c.y + 8, w: 0, h: 0, t: 0.45, dur: 0, shootVX: vx, shootVY: vy });
+      }
+      if (Math.random() < 0.08)
+        part(c.x + rnd(0, c.w), c.y + rnd(0, c.h), rnd(-20, 20), rnd(-20, 20), 0.3, '#22e0ff', 1, 0, 1);
+    }
+    BOSS.x = BOSS.cx - BOSS.w / 2; BOSS.y = 124;
+    if (aliveN === 0 && BOSS.phase === 2) bossArchPhase3();
+
+  } else {
+    // Фаза 3: велетенська голова + арена, що руйнується.
+    BOSS.y = BOSS.ground - BOSS.h - 26 + Math.sin(BOSS.anim * 1.1) * 3;
+    BOSS.crumble = (BOSS.crumble || 0) - dt;
+    if (BOSS.crumble <= 0 && (BOSS.crumbleStep || 0) < CRUMBLE.length) {
+      BOSS.crumble = 6.0;
+      const st = BOSS.crumbleStep || 0;
+      const tx0 = (Math.floor(BOSS.a0 / TS) + CRUMBLE[st][0]) * TS;
+      telegraph(tx0, BOSS.ground, CRUMBLE[st][1] * TS, 40, 0.9, '#ff2e88', 1);
+      PENDING.push({ x: 0, y: 0, w: 0, h: 0, t: 0.9, dur: 0, crumble: st });
+      BOSS.crumbleStep = st + 1;
+    }
+    BOSS.tm -= dt;
+    if (BOSS.tm <= 0) {
+      const r = Math.random();
+      if (r < 0.38) {                                // променевий замах
+        BOSS.tm = 3.4;
+        const y0 = BOSS.ground - 60;
+        telegraph(BOSS.a0 + 8, y0, BOSS.a1 - BOSS.a0 - 16, 56, 0.6, '#ff2e88', 2);
+        PENDING.push({ x: BOSS.a0 + 8, y: y0, w: 10, h: 56, t: 0.6, dur: 1.9, sweep: 78 });
+      } else if (r < 0.72) {                         // ударні хвилі по землі
+        BOSS.tm = 2.8;
+        cam.hit(4); Sfx.explode();
+        for (const d of [-1, 1])
+          shoot(BOSS.x + BOSS.w / 2, BOSS.ground - 9, d * 145, 0,
+                { own: 'e', dmg: 1, col: '#ffd23f', w: 12, h: 16, life: 3.4, kind: 3 });
+      } else {                                       // виклик рою
+        BOSS.tm = 4.2;
+        if (BOSS.spawned < 3) {
+          const e = spawnEnemy('wasp', BOSS.x + 10, BOSS.y + 20, true);
+          if (e) { e.fromBoss = true; e.hy = 70; BOSS.spawned++; }
+        }
+      }
+    }
+    bossContact(1);
+  }
+}
+
+/* ---------------- диспетчер босів ---------------- */
+function updateBoss(dt) {
+  if (!BOSS.on) return;
+  BOSS.anim += dt;
+  if (BOSS.flash > 0) BOSS.flash -= dt;
+  if (BOSS.nameT > 0) BOSS.nameT -= dt;
+  if (BOSS.inv > 0 && BOSS.st !== 'die') BOSS.inv -= dt;
+  P.x = clamp(P.x, BOSS.a0 + 2, BOSS.a1 - P.w - 2);
+  if (BOSS.intro > 0) {
+    BOSS.intro -= dt;
+    if (Math.random() < 0.3)
+      part(BOSS.x + rnd(0, BOSS.w), BOSS.y + rnd(0, BOSS.h), rnd(-30, 30), rnd(-30, 30),
+           0.4, '#ff2e88', 1, 0, 1);
+    return;
+  }
+  if (BOSS.st === 'die') {
+    BOSS.dieT -= dt;
+    if (Math.random() < 0.5) {
+      const x = BOSS.x + rnd(0, BOSS.w), y = BOSS.y + rnd(0, BOSS.h);
+      burst(x, y, 6, Math.random() < 0.5 ? '#ffd23f' : '#ff2e88', 150, 0.5, 120, 2);
+      if (Math.random() < 0.25) { ring(x, y, 2, 22, 0.35, '#ffffff', 2); cam.hit(3); Sfx.explode(); }
+    }
+    if (BOSS.dieT <= 0) finishBoss();
+    return;
+  }
+  switch (BOSS.type) {
+    case 'servotaur': bossServotaur(dt); break;
+    case 'queen': bossQueen(dt); break;
+    case 'chrono': bossChrono(dt); break;
+    case 'glitch': bossGlitch(dt); break;
+    case 'architect': bossArchitect(dt); break;
+  }
+}
+function finishBoss() {
+  BOSS.on = false; BOSS.done = true;
+  world.exitOpen = true; world.grav = 1; world.off = null;
+  cam.lockX0 = -1; cam.lockX1 = -1;
+  for (let i = 0; i < ENEM.length; i++) if (ENEM[i].fromBoss) ENEM[i].dead = true;
+  ZONES.length = 0; PENDING.length = 0; GHOSTS.length = 0;
+  Music.set(world.theme);
+  Sfx.win(); buzz([30, 50, 30]);
+  ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 8, 140, 1.0, '#ffd23f', 3);
+}
+
+
+const WEATHER = [];
+function buildBackground() {
+  const th = THEME[world.theme] || THEME.slum;
+  const R = mulberry(9001 + world.idx * 104729);
+  world.bg = [];
+  const W = world.pw;
+  // далекий шар — силуети веж/конструкцій
+  for (let x = -40; x < W + 40; x += 22 + Math.floor(R() * 26)) {
+    const h = 40 + R() * 110, w = 14 + R() * 26;
+    world.bg.push({ l: 0, x: x, y: 200 - h, w: w, h: h + 90, c: th.far, n: R() });
+  }
+  for (let x = -30; x < W + 30; x += 30 + Math.floor(R() * 34)) {
+    const h = 30 + R() * 70, w = 18 + R() * 30;
+    world.bg.push({ l: 1, x: x, y: 214 - h, w: w, h: h + 80, c: th.mid, n: R() });
+  }
+  // неонові вивіски
+  for (let x = 20; x < W; x += 70 + Math.floor(R() * 90)) {
+    world.bg.push({ l: 2, x: x, y: 40 + R() * 90, w: 4 + R() * 5, h: 12 + R() * 30,
+                    c: R() < 0.5 ? th.edge : th.glow, n: R(), sign: true });
+  }
+  WEATHER.length = 0;
+  const n = th.fx === 'rain' ? 90 : 46;
+  for (let i = 0; i < n; i++)
+    WEATHER.push({ x: Math.random() * VW, y: Math.random() * VH, v: rnd(0.5, 1.5), p: Math.random() });
+}
+function updateWeather(dt) {
+  const th = THEME[world.theme] || THEME.slum;
+  for (let i = 0; i < WEATHER.length; i++) {
+    const w = WEATHER[i];
+    switch (th.fx) {
+      case 'rain': w.y += (520 + w.v * 260) * dt; w.x -= 90 * dt; break;
+      case 'petal': w.y += (26 + w.v * 22) * dt; w.x += Math.sin((world.time + w.p * 6) * 1.6) * 22 * dt; break;
+      case 'dust': w.y += (10 + w.v * 14) * dt; w.x += Math.sin((world.time + w.p * 9) * 0.7) * 10 * dt; break;
+      case 'spark': w.y -= (40 + w.v * 60) * dt; w.x += Math.sin((world.time + w.p * 5) * 3) * 16 * dt; break;
+      case 'ember': w.y -= (30 + w.v * 50) * dt; w.x += Math.sin((world.time + w.p * 4) * 2) * 14 * dt; break;
+      case 'steam': w.y -= (20 + w.v * 30) * dt; break;
+      case 'wind': w.x -= (180 + w.v * 200) * dt; break;
+      case 'glitch': w.p += dt * 0.9; if (w.p > 1) { w.p = 0; w.y = Math.random() * VH; w.x = Math.random() * VW; } break;
+    }
+    if (w.y > VH + 4) { w.y = -4; w.x = Math.random() * VW; }
+    if (w.y < -4) { w.y = VH + 4; w.x = Math.random() * VW; }
+    if (w.x < -6) w.x = VW + 4;
+    if (w.x > VW + 6) w.x = -4;
+  }
+}
+
+const Game = {
+  state: 'menu', level: 0, introT: 0, cpTaken: false, backTo: 'menu',
+
+  startLevel(idx, useCp) {
+    this.level = clamp(idx, 0, LEVELS.length - 1);
+    if (!useCp) this.cpTaken = false;
+    clearEntities();
+    bossReset();
+    ZONES.length = 0; PENDING.length = 0; GHOSTS.length = 0; TRAIL.length = 0;
+    hitStopT = 0;
+    loadLevel(this.level);
+    buildBackground();
+    spawnAllEnemies();
+    let sx = world.spawn.x, sy = world.spawn.y;
+    if (useCp && this.cpTaken) {
+      world.cpTaken = true;
+      world.cp.x = world.cpPos.x; world.cp.y = world.cpPos.y;
+      sx = world.cp.x; sy = world.cp.y;
+    }
+    playerSpawnAt(sx, sy);
+    P.hp = P.maxHp; P.q = 0; P.heat = 0;
+    cam.reset(sx, sy);
+    Music.set(world.theme); Music.start();
+    this.introT = 2.2;
+    this.state = 'play';
+    hooks.showScreen(null);
+    Input.enable(true);
+    Input.clearEdges();
+  },
+  levelClear() {
+    this.state = 'clear';
+    Input.enable(false);
+    Music.stop();
+    const d = Store.data;
+    if (d.cleared.indexOf(this.level) < 0) d.cleared.push(this.level);
+    d.unlocked = Math.max(d.unlocked, Math.min(LEVELS.length, this.level + 2));
+    Store.save();
+    hooks.refreshLevels();
+    if (this.level >= LEVELS.length - 1) {
+      hooks.setWinStat('Смертей за гру: ' + Store.data.deaths);
+      hooks.showScreen('win');
+      Sfx.win();
+    } else {
+      hooks.setClear(world.bossType ? 'БОСА ЗНИЩЕНО' : 'СЕКТОР ЗАЧИЩЕНО',
+                     'СЕКТОР ' + (this.level + 1) + ' · ' + world.def.n);
+      hooks.showScreen('clear');
+    }
+  },
+  onDeath() {
+    this.state = 'dead';
+    Input.enable(false);
+    Music.stop();
+    Store.data.deaths++; Store.save();
+    hooks.showScreen('dead');
+  },
+  pause() {
+    if (this.state !== 'play') return;
+    this.state = 'pause';
+    Input.enable(false);
+    hooks.showScreen('pause');
+  },
+  resume() {
+    if (this.state !== 'pause') return;
+    this.state = 'play';
+    Music.start();
+    hooks.showScreen(null);
+    Input.enable(true);
+    Input.clearEdges();
+  },
+  toMenu() {
+    this.state = 'menu';
+    Music.stop();
+    clearEntities(); bossReset();
+    Input.enable(false);
+    hooks.showScreen('menu');
+    hooks.refreshProgress();
+  }
+};
+
+
+
+
+
+function updateMovingPlatforms(dt) {
+  for (let i = 0; i < world.mp.length; i++) {
+    const m = world.mp[i];
+    if (m.axis === 'h') {
+      const ox = m.x;
+      m.x += m.sp * m.dir * dt;
+      if (m.x <= m.a) { m.x = m.a; m.dir = 1; }
+      else if (m.x >= m.b) { m.x = m.b; m.dir = -1; }
+      m.dx = m.x - ox; m.dy = 0;
+    } else {
+      const oy = m.y;
+      m.y += m.sp * m.dir * dt;
+      if (m.y <= m.a) { m.y = m.a; m.dir = 1; }
+      else if (m.y >= m.b) { m.y = m.b; m.dir = -1; }
+      m.dy = m.y - oy; m.dx = 0;
+    }
+  }
+}
+function stepGame(dt) {
+  world.time += dt;
+  if (Game.introT > 0) Game.introT -= dt;
+  Input.step();
+  updateMovingPlatforms(dt);
+  updatePlayer(dt);
+  updateEnemies(dt);
+  updateBoss(dt);
+  updateBullets(dt);
+  updateBeams(dt);
+  updateZones(dt);
+  updatePending(dt);
+  updateGhosts(dt);
+  updateTele(dt);
+  updateParts(dt);
+  updateRings(dt);
+  updateWeather(dt);
+  cam.update(dt, P.x + P.w / 2, P.y + P.h / 2);
+  Music.update();
+}
+
+
+/* ---------------------------------------------------------------- ЕКСПОРТ */
+export const timing = {
+  get hitStop() { return hitStopT; },
+  sub(dt) { hitStopT = Math.max(0, hitStopT - dt); }
+};
+export function setGod(v) { GOD = !!v; }
+export {
+  cam, world, P, BOSS, Game,
+  PARTS, RINGS, ZONES, TELE, BEAMS, GHOSTS, PICKS, PENDING, BULL, ENEM, TRAIL, WEATHER,
+  ETYPE, LEVELS,
+  stepGame, updateMovingPlatforms,
+  tAt, solidAtPx, rectSolid, isSolidCode, moveX, moveY, T_EMPTY, T_SOLID, T_PLAT, T_SPIKE, T_CONVR, T_CONVL,
+  bossHitBoxes, bossInvulnerable, bossDamage, bossDie, bossCheckPhase,
+  spawnEnemy, damageEnemy, shoot, part, burst, ring, playerHurt, bladeBox,
+  startBoss, buildBackground, updateWeather, loadLevel, spawnAllEnemies, playerSpawnAt,
+  clearEntities
+};

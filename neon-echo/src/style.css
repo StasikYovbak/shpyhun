@@ -1,0 +1,102 @@
+/* ============================================================
+   ЕХО: НЕОНОВИЙ КУР'ЄР — піксельний кіберпанк-платформер.
+   Один файл, нуль зовнішніх ресурсів. Уся графіка — код,
+   увесь звук — WebAudio.
+   ============================================================ */
+:root{
+  --pink:#ff2e88; --cyan:#22e0ff; --yellow:#ffd23f; --violet:#7b2fbe;
+  --bg:#0b0413; --bg2:#170a26; --line:rgba(34,224,255,.28); --dim:#9a7fb5;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;padding:0;overflow:hidden;background:#000;
+  touch-action:none;-ms-touch-action:none;overscroll-behavior:none;
+  user-select:none;-webkit-user-select:none;-moz-user-select:none;
+  -webkit-touch-callout:none;
+  font-family:ui-monospace,"Courier New",Consolas,monospace;color:#e8ddf5}
+#app{position:fixed;inset:0;background:#000;display:block}
+
+
+/* ---------- шар сенсорного керування ---------- */
+#touch{position:absolute;inset:0;touch-action:none;display:none;z-index:5;--ctlop:.55}
+#touch.on{display:block}
+.pad{position:absolute;border-radius:50%;border:2px solid rgba(34,224,255,.75);
+  background:rgba(20,6,36,.35);opacity:var(--ctlop);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  font-weight:700;font-size:20px;color:#bff4ff;text-shadow:0 0 6px rgba(34,224,255,.9);
+  transition:transform .06s linear,background .06s linear;will-change:transform}
+.pad.hit{background:rgba(255,46,136,.55);border-color:#ffd23f;color:#fff;transform:scale(.92)}
+.pad small{display:block;font-size:9px;letter-spacing:.08em;opacity:.85;margin-top:1px;font-weight:400}
+.pad.small{font-size:15px}
+.pad.small small{font-size:8px}
+/* хрестовина: 4 трикутники-стрілки, хітбокс рахується в JS і на 25% більший */
+#dpad{position:absolute;opacity:var(--ctlop);pointer-events:none;overflow:visible}
+#dpad .arw{fill:rgba(20,6,36,.5);stroke:#22e0ff;stroke-width:2.5;stroke-linejoin:round;
+  transition:fill .06s linear}
+#dpad .arw.hit{fill:#ff2e88;stroke:#ffd23f}
+#dpad .hub{fill:rgba(20,6,36,.3);stroke:rgba(34,224,255,.45);stroke-width:2}
+#btnPause{position:absolute;width:44px;height:44px;border-radius:10px;border:2px solid var(--line);
+  background:rgba(11,4,19,.55);opacity:var(--ctlop);display:flex;align-items:center;justify-content:center;
+  color:#bff4ff;font-size:15px;font-weight:700}
+
+/* ---------- екрани меню ---------- */
+.scr{position:absolute;inset:0;z-index:10;display:none;flex-direction:column;
+  align-items:center;justify-content:center;gap:10px;padding:18px;
+  background:radial-gradient(120% 90% at 50% 0%,rgba(123,47,190,.35),rgba(11,4,19,.94) 65%),
+             linear-gradient(180deg,#0b0413,#170a26);
+  overflow-y:auto;-webkit-overflow-scrolling:touch}
+.scr.on{display:flex}
+.scr .inner{width:100%;max-width:460px;display:flex;flex-direction:column;align-items:stretch;gap:9px}
+h1{margin:0 0 2px;font-size:clamp(22px,7vw,38px);line-height:1;letter-spacing:.06em;text-align:center;
+  color:var(--pink);text-shadow:0 0 12px rgba(255,46,136,.75),0 3px 0 #3d0a26}
+h1 span{display:block;font-size:.42em;letter-spacing:.34em;color:var(--cyan);
+  text-shadow:0 0 10px rgba(34,224,255,.7);margin-top:6px}
+h2{margin:0 0 4px;font-size:15px;letter-spacing:.22em;color:var(--cyan);text-align:center;
+  text-transform:uppercase}
+.btn{display:block;width:100%;min-height:48px;padding:12px 14px;border:2px solid var(--line);
+  border-radius:8px;background:rgba(34,224,255,.07);color:#e8ddf5;font:inherit;font-size:14px;
+  letter-spacing:.14em;text-transform:uppercase;cursor:pointer;text-align:center}
+.btn:active{transform:scale(.98);background:rgba(255,46,136,.25)}
+.btn.pri{border-color:var(--pink);background:rgba(255,46,136,.18);color:#fff;
+  box-shadow:0 0 14px rgba(255,46,136,.28)}
+.btn:disabled{opacity:.32;cursor:default}
+.row{display:flex;gap:8px;align-items:center;justify-content:space-between;
+  border:1px solid rgba(154,127,181,.28);border-radius:8px;padding:9px 11px;font-size:12.5px;
+  letter-spacing:.08em}
+.row .lab{color:var(--dim);text-transform:uppercase;font-size:11px;letter-spacing:.14em}
+.seg{display:flex;gap:4px}
+.seg button{min-width:40px;min-height:34px;border:1px solid var(--line);border-radius:6px;
+  background:transparent;color:#e8ddf5;font:inherit;font-size:12px;cursor:pointer}
+.seg button.on{background:var(--cyan);color:#06121a;border-color:var(--cyan);font-weight:700}
+input[type=range]{width:130px;accent-color:#ff2e88;background:transparent}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px}
+.lvl{aspect-ratio:1/1;min-height:52px;border:2px solid var(--line);border-radius:8px;
+  background:rgba(34,224,255,.06);color:#e8ddf5;font:inherit;font-size:17px;font-weight:700;
+  cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.lvl b{font-size:8px;font-weight:400;letter-spacing:.06em;color:var(--dim);text-transform:uppercase}
+.lvl.done{border-color:var(--pink);color:#fff;background:rgba(255,46,136,.16)}
+.lvl.lock{opacity:.28;cursor:default}
+.txt{font-size:12px;line-height:1.55;color:#c9b8dd}
+.txt b{color:var(--yellow)}
+.txt .k{color:var(--cyan)}
+.mini{font-size:10.5px;color:var(--dim);letter-spacing:.1em;text-align:center}
+#rotate{position:absolute;inset:0;z-index:40;display:none;align-items:center;justify-content:center;
+  background:#0b0413;color:var(--cyan);font-size:14px;letter-spacing:.2em;text-align:center;padding:24px}
+@media (orientation:portrait){#rotate{display:flex}}
+#dead h1{color:#ff3355}
+#clear h1,#win h1{color:var(--yellow);text-shadow:0 0 14px rgba(255,210,63,.8),0 3px 0 #3d2a06}
+
+/* --- канва PixiJS: цілий масштаб задає JS, тут лише центрування --- */
+canvas#game{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  image-rendering:pixelated;image-rendering:crisp-edges;background:#05030a;display:block;
+  touch-action:none}
+#safeProbe{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;visibility:hidden;
+  padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px)
+          env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+#boot{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  background:#0b0413;color:#22e0ff;font-size:13px;letter-spacing:.28em}
+body{font-family:'Handjet',ui-monospace,'Courier New',monospace}
+.scr h1,.scr h2,.btn,.lvl,.row,.txt{font-family:'Handjet',ui-monospace,monospace}
+.btn{font-size:16px;letter-spacing:.16em}
+.row{font-size:14px}.row .lab{font-size:13px}
+.seg button{font-size:13px;min-width:46px}
+.txt{font-size:14px}

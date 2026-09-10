@@ -1,0 +1,105 @@
+name: Збірка APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:            # кнопка «Run workflow» у вкладці Actions
+
+permissions:
+  contents: write               # щоб покласти APK у Releases
+
+env:
+  HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Проєкт може лежати і в корені репозиторію, і в теці neon-echo/ —
+      # приводимо до кореня, щоб решта кроків була однакова.
+      - name: Нормалізувати структуру
+        shell: bash
+        run: |
+          if [ ! -f package.json ] && [ -f neon-echo/package.json ]; then
+            shopt -s dotglob
+            mv neon-echo/* .
+            rmdir neon-echo || true
+          fi
+          ls -la
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Залежності
+        run: npm ci
+
+      - name: Збірка веб-частини (ассети генеруються скриптом)
+        run: npm run build
+
+      - name: Перенести у нативний проєкт і пропатчити
+        run: |
+          npx cap sync android
+          node tools/patch-android.mjs
+
+      - name: Ключ підпису з секретів
+        if: env.HAS_KEYSTORE == 'true'
+        shell: bash
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+          {
+            echo "storeFile=release.keystore"
+            echo "storePassword=${{ secrets.STORE_PASSWORD }}"
+            echo "keyAlias=${{ secrets.KEY_ALIAS }}"
+            echo "keyPassword=${{ secrets.KEY_PASSWORD }}"
+          } > android/keystore.properties
+
+      - name: Gradle assembleDebug
+        run: |
+          chmod +x android/gradlew
+          cd android && ./gradlew assembleDebug --no-daemon
+
+      - name: Gradle assembleRelease
+        run: cd android && ./gradlew assembleRelease --no-daemon
+
+      - name: Зібрати APK в одну теку
+        shell: bash
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/debug/app-debug.apk out/neon-echo-debug.apk
+          for f in android/app/build/outputs/apk/release/*.apk; do
+            [ -e "$f" ] && cp "$f" out/neon-echo-release.apk
+          done
+          ls -la out
+
+      - name: Артефакти збірки
+        uses: actions/upload-artifact@v4
+        with:
+          name: neon-echo-apk
+          path: out/*.apk
+          retention-days: 30
+
+      - name: Реліз із посиланням на APK
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Neon Echo APK (збірка ${{ github.run_number }})
+          body: |
+            Готовий APK гри «ЕХО: неоновий кур'єр».
+            Завантаж `neon-echo-debug.apk` прямо з телефона й встанови
+            (дозволь встановлення з невідомих джерел, коли Android спитає).
+          files: out/*.apk
+          fail_on_unmatched_files: false

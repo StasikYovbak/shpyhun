@@ -1,0 +1,16 @@
+node_modules/
+dist/
+out/
+build-res/
+public/assets/
+src/sfx-sprite.js
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+android/keystore.properties
+android/app/*.keystore
+*.keystore
+.DS_Store
+android/capacitor-cordova-android-plugins/build/
+android/app/src/main/assets/public/

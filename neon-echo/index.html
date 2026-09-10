@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0413">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ЕХО · НЕОНОВИЙ КУР'ЄР</title>
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+  <div id="safeProbe"></div>
+
+  <div id="touch">
+    <svg id="dpad" viewBox="0 0 150 150" aria-hidden="true">
+      <rect class="hub" x="52" y="52" width="46" height="46" rx="9"></rect>
+      <polygon class="arw" id="dpU" points="75,7 103,43 47,43"></polygon>
+      <polygon class="arw" id="dpD" points="75,143 103,107 47,107"></polygon>
+      <polygon class="arw" id="dpL" points="7,75 43,103 43,47"></polygon>
+      <polygon class="arw" id="dpR" points="143,75 107,103 107,47"></polygon>
+    </svg>
+    <div class="pad" id="btnA">A<small>СТРИБОК</small></div>
+    <div class="pad" id="btnB">B<small>КЛИНОК</small></div>
+    <div class="pad" id="btnC">C<small>СТРІЛ</small></div>
+    <div class="pad small" id="btnD">D<small>РИВОК</small></div>
+    <div id="btnPause">| |</div>
+  </div>
+
+  <div class="scr on" id="menu"><div class="inner">
+    <h1>ЕХО<span>НЕОНОВИЙ КУР'ЄР</span></h1>
+    <button class="btn pri" id="mPlay">Грати</button>
+    <button class="btn" id="mLevels">Вибір рівня</button>
+    <button class="btn" id="mSet">Налаштування</button>
+    <button class="btn" id="mAbout">Про гру</button>
+    <div class="mini" id="mProg">СЕКТОР 1 / 10</div>
+  </div></div>
+
+  <div class="scr" id="levels"><div class="inner">
+    <h2>Вибір сектора</h2>
+    <div class="grid" id="lvGrid"></div>
+    <button class="btn" data-back="menu">Назад</button>
+  </div></div>
+
+  <div class="scr" id="settings"><div class="inner">
+    <h2>Налаштування</h2>
+    <div class="row"><span class="lab">Гучність звуку</span><input type="range" id="sVol" min="0" max="10" step="1"></div>
+    <div class="row"><span class="lab">Гучність музики</span><input type="range" id="sMus" min="0" max="10" step="1"></div>
+    <div class="row"><span class="lab">Графіка</span><div class="seg" id="sGfx">
+      <button data-v="perf">Продукт.</button><button data-v="bal">Збаланс.</button>
+      <button data-v="max">Максимум</button><button data-v="auto">Авто</button></div></div>
+    <div class="row"><span class="lab">CRT-режим</span><div class="seg" id="sCrt">
+      <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
+    <div class="row"><span class="lab">Вібрація</span><div class="seg" id="sVib">
+      <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
+    <div class="row"><span class="lab">Розмір керування</span><div class="seg" id="sSize">
+      <button data-v="S">S</button><button data-v="M">M</button><button data-v="L">L</button></div></div>
+    <div class="row"><span class="lab">Прозорість керування</span><input type="range" id="sOp" min="30" max="90" step="10"></div>
+    <div class="row"><span class="lab">Розкладка</span><div class="seg" id="sHand">
+      <button data-v="0">Стрілки ліворуч</button><button data-v="1">Дзеркально</button></div></div>
+    <button class="btn" id="sReset">Скинути прогрес</button>
+    <button class="btn" data-back="menu">Назад</button>
+  </div></div>
+
+  <div class="scr" id="about"><div class="inner">
+    <h2>Про гру</h2>
+    <div class="txt">
+      <p><b>ЕХО</b> — кур'єр-нетранер із хромованою рукою. Корпорація <b>КАЙЗЕН-ВОЛЬТ</b>
+      запустила ядро «АРХІТЕКТОР». Десять секторів між тобою і ним.</p>
+      <p><span class="k">КЛИНОК (B)</span> — комбо з трьох ударів. Натисни <span class="k">B</span>
+      за мить <i>до</i> влучання кулі — і вона полетить назад із подвійною шкодою.</p>
+      <p><span class="k">РЕЙКОСТРИЛ (C)</span> — без набоїв, але з теплом. Перегрів блокує зброю на 2 с;
+      влучний тап по <span class="k">C</span> у зеленій зоні шкали миттєво скидає тепло.</p>
+      <p><span class="k">РИВОК (D)</span> — окрема кнопка. Під час ривка ти невразливий.</p>
+      <p><span class="k">ХРЕСТОВИНА</span> ліворуч: <span class="k">←/→</span> рух,
+      <span class="k">↑</span> стрибок, <span class="k">↓</span> присісти (утримати 0,3 с —
+      зістрибнути крізь платформу). <span class="k">ПОДВІЙНИЙ СТРИБОК</span> — другий тап у повітрі.</p>
+      <p>Клавіатура: <span class="k">A/D</span> або стрілки, <span class="k">Пробіл</span> — стрибок,
+      <span class="k">J</span> — клинок, <span class="k">L</span> — рейкострил,
+      <span class="k">Shift</span> — ривок, <span class="k">Esc</span> — пауза.</p>
+      <p class="mini">Оригінальний світ, персонажі й назви. Уся графіка та звук згенеровані кодом.</p>
+    </div>
+    <button class="btn" data-back="menu">Назад</button>
+  </div></div>
+
+  <div class="scr" id="pause"><div class="inner">
+    <h2>Пауза</h2>
+    <button class="btn pri" id="pRes">Продовжити</button>
+    <button class="btn" id="pRestart">Почати рівень спочатку</button>
+    <button class="btn" id="pSet">Налаштування</button>
+    <button class="btn" id="pMenu">У головне меню</button>
+  </div></div>
+
+  <div class="scr" id="dead"><div class="inner">
+    <h1>ЗВ'ЯЗОК ВТРАЧЕНО</h1>
+    <button class="btn pri" id="dRetry">Перезапустити з чекпоінта</button>
+    <button class="btn" id="dMenu">В меню</button>
+  </div></div>
+
+  <div class="scr" id="clear"><div class="inner">
+    <h1 id="clTitle">СЕКТОР ЗАЧИЩЕНО</h1>
+    <div class="mini" id="clSub"></div>
+    <button class="btn pri" id="clNext">Далі</button>
+    <button class="btn" id="clMenu">В меню</button>
+  </div></div>
+
+  <div class="scr" id="win"><div class="inner">
+    <h1>АРХІТЕКТОРА ЗУПИНЕНО</h1>
+    <div class="txt" style="text-align:center">
+      <p>Ядро згасло. Над Нео-Гаванню — тиша й дощ.<br>Ехо зникає у провулках із новим замовленням.</p>
+      <p class="mini" id="winStat"></p>
+    </div>
+    <button class="btn pri" id="wMenu">В меню</button>
+  </div></div>
+
+  <div id="rotate">ПОВЕРНИ ПРИСТРІЙ ГОРИЗОНТАЛЬНО</div>
+  <div id="boot">ЗАВАНТАЖЕННЯ…</div>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
