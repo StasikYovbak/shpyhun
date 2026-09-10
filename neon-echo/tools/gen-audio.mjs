@@ -121,38 +121,9 @@ fs.writeFileSync(path.resolve(here, '..', 'src', 'sfx-sprite.js'),
   'export const SFX_SPRITE = ' + JSON.stringify(sprite) + ';\n');
 
 /* --------------------------------- музичні петлі --------------------------------- */
-const MSR = 16000;
-const TRACKS = {
-  city:   { root: 55.0,  bpm: 104, arp: [0, 3, 7, 10], wave: 'square' },
-  drive:  { root: 49.0,  bpm: 132, arp: [0, 3, 10, 7], wave: 'saw' },
-  calm:   { root: 58.3,  bpm: 96,  arp: [0, 7, 12, 7], wave: 'tri' },
-  boss:   { root: 41.2,  bpm: 150, arp: [0, 1, 7, 8],  wave: 'saw' }
-};
-for (const [name, t] of Object.entries(TRACKS)) {
-  const beats = 32;                                   // 32 восьмих = рівно петля
-  const spb = 60 / t.bpm / 2;
-  const dur = beats * spb;
-  const m = new Float32Array(Math.ceil(dur * MSR));
-  const put = (t0, type, f, d, vol) => {
-    let ph = 0;
-    const n = Math.floor(d * MSR), i0 = Math.floor(t0 * MSR);
-    for (let i = 0; i < n; i++) {
-      ph += f / MSR;
-      const k = i / n;
-      const e = Math.min(1, k * 20) * Math.pow(1 - k, 1.4);
-      const idx = (i0 + i) % m.length;
-      m[idx] += osc(type, ph) * e * vol;
-    }
-  };
-  for (let s = 0; s < beats; s++) {
-    const bar = s % 16, t0 = s * spb;
-    if (bar % 4 === 0) put(t0, 'tri', t.root, spb * 2.2, 0.34);
-    if (bar % 2 === 0) put(t0, t.wave, t.root * 4 * Math.pow(2, t.arp[(s >> 1) % t.arp.length] / 12), spb * 1.1, 0.13);
-    if (bar === 6 || bar === 14) put(t0, 'square', t.root * 8, spb * 0.5, 0.07);
-  }
-  writeWav(path.join(outDir, `music_${name}.wav`), m, MSR);
-}
+const MSR = 16000;/* Музику більше не печемо у WAV: із промта №6 саундтрек грає Tone.js
+   просто в коді (src/music.js), тож зайвих 1,2 МБ у білді нема. */
 const sizes = fs.readdirSync(outDir).filter(f => f.endsWith('.wav'))
   .map(f => `${f} ${(fs.statSync(path.join(outDir, f)).size / 1024).toFixed(0)}КБ`);
-console.log('звук:', Object.keys(SFX).length, 'ефектів у sfx.wav +', Object.keys(TRACKS).length, 'петель');
+console.log('звук:', Object.keys(SFX).length, 'ефектів у sfx.wav (музику грає Tone.js у коді)');
 console.log('  ' + sizes.join(', '));

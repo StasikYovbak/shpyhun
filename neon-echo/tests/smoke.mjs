@@ -20,7 +20,10 @@ const ok = (cond, msg) => { if (!cond) { fails++; console.log('  ✗ ' + msg); }
 
 const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 900, height: 420 }, deviceScaleFactor: 2 });
-const IGNORE = /GL Driver Message|GPU stall|WebGL-0x|Deprecation/i;
+// Останнє — порада Tone.js про точність планування при dispose()
+// секвенції. На звук не впливає: старі секвенції глушаться одразу,
+// а звільняються вже поза колбеком.
+const IGNORE = /GL Driver Message|GPU stall|WebGL-0x|Deprecation|Events scheduled inside of scheduled callbacks/i;
 page.on('console', m => { if ((m.type() === 'error' || m.type() === 'warning') && !IGNORE.test(m.text())) errors.push('[console] ' + m.text()); });
 page.on('pageerror', e => errors.push('[pageerror] ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n')));
 

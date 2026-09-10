@@ -10,6 +10,7 @@ import './style.css';
 import { DT, MAXDT, PH, BL, RG, CONFIG } from './config.js';
 import { Store } from './store.js';
 import { initAudio, resumeAudio, applyVolume, Sfx, Music, setHaptics } from './audio.js';
+import { TRACKS } from './music.js';
 import { Input } from './input.js';
 import { Gfx } from './render/index.js';
 import * as G from './core.js';
@@ -94,7 +95,13 @@ async function boot() {
 
   // WebAudio дозволено лише після взаємодії
   const unlock = () => {
-    if (!audioReady) { audioReady = true; initAudio(); applyVolume(); }
+    if (!audioReady) {
+      audioReady = true; initAudio(); applyVolume();
+      // Tone.js стартує лише тут: до першого дотику Android глушить контекст
+      Music.unlock().then(() => {
+        if (G.Game.state === 'menu') { Music.set('menu'); Music.layer(0); Music.start(); }
+      });
+    }
     resumeAudio();
   };
   for (const ev of ['pointerdown', 'keydown', 'touchstart'])
@@ -102,7 +109,11 @@ async function boot() {
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { acc = 0; last = 0; if (G.Game.state === 'play') G.Game.pause(); Music.stop(); }
-    else { last = 0; acc = 0; }
+    else {
+      last = 0; acc = 0;
+      // повертаємось — музику піднімаємо плавно за 0,4 с
+      if (audioReady && G.Game.state === 'menu') Music.start();
+    }
   });
   window.addEventListener('pagehide', () => { if (G.Game.state === 'play') G.Game.pause(); });
   try {
@@ -126,6 +137,15 @@ async function boot() {
     hitboxes: () => G.bossHitBoxes(),
     shoot: G.shoot, spawnEnemy: G.spawnEnemy, BULL: G.BULL, ENEM: G.ENEM, EQ: G.EQ, DRONES: G.DRONES,
     TELE: G.TELE, ZONES: G.ZONES, BEAMS: G.BEAMS, WEAPONS: G.WEAPONS,
+    Music, Tone: null,
+    audioState: () => Music.ctxState(),
+    transportState: () => Music.transportState(),
+    tracks: () => Object.values(TRACKS).map(t => ({ title: t.title, bpm: t.bpm })),
+    trackIds: () => Object.keys(TRACKS),
+    layerGains: () => Music.gains(),
+    busGain: () => Music.busGain(),
+    musicMeter: () => Music.meter(),
+    levelReward: G.levelReward, maxHearts: G.maxHearts, fragCount: G.fragCount, PICKS: G.PICKS,
     equip: (m, r) => { if (m) Store.data.melee = m; if (r) Store.data.ranged = r; G.refreshEquip(); },
     solidAtPx: G.solidAtPx, moveX: G.moveX, moveY: G.moveY, tAt: G.tAt, PH, BL, RG, CONFIG, damageEnemy: G.damageEnemy,
     levelInfo: i => ({ n: G.LEVELS[i].n, boss: G.LEVELS[i].boss }),

@@ -111,18 +111,18 @@ ok(grid.every(g => /assets\/wpn\/\w+\.png$/.test(g.src)), 'у кожної св�
 const lockIdx = grid.findIndex(g => g.lock);
 await page.evaluate(i => document.querySelectorAll('#iGrid .wit')[i].click(), lockIdx);
 await page.waitForTimeout(80);
-ok(/Знайти на секторі|Нагорода за боса/.test(await page.textContent('#iCard')),
+ok(/Нагорода за сектор|фрагменти/i.test(await page.textContent('#iCard')),
    'тап по замкненій показує умову відкриття', (await page.textContent('#iCard')).slice(0, 60));
 ok(await page.evaluate(() => window.__DEV.EQ.m.id === 'arc'), 'замкнена не екіпірується');
 
 await page.evaluate(() => document.querySelector('#iTabs button[data-v="ranged"]').click());
 await page.waitForTimeout(80);
 const g2 = await page.evaluate(() => Array.from(document.querySelectorAll('#iGrid .wit')).length);
-ok(g2 === 5, 'у вкладці «Дальній бій» теж 5', String(g2));
+ok(g2 === 6, 'у вкладці «Дальній бій» шість (з Ехо-Призмою)', String(g2));
 
 // видаємо всю зброю і міняємо комірки
 await page.evaluate(() => { window.__DEV.Store.data.owned =
-  ['arc', 'whip', 'brand', 'chrono', 'claws', 'rail', 'osa', 'swarm', 'shot', 'glitch'];
+  ['arc', 'whip', 'brand', 'chrono', 'claws', 'rail', 'osa', 'swarm', 'shot', 'glitch', 'prism'];
   document.querySelector('#iTabs button[data-v="ranged"]').click(); });
 await page.waitForTimeout(80);
 await page.evaluate(() => document.querySelectorAll('#iGrid .wit')[3].click());

@@ -114,6 +114,28 @@ input[type=range]{width:130px;accent-color:#ff2e88;background:transparent}
 .val{min-width:44px;text-align:right;color:var(--yellow);font-size:12px;letter-spacing:.06em}
 input[type=range]{width:104px}
 
+/* ---------- сцена нагороди ---------- */
+#reward .inner{max-width:420px;align-items:center;text-align:center;gap:7px}
+#reward h1{font-size:clamp(20px,6vw,30px);margin:0}
+#reward h2{margin:0;font-size:11px;letter-spacing:.3em;color:var(--dim)}
+.rwbox{position:relative;width:132px;height:132px;display:flex;align-items:center;justify-content:center}
+.rays{position:absolute;inset:-26px;border-radius:50%;
+  background:conic-gradient(from 0deg,
+    rgba(255,210,63,.85) 0 4deg, transparent 4deg 22deg,
+    rgba(34,224,255,.55) 22deg 25deg, transparent 25deg 45deg);
+  -webkit-mask:radial-gradient(circle,transparent 22%,#000 34%,#000 78%,transparent 96%);
+  mask:radial-gradient(circle,transparent 22%,#000 34%,#000 78%,transparent 96%);
+  animation:spin 9s linear infinite}
+.rwbox::after{content:'';position:absolute;inset:6px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,210,63,.42),rgba(255,46,136,.18) 45%,transparent 72%)}
+.rwimg{position:relative;width:88px;height:88px;image-rendering:pixelated;
+  animation:bob 2.4s ease-in-out infinite;filter:drop-shadow(0 0 10px rgba(34,224,255,.7))}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes bob{0%,100%{transform:translateY(-3px) rotate(-6deg)}50%{transform:translateY(3px) rotate(6deg)}}
+@media (prefers-reduced-motion:reduce){.rays,.rwimg{animation:none}}
+#reward .txt p{margin:0 0 4px}
+#reward .txt .k{color:var(--cyan);font-size:12px}
+
 /* ---------- арсенал ---------- */
 .slots{display:flex;gap:8px}
 #inv .inner{gap:6px}

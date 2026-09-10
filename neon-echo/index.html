@@ -35,7 +35,9 @@
     <button class="btn" id="mLevels">Вибір рівня</button>
     <button class="btn" id="mSet">Налаштування</button>
     <button class="btn" id="mAbout">Про гру</button>
+    <button class="btn" id="mNG" hidden>Нова гра+</button>
     <div class="mini" id="mProg">СЕКТОР 1 / 10</div>
+    <div class="mini" id="mFrag"></div>
   </div></div>
 
   <div class="scr" id="levels"><div class="inner">
@@ -46,8 +48,11 @@
 
   <div class="scr" id="settings"><div class="inner">
     <h2>Налаштування</h2>
-    <div class="row"><span class="lab">Гучність звуку</span><input type="range" id="sVol" min="0" max="10" step="1"></div>
-    <div class="row"><span class="lab">Гучність музики</span><input type="range" id="sMus" min="0" max="10" step="1"></div>
+    <div class="row"><span class="lab">Ефекти</span>
+      <input type="range" id="sVol" min="0" max="100" step="5"><b class="val" id="vVol"></b></div>
+    <div class="row"><span class="lab">Музика</span>
+      <input type="range" id="sMus" min="0" max="100" step="5"><b class="val" id="vMus"></b></div>
+    <div class="row"><span class="lab">Зараз грає</span><b class="val" id="sTrack" style="min-width:120px"></b></div>
     <div class="row"><span class="lab">Графіка</span><div class="seg" id="sGfx">
       <button data-v="perf">Продукт.</button><button data-v="bal">Збаланс.</button>
       <button data-v="max">Максимум</button><button data-v="auto">Авто</button></div></div>
@@ -102,11 +107,32 @@
     </div>
   </div></div>
 
+  <div class="scr" id="reward"><div class="inner">
+    <div class="rwbox">
+      <div class="rays"></div>
+      <img class="rwimg" id="rwImg" alt="">
+    </div>
+    <h2 id="rwKicker">НАГОРОДА ЗА СЕКТОР</h2>
+    <h1 id="rwName">—</h1>
+    <div class="txt" style="text-align:center">
+      <p id="rwDesc"></p>
+      <p class="k" id="rwHint"></p>
+    </div>
+    <div class="row2" id="rwBtns">
+      <button class="btn pri" id="rwEquip">Екіпірувати зараз</button>
+      <button class="btn" id="rwLater">Пізніше</button>
+    </div>
+  </div></div>
+
   <div class="scr" id="about"><div class="inner">
     <h2>Про гру</h2>
     <div class="txt">
       <p><b>ЕХО</b> — кур'єр-нетранер із хромованою рукою. Корпорація <b>КАЙЗЕН-ВОЛЬТ</b>
       запустила ядро «АРХІТЕКТОР». Десять секторів між тобою і ним.</p>
+      <p>Зброя приходить <b>за проходження сектора</b> — шукати по закутках не треба.
+      Єдиний секрет — <span class="k">ЕХО-ПРИЗМА</span>: три фрагменти сховані в секретних
+      кімнатах секторів 3, 6 і 9. Кожен видно по блакитному мерехтінню. Зібрав усі —
+      призма збереться на найближчому чекпоінті. Без неї гра проходиться повністю.</p>
       <p><span class="k">B</span> — екіпірована ближня зброя, <span class="k">C</span> — дальня.
       Слотів два: один ближній, один дальній. Решта лежить в <b>Арсеналі</b>
       (Налаштування → Арсенал або пауза → Арсенал). Міняти комірки можна
@@ -132,7 +158,11 @@
       <p>Клавіатура: <span class="k">A/D</span> або стрілки, <span class="k">Пробіл</span> — стрибок,
       <span class="k">J</span> — клинок, <span class="k">L</span> — рейкострил,
       <span class="k">Shift</span> — ривок, <span class="k">Esc</span> — пауза.</p>
-      <p class="mini">Оригінальний світ, персонажі й назви. Уся графіка та звук згенеровані кодом.</p>
+      <p>Музику пише сама гра: десять треків живуть у коді як трекерні патерни на
+      Tone.js і мають чотири шари, що вмикаються за ситуацією — від пади з басом
+      у розвідці до подвійного темпу з драйвом у фінальній фазі боса.</p>
+      <p class="mini">Оригінальний світ, персонажі, назви й мелодії.
+      Уся графіка та звук згенеровані кодом.</p>
     </div>
     <button class="btn" data-back="menu">Назад</button>
   </div></div>

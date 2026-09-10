@@ -40,6 +40,12 @@ s = await page.evaluate(()=>window.__DEV.Game.state);
 ok(s==='clear','дотик до виходу завершує рівень');
 const unlocked = await page.evaluate(()=>window.__DEV.Store.data.unlocked);
 ok(unlocked>=2,'наступний сектор відкрито (unlocked='+unlocked+')');
+// сектор 1 віддає «Осу» — спершу сцена нагороди, потім екран сектора
+const onReward = await page.isVisible('#reward');
+ok(onReward, 'нагорода за сектор показується окремою сценою: ' + (await page.textContent('#rwName')));
+await page.waitForTimeout(2200);
+await page.click('#rwEquip'); await page.waitForTimeout(300);
+ok(await page.evaluate(()=>window.__DEV.EQ.r.id==='osa'), '«Екіпірувати зараз» ставить зброю в комірку');
 await page.click('#clNext'); await page.waitForTimeout(400);
 s = await page.evaluate(()=>window.__DEV.state());
 ok(s.state==='play' && s.level===1,'кнопка «Далі» запускає сектор 2');

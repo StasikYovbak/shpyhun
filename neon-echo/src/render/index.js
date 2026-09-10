@@ -321,9 +321,26 @@ function drawCheckpointExit(th) {
 }
 
 function drawPickups() {
+  const t = G.world.time;
   for (let i = 0; i < G.PICKS.length; i++) {
     const p = G.PICKS[i];
-    const b = Math.sin((G.world.time + p.t) * 3) * 2;
+    const b = Math.sin((t + p.t) * 3) * 2;
+    if (p.kind === 'frag') {
+      // Фрагмент призми: блакитне мерехтіння видно в межах екрана —
+      // підказка чесна, гравець має ПОМІТИТИ, а не гадати.
+      const k = 0.55 + 0.45 * Math.sin(t * 4 + p.t);
+      const s = entP.get(T.frag);
+      s.x = Math.round(p.x - camX); s.y = Math.round(p.y + b - camY);
+      entAddP.rect(px(), p.x - 1 - camX, p.y - 1 + b - camY, 11, 12, COL.ice, 0.20 + 0.25 * k);
+      pushLight(p.x + 4, p.y + 5 + b, 46 + 18 * k, COL.ice, 0.45 + 0.3 * k);
+      for (let j = 0; j < 3; j++) {                 // іскри, що піднімаються
+        const a = t * 1.6 + j * 2.1 + p.t;
+        entAddP.rect(px(), p.x + 4 + Math.cos(a) * 7 - camX,
+                     p.y + 4 + b - ((a * 9) % 18) - camY, 1, 2, 0xffffff, 0.55);
+      }
+      reflect(T.frag, p.x, p.y + b, 9, 10, 0xffffff, 0.5);
+      continue;
+    }
     entP.rect(px(), p.x - camX, p.y + b - camY, 10, 9, 0xe8f7ff, 1);
     entP.rect(px(), p.x + 1 - camX, p.y + 1 + b - camY, 8, 7, 0xff3355, 1);
     entP.rect(px(), p.x + 4 - camX, p.y + 2 + b - camY, 2, 5, 0xffffff, 1);
@@ -734,6 +751,11 @@ function drawBullets() {
     entP.rect(px(), b.x - b.w / 2 - camX, b.y - b.h / 2 - camY, b.w, b.h, c, 1);
     entP.rect(px(), b.x - b.w / 2 + 1 - camX, b.y - b.h / 2 + 1 - camY, Math.max(1, b.w - 2), Math.max(1, b.h - 2), 0xffffff, 0.9);
     pushLight(b.x, b.y, b.kind === 3 ? 40 : 26, c, 0.4);
+    if (b.kind === 6) {                            // Ехо-Призма: слід і лічильник відбиттів
+      const k = (b.bounce || 0) / 5;
+      entAddP.rect(px(), b.x - b.vx * 0.02 - 1 - camX, b.y - b.vy * 0.02 - 1 - camY, 3, 3, COL.white, 0.4);
+      pushLight(b.x, b.y, 30 + 14 * k, COL.ice, 0.5);
+    }
   }
 }
 function drawBeams() {

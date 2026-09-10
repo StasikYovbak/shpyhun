@@ -150,6 +150,26 @@ export const Input = (function () {
     el.L.classList.remove('hit'); el.R.classList.remove('hit');
     el.U.classList.remove('hit'); el.D.classList.remove('hit');
   }
+  /**
+   * Повне обнулення вводу. Викликається звідусіль, де палець може
+   * зникнути повз наші обробники: blur, visibilitychange, згортання
+   * застосунку, пауза, втрата захоплення вказівника. Без цього ОС їсть
+   * pointerup при згортанні — і напрямок лишається натиснутим назавжди.
+   */
+  function resetInput() {
+    kb.l = kb.r = kb.d = kb.u = kb.a = kb.b = kb.c = 0;
+    tc.a = tc.b = tc.c = 0;
+    held.a = held.b = held.c = 0;
+    prev.a = prev.b = prev.c = 0;
+    ptrs.clear(); drag = null;
+    dashQ = false; dashDir = 0;
+    clearDirs();
+    ['A', 'B', 'C', 'Dash'].forEach(k => setBtnVisual(k, false));
+    S.ax = 0; S.down = false;
+    S.a = S.b = S.c = false;
+    S.aP = S.bP = S.cP = S.aR = S.bR = S.cR = false;
+    S.dashP = false; S.dashDir = 0;
+  }
   function inBtn(k, x, y) {
     const p = btnPos[k], dx = x - p.x, dy = y - p.y;
     return dx * dx + dy * dy <= p.hit * p.hit;
@@ -238,7 +258,12 @@ export const Input = (function () {
   L.addEventListener('pointerup', e => { e.preventDefault(); up(e.pointerId); });
   L.addEventListener('pointercancel', e => { up(e.pointerId); });
   L.addEventListener('pointerleave', e => { up(e.pointerId); });
+  L.addEventListener('lostpointercapture', e => { up(e.pointerId); });
   L.addEventListener('contextmenu', e => e.preventDefault());
+  // Системні жести й згортання не завжди дають pointercancel — страхуємось.
+  window.addEventListener('touchcancel', resetInput, { passive: true });
+  document.addEventListener('visibilitychange', resetInput);
+  window.addEventListener('pagehide', resetInput);
   // блокуємо зум подвійним тапом і жести масштабування
   document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
   document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
@@ -260,12 +285,7 @@ export const Input = (function () {
     const k = KEYS[e.code];
     if (k) { kb[k] = 0; e.preventDefault(); }
   });
-  window.addEventListener('blur', () => {
-    kb.l = kb.r = kb.d = kb.u = kb.a = kb.b = kb.c = 0;
-    tc.a = tc.b = tc.c = 0;
-    ptrs.clear(); clearDirs();
-    ['A', 'B', 'C', 'Dash'].forEach(k => setBtnVisual(k, false));
-  });
+  window.addEventListener('blur', resetInput);
 
   return {
     S: S,
@@ -284,15 +304,12 @@ export const Input = (function () {
       el.layer.classList.toggle('prev', !!on);
       if (on) { tc.a = tc.b = tc.c = 0; ptrs.clear(); clearDirs(); ['A', 'B', 'C', 'Dash'].forEach(k => setBtnVisual(k, false)); }
     },
+    reset: resetInput,
     enable(on) {
       enabled = !!on;
       if (preview) return;
       el.layer.classList.toggle('on', !!on);
-      if (!on) {
-        tc.a = tc.b = tc.c = 0;
-        ptrs.clear(); clearDirs();
-        ['A', 'B', 'C', 'Dash'].forEach(k => setBtnVisual(k, false));
-      }
+      if (!on) resetInput();          // пауза, меню, будь-який екран
     },
     // Викликається на кожному фіксованому кроці фізики: рахує фронти.
     step() {

@@ -96,11 +96,24 @@ function heroFrame(pose) {
       body(4); legs(-1, 2, 1, 2); armJacket(1, 13, 3); armChrome(12, 13, 4); break;
     case 'hurt': body(0); legs(-2, 0, 2, 0); armJacket(0, 7, 4); armChrome(12, 11, 4);
                  b.rect(3, 8, 10, 7, '#ff2e8855'); break;
+    // приземлення: присідання глибше за crouch, руки йдуть униз
+    case 'land':
+      body(3); legs(-2, 2, 2, 2); armJacket(0, 13, 4); armChrome(12, 13, 4);
+      b.rect(2, 21, 12, 1, '#22e0ff44'); break;
+    // довгий простій: Ехо піднімає хромовану руку й поправляє протез
+    case 'idle2a':
+      body(0); legs(0, 0, 0, 0); armJacket(1, 9, 3);
+      armChrome(11, 7, 3); b.rect(12, 5, 2, 3, P.chrB); b.rect(12, 5, 2, 1, P.chrL); break;
+    case 'idle2b':
+      body(0); legs(0, 0, 0, 0); armJacket(1, 9, 3);
+      armChrome(10, 6, 3); b.rect(11, 4, 3, 3, P.chrB); b.rect(11, 4, 3, 1, P.chrL);
+      b.rect(12, 5, 1, 1, P.visorL); break;
   }
   return b;
 }
-for (const pose of ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'crouch', 'hurt'])
-  add('hero_' + (pose === 'blink' ? 'blink' : pose), heroFrame(pose));
+const HERO_POSES = ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk',
+                    'crouch', 'hurt', 'land', 'idle2a', 'idle2b'];
+for (const pose of HERO_POSES) add('hero_' + pose, heroFrame(pose));
 // фантом — та сама фігура в примарній палітрі
 {
   const swap = { skinB: '#6ef7d8', skinS: '#1f8f7a', skinL: '#bafff0', skinR: '#ffffff',
@@ -416,6 +429,39 @@ make('w_shot', 16, 16, b => {
   b.rect(2, 5, 11, 3, '#6a4a2a'); b.rect(2, 8, 11, 3, '#4a2f18');
   b.rect(12, 4, 4, 8, '#8a8f9e'); b.rect(13, 5, 2, 2, '#0a0a28'); b.rect(13, 9, 2, 2, '#0a0a28');
   b.rect(0, 8, 4, 5, '#3a2418'); b.rect(2, 5, 11, 1, '#a07a4a');
+});
+make('w_prism', 16, 16, b => {
+  // трикутна призма з розщепленим променем
+  for (let y = 0; y < 11; y++) {
+    const w = Math.round((y + 1) * 0.9);
+    b.rect(8 - Math.floor(w / 2), 3 + y, w, 1, '#8fdcff');
+  }
+  b.rect(6, 12, 5, 1, '#bff4ff');
+  b.rect(0, 7, 5, 1, '#ffffff');                  // вхідний промінь
+  b.rect(11, 4, 5, 1, '#ff2e88');                 // розщеплені
+  b.rect(11, 8, 5, 1, '#ffd23f');
+  b.rect(11, 12, 4, 1, '#22e0ff');
+  b.rect(7, 6, 2, 3, '#ffffff88');
+});
+make('w_heartmod', 16, 16, b => {
+  b.rect(2, 3, 12, 10, '#3a2a5a'); b.rect(2, 3, 12, 1, '#6b5a9a');
+  b.rect(4, 5, 8, 6, '#ff2e88'); b.rect(5, 6, 2, 2, '#ffb7d5');
+  b.rect(1, 7, 2, 2, '#22e0ff'); b.rect(13, 7, 2, 2, '#22e0ff');
+  b.rect(4, 13, 3, 3, '#241338'); b.rect(9, 13, 3, 3, '#241338');
+});
+make('w_key', 16, 16, b => {
+  b.rect(1, 6, 9, 4, '#ffd23f'); b.rect(1, 6, 9, 1, '#fff6c9');
+  b.ring(11, 8, 3.4, 1.6, '#ffd23f');
+  b.rect(3, 10, 2, 3, '#c98a12'); b.rect(6, 10, 2, 2, '#c98a12');
+  b.rect(10, 7, 2, 2, '#22e0ff');
+});
+make('frag', 9, 10, b => {
+  b.rect(3, 0, 3, 1, '#bff4ff');
+  b.rect(2, 1, 5, 2, '#8fdcff');
+  b.rect(1, 3, 7, 4, '#8fdcff');
+  b.rect(2, 7, 5, 2, '#5aa8d8');
+  b.rect(3, 9, 3, 1, '#3a7aa8');
+  b.rect(3, 2, 2, 4, '#ffffff');
 });
 make('w_glitch', 16, 16, b => {
   b.rect(2, 3, 10, 4, '#00ffcc'); b.rect(4, 7, 10, 3, '#ff2e88');

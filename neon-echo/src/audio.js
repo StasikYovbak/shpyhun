@@ -6,17 +6,9 @@
 import { Howl, Howler } from 'howler';
 import { Store } from './store.js';
 import { SFX_SPRITE } from './sfx-sprite.js';
+import { Music } from './music.js';
 
 let sfx = null, ready = false;
-const music = {};
-let curTrack = null, musicHowl = null;
-
-/** Тема рівня -> музична петля. */
-const TRACK_OF = {
-  slum: 'city', docks: 'city', roofs: 'city', spire: 'city',
-  factory: 'drive', server: 'drive', virtual: 'drive', core: 'drive',
-  metro: 'calm', garden: 'calm', boss: 'boss'
-};
 
 export function initAudio() {
   if (ready) return;
@@ -28,19 +20,17 @@ export function initAudio() {
     preload: true,
     html5: false
   });
-  for (const t of ['city', 'drive', 'calm', 'boss']) {
-    music[t] = new Howl({ src: [`assets/music_${t}.wav`], loop: true, volume: 0, preload: true });
-  }
   applyVolume();
 }
 export function applyVolume() {
   if (!ready) return;
   Howler.volume(1);
-  if (sfx) sfx.volume(Store.data.vol / 10);
-  for (const t in music) music[t].volume(t === curTrack ? Store.data.mus / 10 * 0.45 : 0);
+  if (sfx) sfx.volume(Store.data.vol / 100);       // повзунок 0..100%
+  Music.setVol();
 }
 export function resumeAudio() {
   try { if (Howler.ctx && Howler.ctx.state === 'suspended') Howler.ctx.resume(); } catch (e) { }
+  Music.unlock();                                  // Tone.js стартує лише після дотику
 }
 
 function play(name) {
@@ -63,28 +53,7 @@ export const Sfx = {
   blocked: () => play('blocked')
 };
 
-export const Music = {
-  set(theme) {
-    const t = TRACK_OF[theme] || 'city';
-    if (t === curTrack) return;
-    if (musicHowl) { try { musicHowl.fade(musicHowl.volume(), 0, 400); } catch (e) { } }
-    curTrack = t;
-    musicHowl = music[t] || null;
-    if (musicHowl && Store.data.mus > 0) {
-      if (!musicHowl.playing()) musicHowl.play();
-      musicHowl.fade(0, Store.data.mus / 10 * 0.45, 600);
-    }
-  },
-  start() {
-    if (!ready || !musicHowl || Store.data.mus <= 0) return;
-    if (!musicHowl.playing()) musicHowl.play();
-    musicHowl.fade(musicHowl.volume(), Store.data.mus / 10 * 0.45, 400);
-  },
-  stop() {
-    if (musicHowl) { try { musicHowl.fade(musicHowl.volume(), 0, 300); setTimeout(() => musicHowl && musicHowl.pause(), 320); } catch (e) { } }
-  },
-  update() { /* петля крутиться сама — планувальник більше не потрібен */ }
-};
+export { Music };
 
 /** Вібрація: на Android — через Capacitor Haptics, у браузері — navigator.vibrate. */
 let haptics = null;

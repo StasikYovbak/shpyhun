@@ -1,13 +1,13 @@
 /** Екрани меню (DOM поверх канви) і прив'язка налаштувань. */
 import { Store } from './store.js';
-import { Sfx, applyVolume, buzz } from './audio.js';
+import { Sfx, applyVolume, buzz, Music } from './audio.js';
 import { Input } from './input.js';
-import { Game, hooks, LEVELS, canSwapNow, refreshEquip } from './core.js';
+import { Game, hooks, LEVELS, canSwapNow, refreshEquip, fragCount } from './core.js';
 import { WEAPONS, MELEE_IDS, RANGED_IDS, unlockText } from './weapons.js';
 import { Gfx } from './render/index.js';
 
 const $ = id => document.getElementById(id);
-const SCREENS = ['menu', 'levels', 'settings', 'controls', 'inv', 'about', 'pause', 'dead', 'clear', 'win'];
+const SCREENS = ['menu', 'levels', 'settings', 'controls', 'inv', 'reward', 'about', 'pause', 'dead', 'clear', 'win'];
 export let curScreen = 'menu';
 
 export function showScreen(id) {
@@ -19,6 +19,47 @@ export function showScreen(id) {
 function updateProgressLabel() {
   $('mProg').textContent = 'ВІДКРИТО СЕКТОРІВ: ' + Store.data.unlocked + ' / ' + LEVELS.length;
   $('mPlay').textContent = Store.data.unlocked > 1 ? 'Продовжити' : 'Грати';
+  const f = fragCount();
+  const has = Store.data.owned.indexOf('prism') >= 0;
+  $('mFrag').textContent = has ? 'ЕХО-ПРИЗМА ЗІБРАНА' : 'ФРАГМЕНТИ ПРИЗМИ: ' + f + ' / 3';
+  $('mFrag').style.color = (has || f >= 3) ? 'var(--cyan)' : '';
+  $('mNG').hidden = !Store.data.ngKey;
+}
+
+/* ------------------------------------------------ СЦЕНА НАГОРОДИ
+   Дві секунди спрайт обертається в променях, поки читається назва й
+   механіка; далі — «Екіпірувати зараз / Пізніше». Для не-зброї (серце,
+   ключ) кнопок нема, лише «Далі». */
+let rewardNext = null, rewardT = null;
+function showReward(r, next) {
+  if (!r) { next(); return; }
+  rewardNext = next;
+  $('rwKicker').textContent = r.kind === 'weapon' ? 'НОВА ЗБРОЯ' : 'НАГОРОДА';
+  $('rwName').textContent = r.name;
+  $('rwDesc').textContent = r.desc;
+  $('rwHint').textContent = r.hint || '';
+  $('rwImg').src = 'assets/wpn/' + r.sprite.replace(/^w_/, '') + '.png';
+  const weapon = r.kind === 'weapon';
+  $('rwEquip').hidden = !weapon;
+  $('rwEquip').textContent = 'Екіпірувати зараз';
+  $('rwLater').textContent = weapon ? 'Пізніше' : 'Далі';
+  $('rwBtns').style.visibility = 'hidden';        // спершу сцена, потім вибір
+  showScreen('reward');
+  Sfx.win();
+  clearTimeout(rewardT);
+  rewardT = setTimeout(() => { $('rwBtns').style.visibility = 'visible'; }, 2000);
+  $('rwEquip').onclick = () => {
+    Sfx.ui();
+    if (r.slot === 'melee') Store.data.melee = r.id; else Store.data.ranged = r.id;
+    Store.save(); refreshEquip();
+    finishReward();
+  };
+  $('rwLater').onclick = () => { Sfx.ui(); finishReward(); };
+}
+function finishReward() {
+  clearTimeout(rewardT);
+  const n = rewardNext; rewardNext = null;
+  if (n) n();
 }
 function buildLevelGrid() {
   const g = $('lvGrid');
@@ -45,8 +86,9 @@ function segSet(id, val) {
   for (const b of $(id).querySelectorAll('button')) b.classList.toggle('on', b.getAttribute('data-v') === val);
 }
 export function syncSettings() {
-  $('sVol').value = Store.data.vol;
-  $('sMus').value = Store.data.mus;
+  $('sVol').value = Store.data.vol; $('vVol').textContent = Store.data.vol + '%';
+  $('sMus').value = Store.data.mus; $('vMus').textContent = Store.data.mus + '%';
+  $('sTrack').textContent = Music.title || '—';
   segSet('sGfx', Store.data.gfx);
   segSet('sCrt', String(Store.data.crt));
 }
@@ -180,6 +222,7 @@ export function initUI() {
   hooks.refreshProgress = updateProgressLabel;
   hooks.setClear = (title, sub) => { $('clTitle').textContent = title; $('clSub').textContent = sub; };
   hooks.setWinStat = s => { $('winStat').textContent = s; };
+  hooks.showReward = showReward;
 
   $('mPlay').addEventListener('click', () => {
     Sfx.ui(); Game.startLevel(Math.max(0, Math.min(LEVELS.length - 1, Store.data.unlocked - 1)), false);
@@ -187,6 +230,12 @@ export function initUI() {
   $('mLevels').addEventListener('click', () => { Sfx.ui(); buildLevelGrid(); showScreen('levels'); });
   $('mSet').addEventListener('click', () => { Sfx.ui(); Game.backTo = 'menu'; syncSettings(); showScreen('settings'); });
   $('mAbout').addEventListener('click', () => { Sfx.ui(); showScreen('about'); });
+  $('mNG').addEventListener('click', () => {
+    Sfx.ui();
+    Store.data.ng = 1; Store.data.unlocked = LEVELS.length; Store.save();
+    buildLevelGrid(); updateProgressLabel();
+    Game.startLevel(0, false);
+  });
   for (const b of document.querySelectorAll('[data-back]'))
     b.addEventListener('click', () => {
       Sfx.ui();
@@ -203,8 +252,14 @@ export function initUI() {
   $('clMenu').addEventListener('click', () => { Sfx.ui(); Game.toMenu(); });
   $('wMenu').addEventListener('click', () => { Sfx.ui(); Game.toMenu(); });
 
-  $('sVol').addEventListener('input', e => { Store.data.vol = +e.target.value || 0; applyVolume(); Store.save(); });
-  $('sMus').addEventListener('input', e => { Store.data.mus = +e.target.value || 0; applyVolume(); Store.save(); });
+  $('sVol').addEventListener('input', e => {
+    Store.data.vol = +e.target.value || 0; $('vVol').textContent = Store.data.vol + '%';
+    applyVolume(); Store.save(); Sfx.ui();
+  });
+  $('sMus').addEventListener('input', e => {
+    Store.data.mus = +e.target.value || 0; $('vMus').textContent = Store.data.mus + '%';
+    applyVolume(); Store.save();
+  });
   segBind('sGfx', v => { Store.data.gfx = v; Gfx.applyQuality(); });
   segBind('sCrt', v => { Store.data.crt = +v; Gfx.applyQuality(); });
   $('sCtrl').addEventListener('click', () => { Sfx.ui(); syncControls(); showScreen('controls'); });

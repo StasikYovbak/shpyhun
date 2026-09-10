@@ -12,12 +12,13 @@ import { LEVELS } from './levels.js';
 import { THEME } from './themes.js';
 import { Sfx, Music, buzz } from './audio.js';
 import { Input } from './input.js';
-import { WEAPONS, LEVEL_LOOT, BOSS_LOOT } from './weapons.js';
+import { WEAPONS, LEVEL_REWARD, FRAG_LEVELS } from './weapons.js';
 
 /** Гачки в бік інтерфейсу — щоб ядро не знало нічого про DOM. */
 export const hooks = {
   showScreen() { }, refreshLevels() { }, refreshProgress() { },
-  setClear() { }, setWinStat() { }
+  setClear() { }, setWinStat() { },
+  showReward(reward, next) { next(); }
 };
 
 /* ---------------- частинки (масив із компактуванням) ---------------- */
@@ -162,6 +163,14 @@ function moveX(e, dx) {
 }
 
 /* --- рух по осі Y; oneWay=true означає, що сутність зважає на платформи '=' --- */
+/* Нижню грань перевіряємо з відступом EPS, а не цілим пікселем.
+   З відступом 1 px коробка встигала занурюватись у підлогу майже на
+   піксель, перш ніж зіткнення взагалі помічалось: тому герой, що
+   спокійно стоїть, кожні три кадри «відривався» від землі (onGround
+   миготів 1-0-0-1-0-0), а анімація сіпалась між IDLE і FALL 20 разів
+   на секунду. EPS менший за крок гравітації за кадр (0,39 px) — тепер
+   зіткнення ловиться того ж кадру. */
+const EPS = 0.01;
 function moveY(e, dy, oneWay) {
   if (dy === 0) return 0;
   const steps = Math.max(1, Math.ceil(Math.abs(dy) / 6));
@@ -171,19 +180,20 @@ function moveY(e, dy, oneWay) {
     const prevBottom = e.y + e.h;
     e.y += sd;
     const x0 = Math.floor(e.x / TS), x1 = Math.floor((e.x + e.w - 1) / TS);
-    const y0 = Math.floor(e.y / TS), y1 = Math.floor((e.y + e.h - 1) / TS);
-    let col = false;
+    const y0 = Math.floor(e.y / TS), y1 = Math.floor((e.y + e.h - EPS) / TS);
+    let col = false, colTy = 0;
     for (let ty = y0; ty <= y1 && !col; ty++)
       for (let tx = x0; tx <= x1 && !col; tx++)
-        if (isSolidCode(tAt(tx, ty))) col = true;
+        if (isSolidCode(tAt(tx, ty))) { col = true; colTy = ty; }
     if (col) {
-      if (sd > 0) { e.y = Math.floor((e.y + e.h - 1) / TS) * TS - e.h; res = 1; }
-      else { e.y = (Math.floor(e.y / TS) + 1) * TS; res = -1; }
+      // ставимо впритул до саме того ряду, з яким зіткнулись
+      if (sd > 0) { e.y = colTy * TS - e.h; res = 1; }
+      else { e.y = (colTy + 1) * TS; res = -1; }
       break;
     }
     // односторонні платформи — тільки при русі вниз і якщо були вище краю
     if (sd > 0 && oneWay) {
-      const ty = Math.floor((e.y + e.h - 1) / TS);
+      const ty = Math.floor((e.y + e.h - EPS) / TS);
       const top = ty * TS;
       if (prevBottom <= top + 1 && e.y + e.h > top) {
         let plat = false;
@@ -253,7 +263,7 @@ function loadLevel(idx) {
       else if (ch === '$') { world.cps.push({ x: px + 2, y: py + 1, taken: false }); }
       else if (ch === 'E') { world.exit.x = px; world.exit.y = py - TS; }
       else if (ch === '+') { world.pickList.push({ x: px + 3, y: py + 4, kind: 'med' }); }
-      else if (ch === 'I') { world.pickList.push({ x: px + 3, y: py + 4, kind: 'weapon' }); }
+      else if (ch === '*') { world.pickList.push({ x: px + 3, y: py + 4, kind: 'frag' }); }
       else if (ch === '?') { world.pickList.push({ x: px + 3, y: py + 4, kind: 'log' }); }
       else if (ch === '!') { world.bossX = px; }
       else {
@@ -328,7 +338,8 @@ const P = {
   anim: 'idle', animT: 0, noise: 0, exiting: 0, spawnFx: 0,
   // арсенал
   shells: 6, reloadT: 0, cores: 3, coreFrac: 0, chronoCd: 0, chronoHits: 0,
-  droneCd: 0, mark: null, blinkT: 0, breath: 0
+  droneCd: 0, mark: null, blinkT: 0, breath: 0,
+  aState: 0, aT: 0, aFrame: 0, idleT: 0, landT: 0, wasGround: true, moveIntent: false
 };
 
 function playerReset(full) {
@@ -341,9 +352,12 @@ function playerReset(full) {
   P.heat = 0; P.lock = false; P.lockT = 0; P.arUsed = false; P.arMark = 0;
   P.cHold = 0; P.fireCd = 0; P.chargeReady = false; P.recoil = 0;
   P.anim = 'idle'; P.animT = 0; P.noise = 0; P.exiting = 0; P.spawnFx = 0.5;
+  P.aState = 0; P.aT = 0; P.aFrame = 0; P.idleT = 0; P.landT = 0;
+  P.wasGround = true; P.moveIntent = false;
+  setAnim(AST.IDLE);
   P.shells = 6; P.reloadT = 0; P.chronoCd = 0; P.chronoHits = 0; P.droneCd = 0; P.mark = null;
   if (full) { P.cores = 3; P.coreFrac = 0; }
-  P.maxHp = Store.data.easy ? 7 : 5;
+  P.maxHp = maxHearts();
   if (full) { P.hp = P.maxHp; P.q = 0; }
 }
 function playerSpawnAt(x, y) {
@@ -402,7 +416,6 @@ function bladeStart() {
   P.atkAct = true;
   P.hitSet.length = 0;
   P.comboT = 0;
-  P.anim = 'atk'; P.animT = 0;
   Sfx.slash(idx);
   const b = bladeBox();
   for (let i = 0; i < (idx === 2 ? 9 : 5); i++)
@@ -554,9 +567,56 @@ export function giveWeapon(id) {
   Store.save();
   Game.pickupName = WEAPONS[id].name;
   Game.pickupT = 3.2;
+  Music.sting('weapon'); Music.duck(1.8);
   Sfx.win(); buzz(30);
   ring(P.x + P.w / 2, P.y + 7, 4, 40, 0.7, '#ffd23f', 2);
   burst(P.x + P.w / 2, P.y + 7, 20, '#ffd23f', 150, 0.7, 40, 2);
+  return true;
+}
+/**
+ * Нагорода за пройдений рівень. Викликається один раз при завершенні;
+ * повертає опис для сцени на екрані «сектор зачищено» або null.
+ */
+export function levelReward(idx) {
+  const r = LEVEL_REWARD[idx];
+  if (!r) return null;
+  if (r.kind === 'weapon') {
+    const w = WEAPONS[r.id];
+    if (Store.data.owned.indexOf(r.id) >= 0) return null;   // повторне проходження
+    Store.data.owned.push(r.id); Store.save();
+    return { kind: 'weapon', id: r.id, name: w.name, sprite: w.sprite,
+             desc: w.desc, hint: w.hint || '', bars: w.bars, slot: w.kind };
+  }
+  if (r.kind === 'heart') {
+    if (Store.data.bonusHp >= 1) return null;
+    Store.data.bonusHp = 1; Store.save();
+    P.maxHp = maxHearts(); P.hp = P.maxHp;
+    return { kind: 'heart', name: r.name, sprite: r.sprite, desc: r.desc, hint: r.hint };
+  }
+  if (r.kind === 'key') {
+    if (Store.data.ngKey) return null;
+    Store.data.ngKey = 1; Store.save();
+    return { kind: 'key', name: r.name, sprite: r.sprite, desc: r.desc, hint: r.hint };
+  }
+  return null;
+}
+export function maxHearts() {
+  return (Store.data.easy ? 7 : 5) + (Store.data.bonusHp || 0);
+}
+/** Скільки фрагментів Ехо-Призми зібрано. */
+export function fragCount() { return Store.data.frags.length; }
+/** Зібрані всі три — призма збирається на найближчому чекпоінті. */
+function tryAssemblePrism() {
+  if (Store.data.frags.length < FRAG_LEVELS.length) return false;
+  if (Store.data.owned.indexOf('prism') >= 0) return false;
+  Store.data.owned.push('prism'); Store.save();
+  Music.sting('secret'); Music.duck(2.0);
+  Game.assembleT = 3.6;
+  Game.pickupName = WEAPONS.prism.name;
+  Game.pickupT = 3.6;
+  Sfx.win(); buzz([30, 60, 30]);
+  ring(P.x + P.w / 2, P.y + 7, 5, 120, 1.1, '#8fdcff', 3);
+  burst(P.x + P.w / 2, P.y + 7, 30, '#8fdcff', 200, 1.0, 20, 2);
   return true;
 }
 /** Міняти зброю можна на чекпоінті, у паузі, перед боєм із босом. */
@@ -602,7 +662,6 @@ function meleeUpdate(dt, S) {
 function meleeStart() {
   const w = EQ.m;
   P.hitSet.length = 0;
-  P.anim = 'atk'; P.animT = 0;
   const combo = P.comboT > 0;                     // вікно продовження комбо
   P.comboT = 0;
   switch (w.id) {
@@ -768,6 +827,88 @@ function clawStack(e) {
   damageEnemy(e, 2.5, 0, {});
 }
 
+/* ================================================================
+   10a. МАШИНА СТАНІВ АНІМАЦІЇ
+   Єдина точка переходу — setAnim(). Ніде більше P.anim не присвоюється:
+   кадр обирає resolveAnim() за пріоритетом станів, а лічильник кадру
+   живе ВСЕРЕДИНІ стану й обнуляється на кожному переході.
+   ================================================================ */
+const AST = {                                     // значення = пріоритет
+  IDLE: 10, RUN: 20, CROUCH: 25, LAND: 30, FALL: 45, JUMP: 50,
+  DASH: 60, ATTACK: 70, HURT: 80, DEAD: 90
+};
+const ANIM = {
+  VXDEAD: 5,        // нижче цього без вводу швидкість вважається нулем
+  VXRUN: 10,        // біг лише якщо Є НАМІР і швидкість вища за це
+  IDLEFPS: 6,       // спокій — не швидше шести кадрів на секунду
+  LAND: 0.12,       // присідання після приземлення
+  LONGIDLE: 5.0,    // через стільки секунд простою — довга анімація
+  LONGDUR: 1.6      // її тривалість
+};
+function setAnim(st) {
+  if (P.aState === st) return;
+  P.aState = st;
+  P.aT = 0;                                       // таймер кадру — завжди з нуля
+  P.aFrame = 0;
+  if (st !== AST.IDLE) P.idleT = 0;               // простій рахується лише в IDLE
+}
+/** Який стан має бути цього кадру. Порядок = пріоритет із ТЗ. */
+function resolveAnim(g) {
+  if (P.dead) return AST.DEAD;
+  if (P.hurtT > 0) return AST.HURT;
+  if (P.atkT > 0) return AST.ATTACK;
+  if (P.dashT > 0) return AST.DASH;
+  if (!P.onGround) return (P.vy * g < 0) ? AST.JUMP : AST.FALL;
+  if (P.landT > 0) return AST.LAND;
+  if (P.crouch) return AST.CROUCH;
+  if (P.moveIntent && Math.abs(P.vx) > ANIM.VXRUN) return AST.RUN;
+  return AST.IDLE;                                // ковзання по інерції — теж спокій
+}
+function stepAnim(dt, g) {
+  // приземлення: короткий кадр присідання, далі стан вирішиться сам
+  if (P.onGround && !P.wasGround && P.dashT <= 0 && P.atkT <= 0) P.landT = ANIM.LAND;
+  P.wasGround = P.onGround;
+  if (P.landT > 0) P.landT -= dt;
+
+  setAnim(resolveAnim(g));
+  P.aT += dt;
+  P.animT = P.aT;                                 // сумісність: рендер дивиться на animT
+
+  switch (P.aState) {
+    case AST.RUN: {
+      const fps = 6 + Math.abs(P.vx) / 26;
+      P.aFrame = Math.floor(P.aT * fps) % 4;
+      P.anim = ['run1', 'run2', 'run3', 'run2'][P.aFrame];
+      break;
+    }
+    case AST.IDLE: {
+      P.idleT += dt;
+      P.blinkT -= dt;
+      if (P.blinkT < -0.12) P.blinkT = 2.4 + Math.random() * 2.6;
+      if (P.idleT > ANIM.LONGIDLE && P.idleT < ANIM.LONGIDLE + ANIM.LONGDUR) {
+        // довга анімація простою: Ехо поправляє хромований протез
+        P.aFrame = Math.floor((P.idleT - ANIM.LONGIDLE) * ANIM.IDLEFPS) % 4;
+        P.anim = ['idle2a', 'idle2b', 'idle2b', 'idle2a'][P.aFrame];
+      } else {
+        if (P.idleT >= ANIM.LONGIDLE + ANIM.LONGDUR) P.idleT = 0;
+        P.aFrame = Math.floor(P.aT * ANIM.IDLEFPS) % 2;
+        P.anim = (P.blinkT <= 0) ? 'blink' : 'idle';
+      }
+      break;
+    }
+    case AST.CROUCH: P.anim = 'crouch'; break;
+    case AST.LAND:   P.anim = 'land'; break;
+    case AST.JUMP:   P.anim = 'jump'; break;
+    case AST.FALL:   P.anim = 'fall'; break;
+    case AST.DASH:   P.anim = 'jump'; break;
+    case AST.ATTACK: P.anim = 'atk'; break;
+    case AST.HURT:   P.anim = 'hurt'; break;
+    case AST.DEAD:   P.anim = 'hurt'; break;
+  }
+  // дихання: у спокої повільне, у русі частіше
+  P.breath += dt * (P.aState === AST.IDLE ? 2.2 : 4.4);
+}
+
 /* -------------------------------------------------------- ДАЛЬНІЙ БІЙ */
 function rangedUpdate(dt, S) {
   const w = EQ.r;
@@ -793,7 +934,22 @@ function rangedUpdate(dt, S) {
     case 'glitch':
       if (S.cP && P.fireCd <= 0 && P.dashT <= 0) glitchFire();
       break;
+    case 'prism':
+      if (S.cP && P.fireCd <= 0 && P.dashT <= 0) prismFire();
+      break;
   }
+}
+/** Ехо-Призма: один постріл коштує ядро, далі все робить рикошет. */
+function prismFire() {
+  if (P.cores < 1) { Sfx.blocked(); return; }
+  P.cores--;
+  const y = P.y + (P.crouch ? 5 : 6);
+  const b = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * 300, 0,
+    { own: 'p', dmg: EQ.r.dmg, w: 5, h: 5, col: '#8fdcff', life: 2.4, kind: 6 });
+  b.bounce = 5;
+  P.fireCd = 0.34; P.noise = 0.8;
+  Sfx.beam(); buzz(12);
+  ring(P.x + P.w / 2 + P.face * 8, y, 2, 16, 0.25, '#8fdcff', 2);
 }
 /** Рейкострил — поведінка з версії 1.x, без змін. */
 function railUpdate(dt, S) {
@@ -1015,8 +1171,12 @@ function updatePlayer(dt) {
     } else {
       const fr = (P.onGround ? PH.DEC : PH.AIRDEC) * dt;
       if (Math.abs(P.vx) <= fr) P.vx = 0; else P.vx -= sign(P.vx) * fr;
+      // мертва зона: без вводу залишок швидкості нижче 5 px/с — це нуль,
+      // а не «дуже повільний біг», який ганяв би анімацію вічно
+      if (Math.abs(P.vx) < ANIM.VXDEAD) P.vx = 0;
     }
   }
+  P.moveIntent = Math.abs(S.ax) > 0.12;            // намір, а не швидкість
 
   // ---- стрибок: буфер + coyote + змінна висота ----
   if (S.aP) P.jbuf = PH.BUFFER;
@@ -1153,9 +1313,17 @@ function updatePlayer(dt) {
     pk.t += dt;
     if (!boxHit(P.x, P.y, P.w, P.h, pk.x, pk.y, 10, 9)) continue;
     let taken = false;
-    if (pk.kind === 'weapon') {
-      taken = giveWeapon(LEVEL_LOOT[world.idx]);
-      if (!taken) { taken = true; playerHeal(1); }   // зброя вже є — просто аптечка
+    if (pk.kind === 'frag') {
+      taken = true;
+      if (Store.data.frags.indexOf(world.idx) < 0) {
+        Store.data.frags.push(world.idx); Store.save();
+        Music.sting('secret'); Music.duck(1.6);
+        Game.pickupName = 'ФРАГМЕНТ ПРИЗМИ ' + Store.data.frags.length + '/3';
+      } else { Game.pickupName = 'ФРАГМЕНТ УЖЕ ЗІБРАНО'; playerHeal(1); }
+      Game.pickupT = 3.0;
+      Sfx.win(); buzz(24);
+      ring(pk.x + 5, pk.y + 4, 4, 42, 0.7, '#8fdcff', 3);
+      burst(pk.x + 5, pk.y + 4, 18, '#8fdcff', 160, 0.7, 30, 2);
     } else if (pk.kind === 'log') {
       taken = true;
       if (Store.data.logs.indexOf(world.idx) < 0) { Store.data.logs.push(world.idx); Store.save(); }
@@ -1181,6 +1349,7 @@ function updatePlayer(dt) {
     ring(c.x + 5, c.y + 7, 4, 26, 0.5, '#3dff9a', 2);
     for (let k = 0; k < 12; k++)
       part(c.x + 5, c.y + 12, rnd(-40, 40), rnd(-90, -20), rnd(0.3, 0.7), '#3dff9a', 1, 90, 1);
+    tryAssemblePrism();                           // три фрагменти = призма збирається тут
   }
 
   // ---- тригер боса ----
@@ -1194,21 +1363,7 @@ function updatePlayer(dt) {
   }
 
   // ---- анімація ----
-  P.animT += dt;
-  if (P.atkT > 0) P.anim = 'atk';
-  else if (P.hurtT > 0) P.anim = 'hurt';
-  else if (P.dashT > 0) P.anim = 'jump';
-  else if (!P.onGround) P.anim = (P.vy * g < 0) ? 'jump' : 'fall';
-  else if (P.crouch) P.anim = 'crouch';
-  else if (Math.abs(P.vx) > 12) {
-    const f = Math.floor(P.animT * (6 + Math.abs(P.vx) / 26)) % 4;
-    P.anim = ['run1', 'run2', 'run3', 'run2'][f];
-  } else P.anim = 'idle';
-  // Простій живий: дихання (амплітуда для рендера) і рідкі кліпання.
-  P.breath += dt * (P.anim === 'idle' ? 2.2 : 4.4);
-  P.blinkT -= dt;
-  if (P.blinkT < -0.12) P.blinkT = 2.4 + Math.random() * 2.6;   // кліп триває 0,12 с
-  if (P.anim === 'idle' && P.blinkT <= 0) P.anim = 'blink';
+  stepAnim(dt, g);
 }
 
 /* ================================================================
@@ -1392,6 +1547,7 @@ const TRAIL_MAX = 70;
 function spawnEnemy(type, px, py, elite) {
   const d = ETYPE[type];
   if (!d) return null;
+  if (Store.data.ng) elite = true;                 // НОВА ГРА+: усі вороги елітні
   const e = {
     id: enemyId++, t: type, elite: !!elite,
     w: d.w, h: d.h, x: px + (TS - d.w) / 2, y: d.fly ? py + 2 : py + TS - d.h,
@@ -2099,6 +2255,38 @@ function updateEnemies(dt) {
 /* ================================================================
    12. КУЛІ ТА ПРОМЕНІ
    ================================================================ */
+/**
+ * Ехо-Призма: промінь відбивається від стіни й на кожному відбитті
+ * роздвоюється, не втрачаючи шкоди. До п'яти відбиттів на промінь;
+ * друга половина пари успадковує решту відбиттів, тож у коридорі
+ * заповнює його, а на відкритому місці просто вилітає за екран.
+ */
+function prismBounce(b) {
+  // куди саме впёрлись: пробуємо відкотити по осях і дивимось, що звільняє
+  const bx = b.x - b.vx * (1 / 60), by = b.y - b.vy * (1 / 60);
+  const hitX = solidAtPx(b.x, by), hitY = solidAtPx(bx, b.y);
+  b.x = bx; b.y = by;
+  if (hitX || (!hitX && !hitY)) b.vx = -b.vx;
+  if (hitY) b.vy = -b.vy;
+  b.bounce--;
+  b.life = Math.max(b.life, 0.55);
+  Sfx.parry();
+  burst(b.x, b.y, 4, b.col, 90, 0.22, 0, 1);
+  ring(b.x, b.y, 2, 14, 0.22, b.col, 2);
+  if (b.bounce > 0 && BULL.length < 60) {           // роздвоєння під кутом
+    const sp = Math.hypot(b.vx, b.vy) || 1;
+    const a = Math.atan2(b.vy, b.vx);
+    const spread = 0.5;
+    const mk = (ang) => {
+      const c = shoot(b.x, b.y, Math.cos(ang) * sp, Math.sin(ang) * sp,
+        { own: 'p', dmg: b.dmg, col: b.col, w: b.w, h: b.h, life: b.life, kind: 6 });
+      c.bounce = b.bounce;
+      return c;
+    };
+    mk(a + spread);
+    b.vx = Math.cos(a - spread) * sp; b.vy = Math.sin(a - spread) * sp;
+  }
+}
 function updateBullets(dt) {
   for (let i = BULL.length - 1; i >= 0; i--) {
     const b = BULL[i];
@@ -2110,8 +2298,8 @@ function updateBullets(dt) {
     let kill = b.life <= 0;
 
     if (!kill && solidAtPx(b.x, b.y)) {
-      kill = true;
-      burst(b.x, b.y, 3, b.col, 60, 0.18, 0, 1);
+      if (b.bounce > 0) prismBounce(b);              // Ехо-Призма: відбити й роздвоїти
+      else { kill = true; burst(b.x, b.y, 3, b.col, 60, 0.18, 0, 1); }
     }
     if (!kill && b.own === 'e') {
       tryParry(b);                                   // може змінити власника кулі
@@ -2254,7 +2442,8 @@ function startBoss() {
   BOSS.x = BOSS.a1 - 90; BOSS.y = BOSS.ground - d.h;
   BOSS.face = -1; BOSS.intro = 1.9; BOSS.nameT = 3.2;
   cam.lockX0 = BOSS.a0; cam.lockX1 = BOSS.a1;
-  Music.set('boss');
+  Music.set('boss' + (world.idx + 1));            // у кожного боса власний трек
+  Music.layer(3); Music.duck(2.6);                // поява боса: -25% на час репліки
   Sfx.bossIn(); cam.hit(5);
   if (type === 'queen') {
     BOSS.y = 104;
@@ -2353,6 +2542,7 @@ function bossCheckPhase() {
 }
 function bossDie() {
   if (BOSS.st === 'die') return;                 // смерть програється лише раз
+  Music.sting('boss');
   BOSS.st = 'die'; BOSS.dieT = 2.6; BOSS.inv = 99;
   Sfx.bossDie(); buzz([60, 40, 120]); cam.hit(8);
   world.grav = 1; world.off = null;
@@ -2930,7 +3120,6 @@ function updateBoss(dt) {
 }
 function finishBoss() {
   BOSS.on = false; BOSS.done = true;
-  giveWeapon(BOSS_LOOT[world.idx]);
   world.exitOpen = true; world.grav = 1; world.off = null;
   cam.lockX0 = -1; cam.lockX1 = -1;
   for (let i = 0; i < ENEM.length; i++) if (ENEM[i].fromBoss) ENEM[i].dead = true;
@@ -2989,7 +3178,7 @@ function updateWeather(dt) {
 
 const Game = {
   state: 'menu', level: 0, introT: 0, cpTaken: false, cpIndex: 0, backTo: 'menu',
-  pickupName: '', pickupT: 0,
+  pickupName: '', pickupT: 0, assembleT: 0, reward: null,
 
   startLevel(idx, useCp) {
     this.level = clamp(idx, 0, LEVELS.length - 1);
@@ -3030,19 +3219,21 @@ const Game = {
     d.unlocked = Math.max(d.unlocked, Math.min(LEVELS.length, this.level + 2));
     Store.save();
     hooks.refreshLevels();
+    this.reward = levelReward(this.level);        // нагорода за пройдений сектор
     if (this.level >= LEVELS.length - 1) {
       hooks.setWinStat('Смертей за гру: ' + Store.data.deaths);
-      hooks.showScreen('win');
+      hooks.showReward(this.reward, () => hooks.showScreen('win'));
       Sfx.win();
     } else {
       hooks.setClear(world.bossType ? 'БОСА ЗНИЩЕНО' : 'СЕКТОР ЗАЧИЩЕНО',
                      'СЕКТОР ' + (this.level + 1) + ' · ' + world.def.n);
-      hooks.showScreen('clear');
+      hooks.showReward(this.reward, () => hooks.showScreen('clear'));
     }
   },
   onDeath() {
     this.state = 'dead';
     Input.enable(false);
+    Music.sting('die');
     Music.stop();
     Store.data.deaths++; Store.save();
     hooks.showScreen('dead');
@@ -3063,7 +3254,7 @@ const Game = {
   },
   toMenu() {
     this.state = 'menu';
-    Music.stop();
+    Music.set('menu'); Music.layer(0); Music.start();
     clearEntities(); bossReset();
     Input.enable(false);
     hooks.showScreen('menu');
@@ -3108,6 +3299,7 @@ function stepGame(dt) {
   world.time += dt;
   if (Game.introT > 0) Game.introT -= dt;
   if (Game.pickupT > 0) Game.pickupT -= dt;
+  if (Game.assembleT > 0) Game.assembleT -= dt;
   tickSlow(dt);
   const sdt = dt * timeScale();                   // сповільнення часу від Хроноріза
   Input.step();
@@ -3127,7 +3319,24 @@ function stepGame(dt) {
   updateRings(dt);
   updateWeather(dt);
   cam.update(dt, P.x + P.w / 2, P.y + P.h / 2);
-  Music.update();
+  // --- адаптивна музика: 0 спокій, 1 помітили, 2 бій, 3 бос/фінальна фаза ---
+  {
+    let lv = 0;
+    if (BOSS.on && !BOSS.done) lv = BOSS.phase >= 3 ? 3 : 2;
+    else {
+      for (let i = 0; i < ENEM.length; i++) {
+        const e = ENEM[i];
+        if (e.dead || e.charm > 0) continue;
+        if (Math.abs(e.x - P.x) > 260) continue;
+        if (e.alertSt === 'fight') { lv = 2; break; }
+        if (e.alertSt === 'suspect' || e.alertSt === 'lost') lv = Math.max(lv, 1);
+        else lv = Math.max(lv, 1);
+      }
+      if (Game.pickupT > 0.1 && lv === 0) lv = 0;
+    }
+    Music.layer(lv);
+  }
+  Music.update(dt);
 }
 
 
