@@ -1,7 +1,14 @@
-import { clamp } from './config.js';
+import { clamp, DEV_MODE } from './config.js';
 
-/** Збереження прогресу й налаштувань. */
-export const SAVE_KEY = 'echo_neon_courier_v1';
+/**
+ * Збереження прогресу й налаштувань.
+ *
+ * У режимі розробника гра пише в ОКРЕМИЙ слот: чити, розблокована зброя
+ * й стрибки по рівнях не чіпають основний прогрес гравця. Прапорець
+ * `DEV_MODE` статичний, тож у релізі тут лишається просто рядок ключа.
+ */
+export const SAVE_KEY = DEV_MODE ? 'echo_neon_courier_v1_dev' : 'echo_neon_courier_v1';
+export const SAVE_KEY_MAIN = 'echo_neon_courier_v1';
 export const Store = {
   data: {
     unlocked: 1, cleared: [], deaths: 0, logs: [],
