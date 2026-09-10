@@ -232,9 +232,9 @@ const pos = await page.evaluate(() => {
   const b = window.__DEV.btn, p = window.__DEV.pad;
   return { A: { x: b.A.x, y: b.A.y }, C: { x: b.C.x, y: b.C.y },
            Dash: { x: b.Dash.x, y: b.Dash.y },
-           padR: { x: p.x + p.half * 0.62, y: p.y },
-           padL: { x: p.x - p.half * 0.62, y: p.y },
-           padU: { x: p.x, y: p.y - p.half * 0.62 } };
+           padR: { x: p.x + p.w * 0.25, y: p.y },
+           padL: { x: p.x - p.w * 0.25, y: p.y },
+           padEdge: { x: Math.max(3, p.x - p.hw + 6), y: p.y + p.hh - 6 } };
 });
 await page.evaluate(() => {
   const D = window.__DEV;
@@ -284,13 +284,13 @@ await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove',
 await page.waitForTimeout(140);
 const slideR = await page.evaluate(() => window.__DEV.S.ax);
 await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove',
-  touchPoints: [{ x: pos.padL.x, y: pos.padU.y, id: 7 }] });
+  touchPoints: [{ x: pos.padEdge.x, y: pos.padEdge.y, id: 7 }] });
 await page.waitForTimeout(140);
-const diag = await page.evaluate(() => ({ ax: window.__DEV.S.ax, a: window.__DEV.S.a }));
+const far = await page.evaluate(() => window.__DEV.S.ax);
 await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 ok(slideL < -0.2 && slideR > 0.2, 'ковзання з ← на → міняє напрямок без відриву',
    'ax ' + slideL + ' -> ' + slideR);
-ok(diag.ax < -0.2 && diag.a === true, 'діагональ ←+↑ працює одночасно (біг + стрибок)');
+ok(far < -0.2, 'палець у нижньому куті розширеного хітбокса ще тримає ←', 'ax=' + far);
 
 // --- окрема кнопка ривка D ---
 await page.evaluate(() => { const D = window.__DEV; D.P.dashCd = 0; D.P.dashT = 0; });

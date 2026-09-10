@@ -15,12 +15,9 @@
   <div id="safeProbe"></div>
 
   <div id="touch">
-    <svg id="dpad" viewBox="0 0 150 150" aria-hidden="true">
-      <rect class="hub" x="52" y="52" width="46" height="46" rx="9"></rect>
-      <polygon class="arw" id="dpU" points="75,7 103,43 47,43"></polygon>
-      <polygon class="arw" id="dpD" points="75,143 103,107 47,107"></polygon>
-      <polygon class="arw" id="dpL" points="7,75 43,103 43,47"></polygon>
-      <polygon class="arw" id="dpR" points="143,75 107,103 107,47"></polygon>
+    <svg id="dpad" viewBox="0 0 190 120" aria-hidden="true">
+      <polygon class="arw" id="dpL" points="2,60 90,2 90,118"></polygon>
+      <polygon class="arw" id="dpR" points="188,60 100,2 100,118"></polygon>
     </svg>
     <div class="pad" id="btnA">A<small>СТРИБОК</small></div>
     <div class="pad" id="btnB">B<small>КЛИНОК</small></div>
@@ -82,9 +79,9 @@
     <div class="row"><span class="lab">Пресети</span><div class="seg" id="cPreset">
       <button data-v="default">Класика</button><button data-v="big">Великі</button>
       <button data-v="compact">Компакт</button><button data-v="lefty">Ліворукий</button></div></div>
-    <div class="row"><span class="lab">Прозорість хрестовини</span>
+    <div class="row"><span class="lab">Прозорість стрілок</span>
       <input type="range" id="cDpadOp" min="20" max="100" step="5"><b class="val" id="vDpadOp"></b></div>
-    <div class="row"><span class="lab">Розмір хрестовини</span>
+    <div class="row"><span class="lab">Розмір стрілок</span>
       <input type="range" id="cDpadSize" min="70" max="160" step="5"><b class="val" id="vDpadSize"></b></div>
     <div class="row"><span class="lab">Прозорість кнопок</span>
       <input type="range" id="cBtnOp" min="20" max="100" step="5"><b class="val" id="vBtnOp"></b></div>
@@ -159,11 +156,12 @@
       і вона полетить назад із подвійною шкодою. Перегрів рейкострила блокує зброю на 2 с;
       влучний тап по <span class="k">C</span> у зеленій зоні шкали миттєво скидає тепло.</p>
       <p><span class="k">РИВОК (D)</span> — окрема кнопка. Під час ривка ти невразливий.</p>
-      <p><span class="k">ХРЕСТОВИНА</span> ліворуч: <span class="k">←/→</span> рух,
-      <span class="k">↑</span> стрибок, <span class="k">↓</span> присісти (утримати 0,3 с —
-      зістрибнути крізь платформу). <span class="k">ПОДВІЙНИЙ СТРИБОК</span> — другий тап у повітрі.</p>
+      <p>Ліворуч лише дві великі стрілки <span class="k">←</span> і <span class="k">→</span> — рух.
+      Стрибок цілком на <span class="k">A</span>: тап — стрибок, другий тап у повітрі —
+      <span class="k">ПОДВІЙНИЙ СТРИБОК</span>. Стоячи на тонкій платформі, утримуй
+      <span class="k">A</span> 0,4 с — зістрибнеш крізь неї.</p>
       <p><b>Налаштування → Керування</b>: окремо прозорість (20–100%) і розмір (70–160%)
-      для хрестовини й для кнопок, пресети, перетягування блоків пальцем,
+      для стрілок і для кнопок, пресети, перетягування блоків пальцем,
       дзеркальна розкладка для лівші, три рівні вібрації. Усе видно одразу,
       просто під панеллю.</p>
       <p>Клавіатура: <span class="k">A/D</span> або стрілки, <span class="k">Пробіл</span> — стрибок,

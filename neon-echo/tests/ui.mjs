@@ -30,7 +30,7 @@ await page.evaluate(() => { const s = document.getElementById('cDpadSize'); s.va
                             s.dispatchEvent(new Event('input', { bubbles: true })); });
 await page.waitForTimeout(80);
 const d1 = await box('#dpad');
-ok(d1.w > d0.w * 1.4, 'повзунок розміру хрестовини діє одразу', d0.w.toFixed(0) + ' → ' + d1.w.toFixed(0) + ' px');
+ok(d1.w > d0.w * 1.4, 'повзунок розміру стрілок діє одразу', d0.w.toFixed(0) + ' → ' + d1.w.toFixed(0) + ' px');
 ok(Math.abs((await box('#btnA')).w - b0.w) < 0.5, 'розмір кнопок при цьому не змінився');
 
 await page.evaluate(() => { const s = document.getElementById('cBtnOp'); s.value = 100;
@@ -38,9 +38,9 @@ await page.evaluate(() => { const s = document.getElementById('cBtnOp'); s.value
 await page.waitForTimeout(80);
 ok((await box('#btnA')).op > 0.95, 'повзунок прозорості кнопок діє одразу',
    b0.op.toFixed(2) + ' → ' + (await box('#btnA')).op.toFixed(2));
-ok((await box('#dpad')).op < 0.95, 'прозорість хрестовини лишилась своєю');
+ok((await box('#dpad')).op < 0.95, 'прозорість стрілок лишилась своєю');
 
-// перетягування хрестовини пальцем (на звичайному розмірі — є куди рухати)
+// перетягування стрілок пальцем (на звичайному розмірі — є куди рухати)
 await page.evaluate(() => { const s = document.getElementById('cDpadSize'); s.value = 100;
                             s.dispatchEvent(new Event('input', { bubbles: true })); });
 await page.waitForTimeout(80);
@@ -55,7 +55,7 @@ const drag = async (sel, dx, dy) => {
 };
 const before = await drag('#dpad', 60, -70);
 const after = await box('#dpad');
-ok(after.x > before.x + 40 && after.y < before.y - 40, 'хрестовина тягнеться пальцем',
+ok(after.x > before.x + 40 && after.y < before.y - 40, 'блок стрілок тягнеться пальцем',
    `(${before.x.toFixed(0)},${before.y.toFixed(0)}) → (${after.x.toFixed(0)},${after.y.toFixed(0)})`);
 // і не дає кинути себе поверх панелі — інакше її кнопки стануть недосяжні
 await drag('#dpad', 400, 0);
@@ -77,7 +77,7 @@ await page.waitForTimeout(80);
 ok((await box('#dpad')).w < d0.w, 'пресет «Компакт» зменшує керування');
 await page.evaluate(() => document.querySelector('#cPreset button[data-v="lefty"]').click());
 await page.waitForTimeout(80);
-ok((await box('#dpad')).x > 450, 'пресет «Ліворукий» переносить хрестовину праворуч');
+ok((await box('#dpad')).x > 450, 'пресет «Ліворукий» переносить стрілки праворуч');
 await page.evaluate(() => document.querySelector('#cPreset button[data-v="default"]').click());
 await page.waitForTimeout(80);
 
@@ -85,11 +85,15 @@ await page.waitForTimeout(80);
 await page.evaluate(() => { for (const [id, v] of [['cDpadSize', 70], ['cBtnSize', 70]]) {
   const s = document.getElementById(id); s.value = v; s.dispatchEvent(new Event('input', { bubbles: true })); } });
 await page.waitForTimeout(80);
-const hit = await page.evaluate(() => ({ pad: window.__DEV.pad.hit, padHalf: window.__DEV.pad.half,
+const hit = await page.evaluate(() => ({ padHw: window.__DEV.pad.hw, padHh: window.__DEV.pad.hh,
+  padW: window.__DEV.pad.w, padH: window.__DEV.pad.h,
   btn: window.__DEV.btn.A.hit, btnR: window.__DEV.btn.A.r,
-  baseD: window.__DEV.CONFIG.DPAD / 2, baseB: window.__DEV.CONFIG.BTN / 2 }));
-ok(hit.pad >= hit.baseD * 1.24, 'хрестовина: хітбокс ≥ 125% базового навіть на мінімумі',
-   hit.padHalf.toFixed(0) + ' px видимо / ' + hit.pad.toFixed(0) + ' px хітбокс');
+  baseW: window.__DEV.CONFIG.ARROW_W, baseH: window.__DEV.CONFIG.ARROW_H,
+  gap: window.__DEV.CONFIG.ARROW_GAP, baseB: window.__DEV.CONFIG.BTN / 2 }));
+ok(hit.padHw >= (hit.baseW * 2 + hit.gap) / 2 * 1.29 && hit.padHh >= hit.baseH / 2 * 1.29,
+   'стрілки: хітбокс ≥ 130% базового навіть на мінімумі',
+   (hit.padW / 2).toFixed(0) + 'x' + (hit.padH / 2).toFixed(0) + ' px видимо / ' +
+   hit.padHw.toFixed(0) + 'x' + hit.padHh.toFixed(0) + ' px хітбокс');
 ok(hit.btn >= hit.baseB * 1.24, 'кнопка: хітбокс ≥ 125% базового навіть на мінімумі',
    hit.btnR.toFixed(0) + ' px видимо / ' + hit.btn.toFixed(0) + ' px хітбокс');
 await page.evaluate(() => document.querySelector('#cPreset button[data-v="default"]').click());

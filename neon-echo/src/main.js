@@ -15,6 +15,7 @@ import { Input } from './input.js';
 import { Gfx } from './render/index.js';
 import * as G from './core.js';
 import { initUI, showScreen, curScreen } from './ui.js';
+import { SCRIPTS as CUT_SCRIPTS } from './cutscene.js';
 
 import { Capacitor } from '@capacitor/core';
 import { StatusBar } from '@capacitor/status-bar';
@@ -66,7 +67,10 @@ function frame(now) {
              (curScreen === 'settings' && G.Game.backTo === 'menu')) showScreen('menu');
     else if (curScreen === 'settings') showScreen(G.Game.backTo);
   }
-  if (G.Game.state === 'play') {
+  if (G.Game.state === 'cut') {                    // катсцена: гра стоїть, час іде
+    G.Cut.step(dt);
+    acc = 0;
+  } else if (G.Game.state === 'play') {
     acc += dt;
     let steps = 0;
     while (acc >= DT && steps < 6) {
@@ -107,6 +111,12 @@ async function boot() {
   for (const ev of ['pointerdown', 'keydown', 'touchstart'])
     document.addEventListener(ev, unlock, { passive: true });
 
+  // Пропуск катсцени — один тап (чи клавіша) будь-де. Ловимо на capture,
+  // щоб екрани меню й шар керування не з'їли подію.
+  const skipCut = () => { if (G.Game.state === 'cut') { Sfx.ui(); G.Cut.skip(); } };
+  for (const ev of ['pointerdown', 'keydown'])
+    document.addEventListener(ev, skipCut, { capture: true, passive: true });
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { acc = 0; last = 0; if (G.Game.state === 'play') G.Game.pause(); Music.stop(); }
     else {
@@ -131,7 +141,12 @@ async function boot() {
     god: v => G.setGod(v),
     step: () => G.stepGame(DT),
     render: () => Gfx.draw(),
-    gotoBoss: () => { if (G.world.bossX) { G.P.x = G.world.bossX + 16; G.P.y = 13 * 16 - G.P.h - 2; G.P.vy = 0; } },
+    // службовий телепорт на арену: катсцени вважаємо переглянутими,
+    // інакше бій не почнеться, поки хтось не тапне по екрану
+    gotoBoss: () => {
+      for (const k in CUT_SCRIPTS) if (CUT_SCRIPTS[k].id) G.Cut.markSeen(CUT_SCRIPTS[k].id);
+      if (G.world.bossX) { G.P.x = G.world.bossX + 16; G.P.y = 13 * 16 - G.P.h - 2; G.P.vy = 0; }
+    },
     hurtBoss: n => { if (G.BOSS.on) { G.BOSS.hp -= n; if (G.BOSS.hp <= 0) { G.BOSS.hp = 0; G.bossDie(); } else G.bossCheckPhase(); } },
     killParts: () => { for (const p of G.BOSS.parts) p.alive = false; },
     hitboxes: () => G.bossHitBoxes(),
@@ -146,6 +161,8 @@ async function boot() {
     busGain: () => Music.busGain(),
     musicMeter: () => Music.meter(),
     levelReward: G.levelReward, maxHearts: G.maxHearts, fragCount: G.fragCount, PICKS: G.PICKS,
+    WFX: G.WFX, wfxKinds: () => G.WFX.map(f => f.k), getSlow: G.getSlow, getDesat: G.getDesat,
+    Cut: G.Cut, SCRIPTS: CUT_SCRIPTS,
     equip: (m, r) => { if (m) Store.data.melee = m; if (r) Store.data.ranged = r; G.refreshEquip(); },
     solidAtPx: G.solidAtPx, moveX: G.moveX, moveY: G.moveY, tAt: G.tAt, PH, BL, RG, CONFIG, damageEnemy: G.damageEnemy,
     levelInfo: i => ({ n: G.LEVELS[i].n, boss: G.LEVELS[i].boss }),

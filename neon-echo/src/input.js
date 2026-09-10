@@ -1,7 +1,8 @@
 /**
- * Керування: хрестовина зі стрілок + кнопки A/B/C/D, повний мультитач,
- * дублююча клавіатура. Логіка перенесена з версії 1.x без змін, додано
- * лише відступи під безпечну зону екрана (виріз камери).
+ * Керування: дві великі стрілки ← → + кнопки A/B/C/D, повний мультитач,
+ * дублююча клавіатура. Стрілок «вгору» і «вниз» немає: стрибок живе на A,
+ * спуск крізь тонкі платформи — утримання A. Відступи враховують
+ * безпечну зону екрана (виріз камери).
  */
 import { CONFIG, clamp, sign } from './config.js';
 import { Store } from './store.js';
@@ -11,21 +12,21 @@ export const Input = (function () {
   const el = {
     layer: document.getElementById('touch'),
     dpad: document.getElementById('dpad'),
-    U: document.getElementById('dpU'), D: document.getElementById('dpD'),
     L: document.getElementById('dpL'), R: document.getElementById('dpR'),
     A: document.getElementById('btnA'), B: document.getElementById('btnB'),
     C: document.getElementById('btnC'), Dash: document.getElementById('btnD'),
     pause: document.getElementById('btnPause')
   };
 
-  const kb = { l: 0, r: 0, d: 0, u: 0, a: 0, b: 0, c: 0 };
-  const dir = { l: 0, r: 0, u: 0, d: 0 };          // стан хрестовини
+  const kb = { l: 0, r: 0, u: 0, a: 0, b: 0, c: 0 };
+  const dir = { l: 0, r: 0 };                      // стан стрілок
   const tc = { a: 0, b: 0, c: 0 };                 // стан кнопок дій
   const held = { a: 0, b: 0, c: 0 };
   const prev = { a: 0, b: 0, c: 0 };
   const btnPos = { A: { x: 0, y: 0, r: 34, hit: 42 }, B: { x: 0, y: 0, r: 34, hit: 42 },
                    C: { x: 0, y: 0, r: 34, hit: 42 }, Dash: { x: 0, y: 0, r: 23, hit: 29 } };
-  const pad = { x: 0, y: 0, half: 75, dead: 16, hit: 94 };
+  // Геометрія двох стрілок: спільна коробка + межа між ними.
+  const pad = { x: 0, y: 0, w: 190, h: 120, hit: 1.3, mir: 1 };
   const pauseBox = { x: 0, y: 0, w: 44, h: 44 };
   const box = { pad: { x: 0, y: 0, w: 0, h: 0 }, btn: { x: 0, y: 0, w: 0, h: 0 } };
 
@@ -34,7 +35,7 @@ export const Input = (function () {
   let preview = false, drag = null, onMoved = null;
 
   const S = {
-    ax: 0, down: false,
+    ax: 0,
     a: false, b: false, c: false,
     aP: false, bP: false, cP: false,
     aR: false, bR: false, cR: false,
@@ -68,28 +69,31 @@ export const Input = (function () {
     const kb2 = clamp(D.btnSize || 100, 70, 160) / 100;
     const sl = safeInset('l'), sr = safeInset('r'), sb = safeInset('b');
     const W = window.innerWidth - sl - sr, H = window.innerHeight - sb;
-    const mir = D.hand ? -1 : 1;                   // 1 = хрестовина ліворуч
+    const mir = D.hand ? -1 : 1;                   // 1 = стрілки ліворуч
     const edge = CONFIG.DPAD_EDGE;
     const OX = sl;                                 // зсув усього керування вправо на виріз
 
-    // --- хрестовина ---
-    const size = CONFIG.DPAD * kd;
-    let px = OX + (mir > 0 ? (edge + size / 2) : (W - edge - size / 2));
-    let py = H - edge - size / 2;
+    // --- дві стрілки ← → ---
+    const aw = CONFIG.ARROW_W * kd, ah = CONFIG.ARROW_H * kd, gap = CONFIG.ARROW_GAP * kd;
+    const bw = aw * 2 + gap, bh = ah;               // спільна коробка обох стрілок
+    let px = OX + (mir > 0 ? (edge + bw / 2) : (W - edge - bw / 2));
+    let py = H - edge - bh / 2;
     if (D.dpadPos) { px = OX + D.dpadPos.x * W; py = D.dpadPos.y * H; }
-    px = clamp(px, OX + size / 2 + 2, OX + W - size / 2 - 2);
-    py = clamp(py, size / 2 + 2, H - size / 2 - 2);
-    pad.x = px; pad.y = py; pad.half = size / 2; pad.dead = CONFIG.DPAD_DEAD * kd;
-    // хітбокс ніколи не менший за той, що при 100% — зменшений хрест лишається зручним
-    pad.hit = Math.max(pad.half, CONFIG.DPAD / 2) * CONFIG.DPAD_HIT;
-    el.dpad.style.width = size + 'px'; el.dpad.style.height = size + 'px';
-    el.dpad.style.left = (px - size / 2) + 'px';
-    el.dpad.style.top = (py - size / 2) + 'px';
-    box.pad.x = px - size / 2; box.pad.y = py - size / 2; box.pad.w = size; box.pad.h = size;
+    px = clamp(px, OX + bw / 2 + 2, OX + W - bw / 2 - 2);
+    py = clamp(py, bh / 2 + 2, H - bh / 2 - 2);
+    pad.x = px; pad.y = py; pad.w = bw; pad.h = bh; pad.mir = mir;
+    // хітбокс на 30% більший за візуал і ніколи не менший за базовий
+    pad.hit = CONFIG.DPAD_HIT;
+    pad.hw = Math.max(bw, CONFIG.ARROW_W * 2 + CONFIG.ARROW_GAP) * pad.hit / 2;
+    pad.hh = Math.max(bh, CONFIG.ARROW_H) * pad.hit / 2;
+    el.dpad.style.width = bw + 'px'; el.dpad.style.height = bh + 'px';
+    el.dpad.style.left = (px - bw / 2) + 'px';
+    el.dpad.style.top = (py - bh / 2) + 'px';
+    box.pad.x = px - bw / 2; box.pad.y = py - bh / 2; box.pad.w = bw; box.pad.h = bh;
 
     // --- кнопки дій ромбом: A знизу, B збоку, C зверху, D (ривок) навпроти B ---
-    const d = CONFIG.BTN * kb2, gap = CONFIG.BTN_GAP * kb2, dd = CONFIG.BTN_DASH * kb2;
-    const rad = (d + gap) / Math.SQRT2;
+    const d = CONFIG.BTN * kb2, bgap = CONFIG.BTN_GAP * kb2, dd = CONFIG.BTN_DASH * kb2;
+    const rad = (d + bgap) / Math.SQRT2;
     const half = rad + d / 2;
     let cx = OX + (mir > 0 ? (W - edge - half) : (edge + half));
     let cy = H - edge - half;
@@ -124,31 +128,32 @@ export const Input = (function () {
     e.style.left = (p.x - size / 2) + 'px'; e.style.top = (p.y - size / 2) + 'px';
   }
 
-  // Напрямки хрестовини за положенням пальця. bounded=false — палець уже
-  // «володіє» хрестовиною, тож дозволяємо вести його скільки завгодно далеко.
+  /**
+   * Яка стрілка під пальцем. bounded=false — палець уже «володіє» блоком
+   * стрілок, тож ведемо його скільки завгодно далеко.
+   *
+   * Хітбокс на 30 % ширший і вищий за візуал, а ще нахилений усередину:
+   * великий палець крутиться навколо нижнього кута екрана й угору йде
+   * по дузі, а не по прямій, тож верх зони зсунуто до центра екрана.
+   * Межа між ← і → нахилена так само, тому ковзання з однієї стрілки на
+   * другу без відриву працює на будь-якій висоті.
+   */
   function padDirs(x, y, bounded) {
-    const ax = x - pad.x, ay = y - pad.y;
-    if (bounded) {
-      const hx = pad.hit;                          // хітбокс на 25% більший за видимий
-      if (Math.abs(ax) > hx || Math.abs(ay) > hx) return null;
-    }
-    return { l: ax < -pad.dead ? 1 : 0, r: ax > pad.dead ? 1 : 0,
-             u: ay < -pad.dead ? 1 : 0, d: ay > pad.dead ? 1 : 0 };
+    const ay = y - pad.y;
+    const ax = x - pad.x + ay * CONFIG.DPAD_TILT * pad.mir;
+    if (bounded && (Math.abs(ax) > pad.hw || Math.abs(ay) > pad.hh)) return null;
+    return { l: ax < 0 ? 1 : 0, r: ax > 0 ? 1 : 0 };
   }
   function applyDirs(nd) {
-    const was = dir.l | dir.r | dir.u | dir.d;
-    const fresh = (nd.l && !dir.l) || (nd.r && !dir.r) || (nd.u && !dir.u) || (nd.d && !dir.d);
-    dir.l = nd.l; dir.r = nd.r; dir.u = nd.u; dir.d = nd.d;
+    const fresh = (nd.l && !dir.l) || (nd.r && !dir.r);
+    dir.l = nd.l; dir.r = nd.r;
     el.L.classList.toggle('hit', !!dir.l);
     el.R.classList.toggle('hit', !!dir.r);
-    el.U.classList.toggle('hit', !!dir.u);
-    el.D.classList.toggle('hit', !!dir.d);
     if (fresh) buzz(10);                            // легкий відгук на нову стрілку
   }
   function clearDirs() {
-    dir.l = dir.r = dir.u = dir.d = 0;
+    dir.l = dir.r = 0;
     el.L.classList.remove('hit'); el.R.classList.remove('hit');
-    el.U.classList.remove('hit'); el.D.classList.remove('hit');
   }
   /**
    * Повне обнулення вводу. Викликається звідусіль, де палець може
@@ -157,7 +162,7 @@ export const Input = (function () {
    * pointerup при згортанні — і напрямок лишається натиснутим назавжди.
    */
   function resetInput() {
-    kb.l = kb.r = kb.d = kb.u = kb.a = kb.b = kb.c = 0;
+    kb.l = kb.r = kb.u = kb.a = kb.b = kb.c = 0;
     tc.a = tc.b = tc.c = 0;
     held.a = held.b = held.c = 0;
     prev.a = prev.b = prev.c = 0;
@@ -165,7 +170,7 @@ export const Input = (function () {
     dashQ = false; dashDir = 0;
     clearDirs();
     ['A', 'B', 'C', 'Dash'].forEach(k => setBtnVisual(k, false));
-    S.ax = 0; S.down = false;
+    S.ax = 0;
     S.a = S.b = S.c = false;
     S.aP = S.bP = S.cP = S.aR = S.bR = S.cR = false;
     S.dashP = false; S.dashDir = 0;
@@ -270,7 +275,7 @@ export const Input = (function () {
   document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
   const KEYS = {
-    ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowDown: 'd', KeyS: 'd',
+    ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r',
     ArrowUp: 'u', KeyW: 'u', Space: 'a', KeyK: 'a', KeyJ: 'b', KeyL: 'c'
   };
   window.addEventListener('keydown', e => {
@@ -315,8 +320,7 @@ export const Input = (function () {
     step() {
       const l = kb.l || dir.l, r = kb.r || dir.r;
       S.ax = (r ? 1 : 0) - (l ? 1 : 0);
-      S.down = !!(kb.d || dir.d);
-      held.a = (kb.a || kb.u || tc.a || dir.u) ? 1 : 0;   // ↑ дублює кнопку A
+      held.a = (kb.a || kb.u || tc.a) ? 1 : 0;           // стрибок лише з A (та клавіатури)
       held.b = (kb.b || tc.b) ? 1 : 0;
       held.c = (kb.c || tc.c) ? 1 : 0;
       S.a = !!held.a; S.b = !!held.b; S.c = !!held.c;

@@ -80,12 +80,31 @@ const SFX = {
                     tone(b, 0.2, 'square', 90, 40, 1.4, 0.24); },
   ui:        b => { tone(b, 0, 'square', 700, 900, 0.05, 0.20); },
   blocked:   b => { tone(b, 0, 'square', 200, 140, 0.10, 0.24); },
+  // --- по звуку на зброю: кожна впізнається з заплющеними очима ---
+  wRail:     b => { tone(b, 0, 'saw', 1800, 300, 0.10, 0.30); tone(b, 0, 'sine', 90, 60, 0.16, 0.20);
+                    noise(b, 0.01, 0.07, 0.20, 5000, 900); },
+  wOsa:      b => { tone(b, 0, 'square', 1500, 2600, 0.05, 0.22); tone(b, 0.03, 'square', 2600, 1900, 0.05, 0.12); },
+  wBrand:    b => { tone(b, 0, 'saw', 90, 34, 0.34, 0.40); noise(b, 0, 0.26, 0.30, 600, 90);
+                    tone(b, 0.02, 'square', 300, 120, 0.12, 0.16); },
+  wSwarm:    b => { tone(b, 0, 'tri', 620, 1250, 0.16, 0.20); tone(b, 0.05, 'tri', 940, 1900, 0.14, 0.14); },
+  wChrono:   b => { tone(b, 0, 'sine', 2200, 420, 0.20, 0.26); tone(b, 0.04, 'sine', 420, 2200, 0.18, 0.16);
+                    noise(b, 0, 0.05, 0.14, 7000, 2000); },
+  wClaws:    b => { noise(b, 0, 0.07, 0.30, 4200, 900); noise(b, 0.02, 0.06, 0.22, 3400, 700);
+                    tone(b, 0, 'square', 1400, 700, 0.06, 0.12); },
+  wShot:     b => { noise(b, 0, 0.20, 0.46, 1500, 120); tone(b, 0, 'saw', 220, 55, 0.18, 0.28); },
+  wGlitch:   b => { for (let i = 0; i < 7; i++) tone(b, i * 0.026, 'square', 300 + i * 260, 180 + i * 190, 0.03, 0.16);
+                    noise(b, 0, 0.2, 0.14, 3000, 3000); },
+  wPrism:    b => { tone(b, 0, 'sine', 900, 1800, 0.10, 0.22); tone(b, 0.06, 'sine', 1350, 2700, 0.10, 0.16);
+                    tone(b, 0.12, 'sine', 1800, 3600, 0.10, 0.11); },
+  shell:     b => { tone(b, 0, 'tri', 2600, 2100, 0.05, 0.14); tone(b, 0.06, 'tri', 2100, 1700, 0.05, 0.09); },
   win:       b => { [0, 4, 7, 12].forEach((s, i) =>
                     tone(b, i * 0.12, 'square', 440 * Math.pow(2, s / 12), 440 * Math.pow(2, s / 12), 0.18, 0.22)); }
 };
 const DUR = { jump:.2, land:.12, dash:.28, slash0:.18, slash1:.2, slash2:.26, shoot:.16, beam:.38,
   charge:.62, hit:.14, hurt:.36, parry:.24, discharge:.62, overheat:.62, reload:.22, explode:.5,
-  pickup:.2, checkpoint:.34, die:1.0, bossIn:1.5, bossHurt:.22, bossDie:1.8, ui:.1, blocked:.16, win:.75 };
+  pickup:.2, checkpoint:.34, die:1.0, bossIn:1.5, bossHurt:.22, bossDie:1.8, ui:.1, blocked:.16, win:.75,
+  wRail:.2, wOsa:.1, wBrand:.4, wSwarm:.22, wChrono:.26, wClaws:.12, wShot:.24, wGlitch:.26,
+  wPrism:.26, shell:.14 };
 
 /* --------------------------------- складання спрайта --------------------------------- */
 const GAP = 0.06;

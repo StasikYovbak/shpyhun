@@ -29,11 +29,11 @@ const make = (name, w, h, fn) => { const b = new Bitmap(w, h); fn(b); return add
    Дозволено лише рух того, що вже є: кліпання, приземлення, довгий
    простій. Жодного нового кольору й жодної нової деталі. */
 const HERO_POSES = ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk',
-                    'crouch', 'hurt', 'land', 'idle2a', 'idle2b'];
+                    'hurt', 'land', 'idle2a', 'idle2b'];
 for (const pose of HERO_POSES)
   make('hero_' + pose, 12, 15, b => b.art(HERO[pose], PAL_HERO));
 // фантом — та сама фігура в примарній палітрі
-for (const pose of ['idle', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'crouch', 'hurt'])
+for (const pose of ['idle', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'hurt'])
   make('phantom_' + pose, 12, 15, b => b.art(HERO[pose], PAL_PHANTOM));
 
 /* ---------------------------------------------------------------- ВОРОГИ */

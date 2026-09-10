@@ -28,7 +28,7 @@ console.log('  ' + '-'.repeat(74));
 /** Відпускаємо все й рахуємо кадри до IDLE (ліміт 0,2 с = 12 кадрів). */
 const settle = (setup) => page.evaluate((setup) => {
   const D = window.__DEV, P = D.P;
-  const NAME = { 10: 'IDLE', 20: 'RUN', 25: 'CROUCH', 30: 'LAND', 45: 'FALL',
+  const NAME = { 10: 'IDLE', 20: 'RUN', 30: 'LAND', 45: 'FALL',
                  50: 'JUMP', 60: 'DASH', 70: 'ATTACK', 80: 'HURT', 90: 'DEAD' };
   D.Game.startLevel(0, false); D.god(true);
   D.kb.l = D.kb.r = D.kb.a = D.kb.b = D.kb.c = D.kb.d = 0;
@@ -68,13 +68,13 @@ for (const [name, setup] of CASES) {
 
 console.log('\nЗАЛИПАННЯ ВВОДУ ПРИ ЗГОРТАННІ\n');
 const pos = await page.evaluate(() => { const p = window.__DEV.pad, b = window.__DEV.btn;
-  return { R: { x: p.x + p.half * 0.62, y: p.y }, C: { x: b.C.x, y: b.C.y } }; });
+  return { R: { x: p.x + p.w * 0.25, y: p.y }, C: { x: b.C.x, y: b.C.y } }; });
 const hide = () => page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
   document.dispatchEvent(new Event('visibilitychange')); });
 const show = () => page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
   document.dispatchEvent(new Event('visibilitychange')); });
 
-for (const [name, pt, read] of [['рух (хрестовина →)', pos.R, 'ax'], ['стрільба (кнопка C)', pos.C, 'c']]) {
+for (const [name, pt, read] of [['рух (стрілка →)', pos.R, 'ax'], ['стрільба (кнопка C)', pos.C, 'c']]) {
   await T('touchStart', [{ x: pt.x, y: pt.y, id: 42 }]);
   await page.waitForTimeout(120);
   await hide(); await page.waitForTimeout(150); await show(); await page.waitForTimeout(300);

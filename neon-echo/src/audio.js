@@ -50,7 +50,12 @@ export const Sfx = {
   explode: () => play('explode'), pickup: () => play('pickup'), checkpoint: () => play('checkpoint'),
   die: () => play('die'), bossIn: () => play('bossIn'), bossHurt: () => play('bossHurt'),
   bossDie: () => play('bossDie'), ui: () => play('ui'), win: () => play('win'),
-  blocked: () => play('blocked')
+  blocked: () => play('blocked'),
+  // по звуку на кожну зброю
+  wRail: () => play('wRail'), wOsa: () => play('wOsa'), wBrand: () => play('wBrand'),
+  wSwarm: () => play('wSwarm'), wChrono: () => play('wChrono'), wClaws: () => play('wClaws'),
+  wShot: () => play('wShot'), wGlitch: () => play('wGlitch'), wPrism: () => play('wPrism'),
+  shell: () => play('shell')
 };
 
 export { Music };

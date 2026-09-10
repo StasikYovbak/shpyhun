@@ -12,6 +12,7 @@ import { LEVELS } from './levels.js';
 import { THEME } from './themes.js';
 import { Sfx, Music, buzz } from './audio.js';
 import { Input } from './input.js';
+import { Cut, script as cutScript } from './cutscene.js';
 import { WEAPONS, LEVEL_REWARD, FRAG_LEVELS } from './weapons.js';
 
 /** Гачки в бік інтерфейсу — щоб ядро не знало нічого про DOM. */
@@ -61,6 +62,25 @@ function updateRings(dt) {
   }
 }
 
+
+/* ------------- візуальний почерк зброї -------------
+   Кожна зброя лишає на екрані власний слід. Тут тільки дані й таймери:
+   малює це render/index.js, шкоди ці об'єкти не завдають. */
+const WFX = [];
+const WFX_MAX = 64;
+function wfx(o) {
+  if (WFX.length >= WFX_MAX) WFX.shift();
+  o.max = o.t; WFX.push(o); return o;
+}
+function updateWfx(dt) {
+  for (let i = WFX.length - 1; i >= 0; i--) {
+    const f = WFX[i];
+    f.t -= dt;
+    if (f.vx) { f.x += f.vx * dt; f.vx *= 0.9; }
+    if (f.vy) { f.y += f.vy * dt; f.vy *= 0.9; }
+    if (f.t <= 0) { WFX[i] = WFX[WFX.length - 1]; WFX.pop(); }
+  }
+}
 
 /* ---------------- камера ---------------- */
 /** Ширина/висота видимого кадру. Рендер розширює w до 528 px на витягнутих
@@ -337,26 +357,26 @@ function rayLen(x, y, dir, maxLen) {
 const P = {
   x: 0, y: 0, w: 10, h: 14, vx: 0, vy: 0, face: 1,
   onGround: false, coyote: 0, jbuf: 0, jumpHeld: false, ride: null,
-  jumps: 0, flipT: 0, downHold: 0, wallRestored: false,
+  jumps: 0, flipT: 0, dropHold: 0, wallRestored: false,
   hp: 5, maxHp: 5, inv: 0, hurtT: 0, dead: false, deadT: 0,
   dashT: 0, dashCd: 0, dashDir: 1,
-  crouch: false, dropT: 0,
+  dropT: 0,
   atkT: 0, atkIdx: 0, atkAct: false, comboT: 0, hitSet: [],
   parryT: 0, bHold: 0, q: 0, dischT: 0,
   heat: 0, lock: false, lockT: 0, arA: 0.4, arB: 0.55, arUsed: false, arMark: 0,
   cHold: 0, fireCd: 0, chargeReady: false, recoil: 0,
   anim: 'idle', animT: 0, noise: 0, exiting: 0, spawnFx: 0,
   // арсенал
-  shells: 6, reloadT: 0, cores: 3, coreFrac: 0, chronoCd: 0, chronoHits: 0,
+  shells: 6, reloadT: 0, cores: 3, coreFrac: 0, chronoCd: 0, chronoHits: 0, scan: null,
   droneCd: 0, mark: null, blinkT: 0, breath: 0,
   aState: 0, aT: 0, aFrame: 0, idleT: 0, landT: 0, wasGround: true, moveIntent: false
 };
 
 function playerReset(full) {
   P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.coyote = 0; P.jbuf = 0;
-  P.jumps = 0; P.flipT = 0; P.downHold = 0; P.wallRestored = false;
+  P.jumps = 0; P.flipT = 0; P.dropHold = 0; P.wallRestored = false;
   P.ride = null; P.inv = 1.0; P.hurtT = 0; P.dead = false; P.deadT = 0;
-  P.dashT = 0; P.dashCd = 0; P.crouch = false; P.dropT = 0; P.h = 14;
+  P.dashT = 0; P.dashCd = 0; P.dropT = 0; P.h = 14;
   P.atkT = 0; P.atkIdx = 0; P.atkAct = false; P.comboT = 0; P.hitSet.length = 0;
   P.parryT = 0; P.bHold = 0; P.dischT = 0;
   P.heat = 0; P.lock = false; P.lockT = 0; P.arUsed = false; P.arMark = 0;
@@ -366,6 +386,7 @@ function playerReset(full) {
   P.wasGround = true; P.moveIntent = false;
   setAnim(AST.IDLE);
   P.shells = 6; P.reloadT = 0; P.chronoCd = 0; P.chronoHits = 0; P.droneCd = 0; P.mark = null;
+  P.scan = null;
   if (full) { P.cores = 3; P.coreFrac = 0; }
   P.maxHp = maxHearts();
   if (full) { P.hp = P.maxHp; P.q = 0; }
@@ -515,26 +536,48 @@ function tryParry(b) {
 
 /* ---------------- зброя 2: «Рейкострил» ---------------- */
 function railShoot() {
-  const y = P.y + (P.crouch ? 5 : 6);
-  shoot(P.x + P.w / 2 + P.face * 8, y, P.face * RG.V, 0,
+  const y = P.y + 6;
+  const mx = P.x + P.w / 2 + P.face * 8;
+  // Постріл рейкострила — не куля, а промінь: летючий снаряд лишається
+  // для шкоди, але на екрані живе 0,08 с біла нитка з блакитним ореолом.
+  const len = rayLen(mx, y, P.face, 300);
+  shoot(mx, y, P.face * RG.V, 0,
         { own: 'p', dmg: RG.DMG, w: 7, h: 3, col: '#7df9ff', life: 1.4, kind: 1 });
+  wfx({ k: 'ray', x: mx, y: y, face: P.face, len: len, t: 0.08, wide: 0 });
+  wfx({ k: 'rings', x: mx, y: y, face: P.face, t: 0.22, chg: 0 });
+  railCase(mx, y);
   P.heat = Math.min(120, P.heat + RG.SHOT);
   P.fireCd = RG.CD; P.recoil = 0.12;
   P.noise = 0.7;
   P.vx -= P.face * (P.onGround ? RG.RECOIL * 0.35 : RG.RECOIL);
-  Sfx.shoot();
-  burst(P.x + P.w / 2 + P.face * 10, y, 4, '#bff4ff', 90, 0.16, 0, 1);
+  Sfx.wRail();
+  // ударна хвиля повітря по боках ствола
+  for (const d of [-1, 1])
+    for (let i = 0; i < 3; i++)
+      part(mx + P.face * (6 + i * 4), y + d * (2 + i), P.face * rnd(20, 60), d * rnd(30, 70),
+           rnd(0.08, 0.16), '#bff4ff', 1, 0, 1);
+  burst(mx + P.face * 2, y, 4, '#bff4ff', 90, 0.16, 0, 1);
   if (P.heat >= 100) overheat();
 }
+/** Гільза-розряд: вилітає назад-угору, падає й дзвенить. */
+function railCase(mx, y) {
+  part(mx - P.face * 6, y - 2, -P.face * rnd(50, 90), rnd(-120, -70), 0.55, '#ffd23f', 1, 420, 1);
+  Sfx.shell();
+}
 function railBeam() {
-  const y = P.y + (P.crouch ? 5 : 6);
+  const y = P.y + 6;
   const sx = P.x + P.w / 2 + P.face * 6;
   const len = rayLen(sx, y, P.face, 300);
   beam(sx, y, P.face, len, RG.BDMG, '#ffd23f');
+  // заряджений постріл прошиває наскрізь: розрив простору по всій лінії
+  wfx({ k: 'ray', x: sx, y: y, face: P.face, len: len, t: 0.14, wide: 1 });
+  wfx({ k: 'rings', x: sx, y: y, face: P.face, t: 0.30, chg: 1 });
+  wfx({ k: 'rift', x: sx, y: y, face: P.face, len: len, t: 0.32 });
+  railCase(sx, y);
   P.heat = Math.min(130, P.heat + RG.BEAM);
   P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0;
   P.vx -= P.face * (P.onGround ? 60 : 130);
-  Sfx.beam(); buzz(22); cam.hit(3.5);
+  Sfx.wRail(); Sfx.beam(); buzz(22); cam.hit(3.5);
   for (let i = 0; i < 14; i++)
     part(sx + P.face * rnd(0, len), y + rnd(-3, 3), rnd(-30, 30), rnd(-60, 60),
          rnd(0.15, 0.4), '#ffd23f', 1, 10, 1);
@@ -569,6 +612,17 @@ export const EQ = { m: WEAPONS.arc, r: WEAPONS.rail };
 export function refreshEquip() {
   EQ.m = WEAPONS[Store.data.melee] || WEAPONS.arc;
   EQ.r = WEAPONS[Store.data.ranged] || WEAPONS.rail;
+  syncDrones();
+}
+/** «Рій»: три дрони існують, поки зброя в руках, і кружляють поруч. */
+const DRONE_COL = [0x22e0ff, 0x3dff9a, 0xff2e88];
+function syncDrones() {
+  if (EQ.r.id !== 'swarm') { DRONES.length = 0; P.mark = null; return; }
+  while (DRONES.length < 3)
+    DRONES.push({ i: DRONES.length, x: P.x, y: P.y, vx: 0, vy: 0,
+                  st: 'orbit', t: 0, cd: 0, hitT: 0, target: null,
+                  col: DRONE_COL[DRONES.length], tr: [] });
+  DRONES.length = 3;
 }
 export function giveWeapon(id) {
   if (!id || !WEAPONS[id]) return false;
@@ -644,6 +698,7 @@ export function canSwapNow() {
 }
 
 let slowT = 0;                                    // сповільнення часу (Хроноріз)
+let desatT = 0;                                   // знебарвлення кадру на телепорті
 export const DRONES = [];                         // дрони «Рою»
 
 /* ------------------------------------------------------- БЛИЖНІЙ БІЙ */
@@ -671,6 +726,10 @@ function meleeUpdate(dt, S) {
     }
   }
 }
+/** Колір частинок у кожної зброї свій — почерк видно навіть у пилюці. */
+const WCOL = { arc: '#7df9ff', whip: '#bff4ff', brand: '#b07bff', chrono: '#8f6fff',
+               claws: '#00ffcc', rail: '#bff4ff', osa: '#ffd23f', swarm: '#3dff9a',
+               shot: '#ffb03f', glitch: '#00ffcc', prism: '#8fdcff' };
 function meleeStart() {
   const w = EQ.m;
   P.hitSet.length = 0;
@@ -690,21 +749,24 @@ function meleeStart() {
       Sfx.dash();                                   // свист розсікання
       break;
     case 'brand':
-      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.slash(2); cam.hit(1.5);
+      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.wBrand(); cam.hit(1.5);
+      // рукавиця розкладається на пластини й спалахує фіолетовим
+      wfx({ k: 'plates', x: P.x + P.w / 2, y: P.y + 7, face: P.face, t: w.swing[0] });
       break;
     case 'claws':
-      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.slash(0);
+      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.wClaws();
+      wfx({ k: 'cut', x: P.x + P.w / 2, y: P.y + 7, face: P.face, t: 0.15 });
       break;
     case 'chrono':
       if (chronoStrike()) return;
-      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.slash(1);
+      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.wChrono();
       break;
   }
   P.atkAct = true;
   const b = bladeBox();
   for (let i = 0; i < 5; i++)
     part(b.x + rnd(0, b.w), b.y + rnd(0, b.h), P.face * rnd(20, 90), rnd(-40, 40),
-         rnd(0.10, 0.22), w.id === 'claws' ? '#ff6b3d' : '#7df9ff', 1, 0, 1);
+         rnd(0.10, 0.22), WCOL[w.id] || '#7df9ff', 1, 0, 1);
 }
 /* ------------------------------------------------------- ЕЛЕКТРОХЛИСТ
    Мотузка з 12 ланок на верле-інтеграції: кожна ланка тягнеться за
@@ -833,20 +895,31 @@ function chronoStrike() {
   const tx = clamp(best.x + (P.face > 0 ? best.w + 6 : -P.w - 6), 2, world.pw - P.w - 2);
   if (!rectSolid(tx, P.y, P.w, P.h)) {
     burst(P.x + P.w / 2, P.y + 7, 10, '#8f6fff', 130, 0.3, 0, 1);
+    // три сині фантомні копії вздовж траєкторії телепорту
+    for (let i = 1; i <= 3; i++)
+      wfx({ k: 'phant', x: P.x + (tx - P.x) * (i / 4), y: P.y, face: P.face, t: 0.28 + i * 0.04 });
     P.x = tx;
     burst(P.x + P.w / 2, P.y + 7, 10, '#8f6fff', 130, 0.3, 0, 1);
   }
   damageEnemy(best, EQ.m.dmg[0] * 2, -P.face * 90, { melee: true, pierce: true, back: true });
+  // удар зі спини — вертикальний розріз-спалах на ворозі
+  wfx({ k: 'rip', x: best.x + best.w / 2, y: best.y + best.h / 2, h: best.h + 8, t: 0.18 });
+  desatT = 0.10;                                    // світ на мить знебарвлюється
   P.chronoCd = 1.2;
   P.chronoHits++;
-  Sfx.parry(); hitStop(0.06); cam.hit(2);
+  Sfx.wChrono(); hitStop(0.06); cam.hit(2);
   if (P.chronoHits % 5 === 0) { slowT = 2.0; ring(P.x + 5, P.y + 7, 6, 90, 0.8, '#8f6fff', 3); }
   return true;
 }
 /** Тавро: заряджений удар в землю — ударна хвиля. */
 function brandSlam() {
   P.dischT = 0.4;
-  Sfx.discharge(); buzz(40); cam.hit(6);
+  Sfx.wBrand(); buzz(40); cam.hit(6);
+  // тріщини, що біжать підлогою в обидва боки — видно, куди йде хвиля
+  for (const d of [-1, 1])
+    for (let i = 1; i <= 5; i++)
+      wfx({ k: 'crack', x: P.x + P.w / 2 + d * i * 11, y: P.y + P.h - 1,
+            len: rnd(5, 11), dir: d, t: 0.9, delay: i * 0.05 });
   ring(P.x + P.w / 2, P.y + P.h, 6, 54, 0.45, '#ffd23f', 3);
   for (const d of [-1, 1]) {
     shoot(P.x + P.w / 2, P.y + P.h - 6, d * 165, 0,
@@ -936,6 +1009,8 @@ function brandThrow(e) {
   e.thrown = 1.1;
   e.vx = P.face * 300; e.vy = -170;
   e.stun = Math.max(e.stun, 1.1);
+  // захоплення видно: пульсуюче гравітаційне коло навколо ворога
+  wfx({ k: 'grav', x: e.x + e.w / 2, y: e.y + e.h / 2, t: 0.5 });
 }
 /** Кігті: стаки перегріву, п'ятий — вибух. */
 function clawStack(e) {
@@ -948,6 +1023,7 @@ function clawStack(e) {
   e.hs = 0;
   const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
   Sfx.explode(); cam.hit(4);
+  wfx({ k: 'boom', x: cx, y: cy, r: 34, t: 0.35 });
   ring(cx, cy, 4, 30, 0.35, '#ff6b3d', 3);
   burst(cx, cy, 16, '#ffd23f', 180, 0.5, 150, 2);
   for (let i = 0; i < ENEM.length; i++) {
@@ -965,7 +1041,7 @@ function clawStack(e) {
    живе ВСЕРЕДИНІ стану й обнуляється на кожному переході.
    ================================================================ */
 const AST = {                                     // значення = пріоритет
-  IDLE: 10, RUN: 20, CROUCH: 25, LAND: 30, FALL: 45, JUMP: 50,
+  IDLE: 10, RUN: 20, LAND: 30, FALL: 45, JUMP: 50,
   DASH: 60, ATTACK: 70, HURT: 80, DEAD: 90
 };
 const ANIM = {
@@ -991,7 +1067,6 @@ function resolveAnim(g) {
   if (P.dashT > 0) return AST.DASH;
   if (!P.onGround) return (P.vy * g < 0) ? AST.JUMP : AST.FALL;
   if (P.landT > 0) return AST.LAND;
-  if (P.crouch) return AST.CROUCH;
   if (P.moveIntent && Math.abs(P.vx) > ANIM.VXRUN) return AST.RUN;
   return AST.IDLE;                                // ковзання по інерції — теж спокій
 }
@@ -1027,7 +1102,6 @@ function stepAnim(dt, g) {
       }
       break;
     }
-    case AST.CROUCH: P.anim = 'crouch'; break;
     case AST.LAND:   P.anim = 'land'; break;
     case AST.JUMP:   P.anim = 'jump'; break;
     case AST.FALL:   P.anim = 'fall'; break;
@@ -1050,6 +1124,7 @@ function rangedUpdate(dt, S) {
   switch (w.id) {
     case 'rail': railUpdate(dt, S); break;
     case 'osa':
+      osaScan();
       if (S.c && P.fireCd <= 0 && P.dashT <= 0) osaShoot();
       break;
     case 'shot':
@@ -1060,7 +1135,7 @@ function rangedUpdate(dt, S) {
       break;
     case 'swarm':
       if (P.droneCd > 0) P.droneCd -= dt;
-      if (S.cP && P.dashT <= 0 && DRONES.length < 3 && P.droneCd <= 0) launchDrone();
+      if (S.cP && P.dashT <= 0 && P.droneCd <= 0) launchDrone();
       break;
     case 'glitch':
       if (S.cP && P.fireCd <= 0 && P.dashT <= 0) glitchFire();
@@ -1074,12 +1149,13 @@ function rangedUpdate(dt, S) {
 function prismFire() {
   if (P.cores < 1) { Sfx.blocked(); return; }
   P.cores--;
-  const y = P.y + (P.crouch ? 5 : 6);
+  const y = P.y + 6;
   const b = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * 300, 0,
     { own: 'p', dmg: EQ.r.dmg, w: 5, h: 5, col: '#8fdcff', life: 2.4, kind: 6 });
   b.bounce = 5;
+  b.gx = P.x + P.w / 2 + P.face * 8; b.gy = y;      // початок геометричної сітки
   P.fireCd = 0.34; P.noise = 0.8;
-  Sfx.beam(); buzz(12);
+  Sfx.wPrism(); buzz(12);
   ring(P.x + P.w / 2 + P.face * 8, y, 2, 16, 0.25, '#8fdcff', 2);
 }
 /** Рейкострил — поведінка з версії 1.x, без змін. */
@@ -1106,18 +1182,35 @@ function railUpdate(dt, S) {
 }
 /** «Оса»: самонавідна куля, слабка, зате нескінченна. */
 function osaShoot() {
-  const y = P.y + (P.crouch ? 5 : 6);
+  const y = P.y + 6;
   const b = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * 300, 0,
     { own: 'p', dmg: EQ.r.dmg, w: 5, h: 3, col: '#ffd23f', life: 1.1, kind: 1 });
   b.home = 1;
+  b.tr = [];                                       // трасер: саме по ньому видно доводку
   P.fireCd = 0.115;
   P.noise = 0.4;
-  Sfx.shoot();
+  Sfx.wOsa();
   part(P.x + P.w / 2 + P.face * 10, y, P.face * 60, 0, 0.12, '#ffd23f', 1, 0, 1);
+}
+/** Сканер на стволі: «клацає» на цілі за мить до пострілу. */
+function osaScan() {
+  const cx = P.x + P.w / 2, cy = P.y + 6;
+  let best = null, bd = 1e9;
+  for (let i = 0; i < ENEM.length; i++) {
+    const e = ENEM[i];
+    if (e.dead || e.charm > 0) continue;
+    const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
+    if (dx * P.face < 0) continue;
+    const d = Math.hypot(dx, dy);
+    if (d > 160) continue;
+    if (Math.abs(Math.atan2(dy, Math.abs(dx))) > 0.35) continue;   // конус 40°
+    if (d < bd) { bd = d; best = e; }
+  }
+  P.scan = best;
 }
 /** Дробовик: конус із шести дробин, сильна віддача. */
 function shotFire() {
-  const y = P.y + (P.crouch ? 5 : 6);
+  const y = P.y + 6;
   P.shells--;
   for (let i = 0; i < 6; i++) {
     const a = (i - 2.5) / 5 * (45 * Math.PI / 180);
@@ -1130,7 +1223,10 @@ function shotFire() {
   P.noise = 1.0;
   P.vx -= P.face * (P.onGround ? 110 : 285);       // віддача: у повітрі — як другий стрибок
   if (!P.onGround && P.vy > -60) P.vy -= 70;
-  Sfx.beam(); buzz(18); cam.hit(3);
+  wfx({ k: 'muzzle', x: P.x + P.w / 2 + P.face * 10, y: y, face: P.face, t: 0.40 });
+  // гільза, що падає й дзвенить
+  part(P.x + P.w / 2 - P.face * 5, y - 3, -P.face * rnd(60, 110), rnd(-150, -90), 0.7, '#ffb03f', 2, 460, 1);
+  Sfx.wShot(); Sfx.shell(); buzz(18); cam.hit(3);
   for (let i = 0; i < 8; i++)
     part(P.x + P.w / 2 + P.face * 12, y, P.face * rnd(60, 200), rnd(-70, 70), rnd(0.15, 0.3), '#ffd23f', 1, 40, 1);
   for (let i = 0; i < 10; i++)                     // дим із дула — повільний і сірий
@@ -1138,7 +1234,7 @@ function shotFire() {
          rnd(0.4, 0.8), '#8a7fa0', 2, -12, 1);
   if (P.shells <= 0) P.reloadT = 1.8;
 }
-/** «Рій»: позначає ціль, дрони б'ють самі. */
+/** «Рій»: тап позначає ціль, вільний дрон відривається від строю. */
 function launchDrone() {
   let best = null, bd = 1e9;
   const cx = P.x + P.w / 2;
@@ -1149,48 +1245,84 @@ function launchDrone() {
     if (d < bd && d < 220 * 220) { bd = d; best = e; }
   }
   P.mark = best;
-  DRONES.push({ x: cx, y: P.y + 2, vx: 0, vy: -40, t: 7, hitT: 0, target: best });
+  const d = DRONES.find(q => q.st === 'orbit' && q.cd <= 0);
+  if (!d) { Sfx.blocked(); return; }
+  d.st = 'strike'; d.t = DRONE_LIFE; d.target = best; d.tr.length = 0;
   P.droneCd = 3;
-  Sfx.shoot();
+  Sfx.wSwarm();
+}
+const DRONE_LIFE = 7;                               // скільки дрон працює по цілі
+const DRONE_RECHARGE = 2;                           // і скільки потім тьмяніє знизу
+/** Точка в строю: три висоти, легке погойдування. */
+function orbitPos(d, t) {
+  const a = t * 1.4 + d.i * (Math.PI * 2 / 3);
+  const low = d.cd > 0 ? 8 : 0;                     // порожній дрон опускається нижче
+  return { x: P.x + P.w / 2 + Math.cos(a) * 17,
+           y: P.y + 1 - 8 + d.i * 5 + low + Math.sin(t * 3 + d.i) * 2 };
 }
 function updateDrones(dt) {
-  for (let i = DRONES.length - 1; i >= 0; i--) {
+  if (EQ.r.id !== 'swarm') { if (DRONES.length) DRONES.length = 0; return; }
+  if (DRONES.length !== 3) syncDrones();
+  const time = world.time;
+  for (let i = 0; i < DRONES.length; i++) {
     const d = DRONES[i];
-    d.t -= dt;
+    if (d.cd > 0) d.cd -= dt;
     if (d.hitT > 0) d.hitT -= dt;
-    let tg = d.target;
-    if (!tg || tg.dead) {
-      tg = null;
-      let bd = 1e9;
-      for (let j = 0; j < ENEM.length; j++) {
-        const e = ENEM[j];
-        if (e.dead || e.charm > 0) continue;
-        const q = dist2(d.x, d.y, e.x + e.w / 2, e.y + e.h / 2);
-        if (q < bd) { bd = q; tg = e; }
+
+    if (d.st === 'strike') {
+      d.t -= dt;
+      let tg = d.target;
+      if (!tg || tg.dead) {                         // ціль впала — шукаємо наступну
+        tg = null;
+        let bd = 1e9;
+        for (let j = 0; j < ENEM.length; j++) {
+          const e = ENEM[j];
+          if (e.dead || e.charm > 0) continue;
+          const q = dist2(d.x, d.y, e.x + e.w / 2, e.y + e.h / 2);
+          if (q < bd) { bd = q; tg = e; }
+        }
+        d.target = tg;
       }
-      d.target = tg;
-    }
-    const tx = tg ? tg.x + tg.w / 2 : P.x + P.w / 2;
-    const ty = tg ? tg.y + tg.h / 2 : P.y - 12;
-    const dx = tx - d.x, dy = ty - d.y, L = Math.max(1, Math.hypot(dx, dy));
-    d.vx = lerp(d.vx, dx / L * 190, dt * 4);
-    d.vy = lerp(d.vy, dy / L * 190, dt * 4);
-    d.x += d.vx * dt; d.y += d.vy * dt;
-    if (tg && d.hitT <= 0 && boxHit(d.x - 3, d.y - 3, 6, 6, tg.x, tg.y, tg.w, tg.h)) {
-      damageEnemy(tg, EQ.r.dmg, sign(d.vx) * 30, {});
-      d.hitT = 0.5;
-      burst(d.x, d.y, 4, '#22e0ff', 90, 0.2, 0, 1);
-    }
-    if (BOSS.on && d.hitT <= 0) {
-      const hbs = bossHitBoxes();
-      for (let j = 0; j < hbs.length; j++) {
-        const hb = hbs[j];
-        if (boxHit(d.x - 3, d.y - 3, 6, 6, hb.x, hb.y, hb.w, hb.h)) {
-          bossDamage(hb, EQ.r.dmg, {}); d.hitT = 0.5; break;
+      if (!tg && !BOSS.on) d.t = Math.min(d.t, 0.3);
+      const tx = tg ? tg.x + tg.w / 2 : P.x + P.w / 2;
+      const ty = tg ? tg.y + tg.h / 2 : P.y - 12;
+      const dx = tx - d.x, dy = ty - d.y, L = Math.max(1, Math.hypot(dx, dy));
+      d.vx = lerp(d.vx, dx / L * 190, dt * 4);
+      d.vy = lerp(d.vy, dy / L * 190, dt * 4);
+      d.x += d.vx * dt; d.y += d.vy * dt;
+      d.tr.push(d.x, d.y); if (d.tr.length > 30) { d.tr.shift(); d.tr.shift(); }
+      if (tg && d.hitT <= 0 && boxHit(d.x - 3, d.y - 3, 6, 6, tg.x, tg.y, tg.w, tg.h)) {
+        damageEnemy(tg, EQ.r.dmg, sign(d.vx) * 30, {});
+        d.hitT = 0.5;
+        // короткий промінь від дрона до цілі — видно, хто саме вдарив
+        wfx({ k: 'dbeam', x: d.x, y: d.y, x2: tg.x + tg.w / 2, y2: tg.y + tg.h / 2,
+              col: d.col, t: 0.12 });
+        burst(d.x, d.y, 4, '#22e0ff', 90, 0.2, 0, 1);
+      }
+      if (BOSS.on && d.hitT <= 0) {
+        const hbs = bossHitBoxes();
+        for (let j = 0; j < hbs.length; j++) {
+          const hb = hbs[j];
+          if (boxHit(d.x - 3, d.y - 3, 6, 6, hb.x, hb.y, hb.w, hb.h)) {
+            bossDamage(hb, EQ.r.dmg, {}); d.hitT = 0.5;
+            wfx({ k: 'dbeam', x: d.x, y: d.y, x2: hb.x + hb.w / 2, y2: hb.y + hb.h / 2,
+                  col: d.col, t: 0.12 });
+            break;
+          }
         }
       }
+      if (d.t <= 0) { d.st = 'back'; d.cd = DRONE_RECHARGE; d.target = null; }
+      continue;
     }
-    if (d.t <= 0) { burst(d.x, d.y, 6, '#22e0ff', 90, 0.3, 0, 1); DRONES[i] = DRONES[DRONES.length - 1]; DRONES.pop(); }
+
+    // 'orbit' і 'back' — повернення в стрій
+    const o = orbitPos(d, time);
+    const dx = o.x - d.x, dy = o.y - d.y;
+    d.vx = lerp(d.vx, dx * 7, dt * 8);
+    d.vy = lerp(d.vy, dy * 7, dt * 8);
+    d.x += d.vx * dt; d.y += d.vy * dt;
+    if (d.tr.length) { d.tr.shift(); d.tr.shift(); }
+    if (d.st === 'back' && Math.hypot(dx, dy) < 4) d.st = 'orbit';
   }
 }
 /** Гліч-Код: перехоплює ворога або глушить боса. */
@@ -1198,14 +1330,16 @@ function glitchFire() {
   if (P.cores < 1) { Sfx.blocked(); return; }
   P.cores--;
   const y = P.y + 6;
-  shoot(P.x + P.w / 2 + P.face * 8, y, P.face * 240, 0,
+  const g = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * 240, 0,
     { own: 'p', dmg: 0, w: 7, h: 7, col: '#00ffcc', life: 2, kind: 5 });
+  g.pix = [];                                       // постріл летить як розсип пікселів
+  for (let i = 0; i < 7; i++) g.pix.push({ ox: rnd(-5, 5), oy: rnd(-5, 5), sp: rnd(0.6, 1.8) });
   P.fireCd = 0.3;
-  Sfx.overheat();
+  Sfx.wGlitch();
 }
 export function glitchHit(e) {
-  e.charm = 6; e.stun = 0;
-  Sfx.parry();
+  e.charm = 6; e.charmMax = 6; e.stun = 0;
+  Sfx.wGlitch();
   ring(e.x + e.w / 2, e.y + e.h / 2, 3, 26, 0.4, '#00ffcc', 2);
   burst(e.x + e.w / 2, e.y + e.h / 2, 12, '#00ffcc', 120, 0.4, 0, 1);
 }
@@ -1215,7 +1349,8 @@ export function addCore(n) {
   if (P.cores >= 3) P.coreFrac = 0;
 }
 export function timeScale() { return slowT > 0 ? 0.45 : 1; }
-export function tickSlow(dt) { if (slowT > 0) slowT -= dt; }
+export function tickSlow(dt) { if (slowT > 0) slowT -= dt; if (desatT > 0) desatT -= dt; }
+export function getDesat() { return desatT > 0 ? desatT / 0.10 : 0; }
 export function getSlow() { return slowT; }
 
 /* ---------------- допоміжне ---------------- */
@@ -1229,15 +1364,6 @@ function rectSolid(x, y, w, h) {
 }
 let hitStopT = 0;
 function hitStop(t) { hitStopT = Math.max(hitStopT, t); }
-
-function setCrouch(on) {
-  if (on === P.crouch) return;
-  if (on) { P.y += 5; P.h = 9; P.crouch = true; }
-  else {
-    const ny = P.y - 5;
-    if (!rectSolid(P.x, ny, P.w, 14)) { P.y = ny; P.h = 14; P.crouch = false; }
-  }
-}
 
 /* ---------------- головне оновлення героя ---------------- */
 function updatePlayer(dt) {
@@ -1278,26 +1404,30 @@ function updatePlayer(dt) {
     return;
   }
 
-  // ---- присідання; утримання ↓ 0.3 с — спуск крізь тонку платформу ----
-  const wantDown = S.down;
-  if (wantDown && P.onGround && P.dashT <= 0 && g > 0) P.downHold += dt;
-  else P.downHold = 0;
-  if (P.downHold >= PH.DROP_HOLD) {
-    P.downHold = 0;
-    const fx = Math.floor((P.x + P.w / 2) / TS), fy = Math.floor((P.y + P.h + 2) / TS);
-    if (tAt(fx, fy) === T_PLAT || P.ride) {
-      P.dropT = 0.26; P.onGround = false; P.ride = null; P.y += 3;
-      burst(P.x + P.w / 2, P.y + P.h, 4, '#9a7fb5', 60, 0.2, 40, 1);
-    }
+  // ---- спуск крізь тонку платформу: утримання A 0,4 с ----
+  // Лічильник іде лише поки героїня стоїть на тонкій платформі й кнопка
+  // вже була натиснута до приземлення (свіже натискання = стрибок, і воно
+  // миттєво відриває від землі, тож лічильник обнуляється сам).
+  const onThin = P.onGround && P.dashT <= 0 && g > 0 &&
+                 (!!P.ride ||                       // рухомі платформи теж односторонні
+                  tAt(Math.floor((P.x + P.w / 2) / TS),
+                      Math.floor((P.y + P.h + 2) / TS)) === T_PLAT);
+  if (S.a && onThin) {
+    P.dropHold += dt;
+    // натяк: за 0,15 с до спуску з-під ніг сиплеться пил
+    if (P.dropHold > PH.DROP_HOLD - 0.15 && Math.random() < 0.4)
+      part(P.x + P.w / 2 + rnd(-5, 5), P.y + P.h, rnd(-14, 14), 26, 0.22, '#9a7fb5', 1, 0, 1);
+  } else P.dropHold = 0;
+  if (P.dropHold >= PH.DROP_HOLD) {
+    P.dropHold = 0;
+    P.dropT = 0.26; P.onGround = false; P.ride = null; P.y += 3;
+    burst(P.x + P.w / 2, P.y + P.h, 4, '#9a7fb5', 60, 0.2, 40, 1);
   }
-  if (g > 0) setCrouch(wantDown && P.onGround && P.dashT <= 0);
-  else setCrouch(false);
 
   // ---- горизонтальний рух ----
   if (P.dashT <= 0) {
     const acc = P.onGround ? PH.ACC : PH.ACC * PH.AIRCTRL;
-    const maxs = (P.crouch ? PH.RUN * 0.45 : PH.RUN);
-    const target = Math.abs(S.ax) > 0.12 ? S.ax * maxs : 0;
+    const target = Math.abs(S.ax) > 0.12 ? S.ax * PH.RUN : 0;
     if (target !== 0) {
       if (P.vx < target) P.vx = Math.min(target, P.vx + acc * dt);
       else if (P.vx > target) P.vx = Math.max(target, P.vx - acc * dt * (P.vx * target < 0 ? 1.7 : 0.55));
@@ -1326,7 +1456,6 @@ function updatePlayer(dt) {
     P.vy = -(groundJump ? PH.JUMP : PH.JUMP2) * g;
     P.onGround = false; P.coyote = 0; P.jbuf = 0; P.jumpHeld = true; P.ride = null;
     P.jumps = groundJump ? 1 : P.jumps + 1;
-    if (P.crouch) setCrouch(false);
     Sfx.jump();
     if (airJump) {                                 // подвійний стрибок: сальто + кільце частинок
       P.flipT = 0.40;
@@ -1352,7 +1481,6 @@ function updatePlayer(dt) {
     P.dashT = PH.DASHT; P.dashCd = PH.DASHCD;
     P.dashDir = S.dashDir !== 0 ? S.dashDir : (Math.abs(S.ax) > 0.3 ? sign(S.ax) : P.face);
     P.face = P.dashDir; P.noise = 0.5;
-    if (P.crouch) setCrouch(false);
     Sfx.dash(); buzz(10);
   }
   if (P.dashT > 0) {
@@ -1487,7 +1615,10 @@ function updatePlayer(dt) {
   }
 
   // ---- тригер боса ----
-  if (world.bossX > 0 && !BOSS.on && !BOSS.done && P.x + P.w > world.bossX + 8) startBoss();
+  if (world.bossX > 0 && !BOSS.on && !BOSS.done && !Game.cutT && P.x + P.w > world.bossX + 8) {
+    Game.cutT = true;                               // тригер спрацьовує рівно раз
+    playCut('pre', () => { Game.cutT = false; startBoss(); });
+  }
 
   // ---- вихід ----
   if (world.exitOpen && boxHit(P.x, P.y, P.w, P.h, world.exit.x + 2, world.exit.y, 14, 32)) {
@@ -2404,9 +2535,14 @@ function prismBounce(b) {
   if (hitY) b.vy = -b.vy;
   b.bounce--;
   b.life = Math.max(b.life, 0.55);
-  Sfx.parry();
+  Sfx.wPrism();
   burst(b.x, b.y, 4, b.col, 90, 0.22, 0, 1);
   ring(b.x, b.y, 2, 14, 0.22, b.col, 2);
+  // кут рикошету підсвічено, а лінія «звідки прийшов» лишається в повітрі
+  wfx({ k: 'node', x: b.x, y: b.y, t: 0.5,
+        a0: Math.atan2(-b.vy, -b.vx), a1: Math.atan2(b.vy, b.vx) });
+  if (b.gx !== undefined) wfx({ k: 'grid', x: b.gx, y: b.gy, x2: b.x, y2: b.y, t: 0.85 });
+  b.gx = b.x; b.gy = b.y;
   if (b.bounce > 0 && BULL.length < 60) {           // роздвоєння під кутом
     const sp = Math.hypot(b.vx, b.vy) || 1;
     const a = Math.atan2(b.vy, b.vx);
@@ -2415,6 +2551,7 @@ function prismBounce(b) {
       const c = shoot(b.x, b.y, Math.cos(ang) * sp, Math.sin(ang) * sp,
         { own: 'p', dmg: b.dmg, col: b.col, w: b.w, h: b.h, life: b.life, kind: 6 });
       c.bounce = b.bounce;
+      c.gx = b.x; c.gy = b.y;
       return c;
     };
     mk(a + spread);
@@ -2429,6 +2566,7 @@ function updateBullets(dt) {
     if (b.home) homeBullet(b, dt);
     if (b.falloff) { b.dist = (b.dist || 0) + Math.hypot(b.vx, b.vy) * dt; }
     b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.tr) { b.tr.push(b.x, b.y); if (b.tr.length > 24) { b.tr.shift(); b.tr.shift(); } }
     let kill = b.life <= 0;
 
     if (!kill && solidAtPx(b.x, b.y)) {
@@ -2547,8 +2685,23 @@ function TEL(k) {
   const assist = (Store.data.easy || Game.assist) ? 1.25 : 1;
   return (BOSS.def ? BOSS.def.tel : 0.5) * (k || 1) * assist;
 }
-/** Режим люті прибрано: боса можна бити обережно й скільки завгодно довго. */
-function RT() { return 1; }
+/* Режим люті — м'який. Після 120 с бою бос прискорює атаки на 15 %,
+   але телеграфи лишаються тими самими: реакція гравця не страждає.
+   Вмикається один раз і далі не росте. У «Полегшеному режимі» й після
+   адаптивної допомоги (3 смерті) не вмикається взагалі. */
+const RAGE_AT = 120;                                // секунд бою до люті
+const RAGE_K = 1.15;                                // темп атак +15 %
+function RT() { return BOSS.rage ? 1 / RAGE_K : 1; }
+function rageCheck() {
+  if (BOSS.rage) return;                            // не стакається
+  if (Store.data.easy || Game.assist) return;       // легким і тим, кому вже помагаємо, — ні
+  if (BOSS.fightT < RAGE_AT) return;
+  BOSS.rage = 1;
+  Sfx.bossIn(); cam.hit(5); buzz(30);
+  Music.layer(3);                                   // той самий double-time шар, що у фінальній фазі
+  ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 6, 90, 0.8, '#ff3355', 3);
+  burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 22, '#ff3355', 190, 0.7, 20, 2);
+}
 const BOSS = {
   on: false, done: false, type: null, def: null,
   hp: 0, maxHp: 0, phase: 1, x: 0, y: 0, w: 0, h: 0, vx: 0, vy: 0,
@@ -2568,6 +2721,39 @@ function bossReset() {
   BOSS.lowT = 0; BOSS.nodesLeft = undefined;
   world.grav = 1; world.off = null;
 }
+/**
+ * Програти катсцену за тригером ('pre' — перед босом, 'post' — після
+ * його смерті, 'lvl' — на початку рівня). `onDone` викликається завжди:
+ * і після перегляду, і після пропуску, і якщо сценарію взагалі нема,
+ * тож гра не може зависнути на порожньому тригері.
+ */
+function playCut(kind, onDone) {
+  const sc = cutScript(kind, Game.level);
+  const back = Game.state;
+  if (!sc) { onDone(); return false; }
+  Game.state = 'cut';
+  Input.enable(false);                              // керування ховається
+  Music.duck(2.2);                                  // і приглушується музика
+  const ok = Cut.play(sc, () => {
+    Game.state = back;
+    Input.enable(back === 'play');
+    Input.clearEdges();
+    onDone();
+  });
+  if (!ok) { Game.state = back; Input.enable(back === 'play'); }
+  return ok;
+}
+Cut.hooks.shake = n => cam.hit(n);
+Cut.hooks.sfx = n => { if (Sfx[n]) Sfx[n](); };
+Cut.hooks.music = m => {
+  if (m.track) Music.set(m.track);
+  if (m.layer !== undefined) Music.layer(m.layer);
+  if (m.duck) Music.duck(m.duck);
+  if (m.sting) Music.sting(m.sting);
+};
+Cut.hooks.camGet = () => ({ x: cam.x, y: cam.y });
+Cut.hooks.camSet = (x, y) => { cam.x = x; cam.y = y; };
+
 function startBoss() {
   const type = world.bossType;
   if (!type) return;
@@ -2780,7 +2966,7 @@ function bossServotaur(dt) {
         BOSS.st = 'paw'; BOSS.tm = TEL(0.8);
         cam.hit(4); Sfx.explode();
       } else if (atWall) {
-        BOSS.st = 'stun'; BOSS.tm = 2.0 * RT(); BOSS.vx = 0;
+        BOSS.st = 'stun'; BOSS.tm = 2.0; BOSS.vx = 0;   // вікно шкоди лють не коротшає
         cam.hit(6); Sfx.explode(); buzz(26);
         burst(BOSS.x + (BOSS.face > 0 ? BOSS.w : 0), BOSS.y + BOSS.h / 2, 18, '#ffd23f', 200, 0.6, 240, 2);
       } else if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.6; }
@@ -2809,6 +2995,8 @@ function bossServotaur(dt) {
 }
 
 /* ---------------- БОС 2: МАТКА-РІЙ ---------------- */
+const QUEEN_GEN = 4.0;                              // одна оса на 4 с з кожного живого вузла
+const QUEEN_WASPS = 4;                              // і не більше чотирьох на екрані
 function bossQueen(dt) {
   const span = (BOSS.a1 - BOSS.a0) / 2 - 74;
   if (BOSS.st !== 'dive' && BOSS.st !== 'diveTel' && BOSS.lowT <= 0) {
@@ -2817,17 +3005,25 @@ function bossQueen(dt) {
   }
   BOSS.face = sign((P.x + P.w / 2) - (BOSS.x + BOSS.w / 2)) || BOSS.face;
   const p2 = BOSS.phase >= 2;
-  // хвилі ос
-  BOSS.tm -= dt;
-  if (BOSS.tm <= 0) {
-    BOSS.tm = 2.5;                                  // не частіше ніж раз на 2,5 с
-    // одночасно на арені не більше трьох дронів: рахуємо живих, а не
-    // випущених за бій, інакше «спавнено 5» назавжди глушило хвилі
-    let live = 0;
-    for (let i = 0; i < ENEM.length; i++) if (ENEM[i].fromBoss && !ENEM[i].dead) live++;
-    if (live < 3) {
-      const e = spawnEnemy('wasp', BOSS.x + BOSS.w / 2 - 8, BOSS.y + BOSS.h, false);
-      if (e) { e.fromBoss = true; e.hy = BOSS.y + BOSS.h + 10; Sfx.shoot(); }
+  // ---- оси: кожен генератор — окреме джерело ----
+  // Матка сама не спавнить нікого. Живий вузол випускає осу раз на 4 с;
+  // збитий не випускає більше ніколи. Тож потік ос — це прямий наслідок
+  // того, скільки генераторів гравець уже зняв.
+  let live = 0;
+  for (let i = 0; i < ENEM.length; i++) if (ENEM[i].fromBoss && !ENEM[i].dead) live++;
+  for (let i = 0; i < BOSS.parts.length; i++) {
+    const nd = BOSS.parts[i];
+    if (!nd.alive) continue;
+    nd.tm = (nd.tm === undefined ? QUEEN_GEN * (0.4 + i * 0.2) : nd.tm) - dt;
+    if (nd.tm > 0) continue;
+    nd.tm = QUEEN_GEN;
+    if (live >= QUEEN_WASPS) continue;              // більше чотирьох на екрані не буває
+    const e = spawnEnemy('wasp', nd.x + nd.w / 2 - 8, nd.y - 12, false);
+    if (e) {
+      e.fromBoss = true; e.hy = nd.y - 22; live++;
+      nd.pulse = 0.35;                              // вузол здригається на випуску
+      Sfx.shoot();
+      ring(nd.x + nd.w / 2, nd.y + nd.h / 2, 2, 14, 0.3, '#22e0ff', 2);
     }
   }
   // бомби з телеграфом
@@ -2868,6 +3064,7 @@ function bossQueen(dt) {
   for (let i = 0; i < BOSS.parts.length; i++) {
     const nd = BOSS.parts[i];
     if (nd.flash > 0) nd.flash -= dt;
+    if (nd.pulse > 0) nd.pulse -= dt;
     if (!nd.alive) continue;
     alive++;
     if (Math.random() < 0.06)
@@ -2876,7 +3073,7 @@ function bossQueen(dt) {
   if (BOSS.nodesLeft === undefined) BOSS.nodesLeft = alive;
   if (alive < BOSS.nodesLeft) {                     // щойно збили генератор
     BOSS.nodesLeft = alive;
-    BOSS.lowT = 3.0;
+    BOSS.lowT = 3.0;                                // матка опускається — вікно для клинка
     Sfx.bossHurt(); cam.hit(4);
     ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h, 5, 70, 0.7, '#ffd23f', 3);
   }
@@ -3228,7 +3425,7 @@ function updateBoss(dt) {
   BOSS.anim += dt;
   if (BOSS.flash > 0) BOSS.flash -= dt;
   if (BOSS.nameT > 0) BOSS.nameT -= dt;
-  if (BOSS.intro <= 0 && BOSS.st !== 'die') BOSS.fightT += dt;
+  if (BOSS.intro <= 0 && BOSS.st !== 'die') { BOSS.fightT += dt; rageCheck(); }
   if (BOSS.inv > 0 && BOSS.st !== 'die') BOSS.inv -= dt;
   P.x = clamp(P.x, BOSS.a0 + 2, BOSS.a1 - P.w - 2);
   if (BOSS.silence > 0) {
@@ -3264,6 +3461,7 @@ function updateBoss(dt) {
 }
 function finishBoss() {
   BOSS.on = false; BOSS.done = true;
+  playCut('post', () => { });
   world.exitOpen = true; world.grav = 1; world.off = null;
   cam.lockX0 = -1; cam.lockX1 = -1;
   for (let i = 0; i < ENEM.length; i++) if (ENEM[i].fromBoss) ENEM[i].dead = true;
@@ -3323,7 +3521,7 @@ function updateWeather(dt) {
 const Game = {
   state: 'menu', level: 0, introT: 0, cpTaken: false, cpIndex: 0, backTo: 'menu',
   pickupName: '', pickupT: 0, assembleT: 0, reward: null,
-  assist: false, assistAsked: false, bossDeaths: 0, bossDeathLvl: -1,
+  assist: false, assistAsked: false, bossDeaths: 0, bossDeathLvl: -1, cutT: false,
 
   startLevel(idx, useCp) {
     const lvl = clamp(idx, 0, LEVELS.length - 1);
@@ -3354,9 +3552,11 @@ const Game = {
     Music.set(world.theme); Music.start();
     this.introT = 2.2;
     this.state = 'play';
+    this.cutT = false;
     hooks.showScreen(null);
     Input.enable(true);
     Input.clearEdges();
+    playCut('lvl', () => { });
   },
   levelClear() {
     this.state = 'clear';
@@ -3483,12 +3683,13 @@ function stepGame(dt) {
   updateTele(dt);
   updateParts(dt);
   updateRings(dt);
+  updateWfx(dt);
   updateWeather(dt);
   cam.update(dt, P.x + P.w / 2, P.y + P.h / 2);
   // --- адаптивна музика: 0 спокій, 1 помітили, 2 бій, 3 бос/фінальна фаза ---
   {
     let lv = 0;
-    if (BOSS.on && !BOSS.done) lv = BOSS.phase >= 3 ? 3 : 2;
+    if (BOSS.on && !BOSS.done) lv = (BOSS.phase >= 3 || BOSS.rage) ? 3 : 2;
     else {
       for (let i = 0; i < ENEM.length; i++) {
         const e = ENEM[i];
@@ -3514,9 +3715,9 @@ export const timing = {
 export function setGod(v) { GOD = !!v; }
 export {
   cam, world, P, BOSS, Game,
-  PARTS, RINGS, ZONES, TELE, BEAMS, GHOSTS, PICKS, PENDING, BULL, ENEM, TRAIL, WEATHER,
+  PARTS, RINGS, ZONES, TELE, BEAMS, GHOSTS, PICKS, PENDING, BULL, ENEM, TRAIL, WEATHER, WFX,
   ETYPE, LEVELS, WEAPONS, WHIP,
-  stepGame, updateMovingPlatforms,
+  stepGame, updateMovingPlatforms, Cut, playCut,
   tAt, solidAtPx, rectSolid, isSolidCode, moveX, moveY, T_EMPTY, T_SOLID, T_PLAT, T_SPIKE, T_CONVR, T_CONVL,
   bossHitBoxes, bossInvulnerable, bossDamage, bossDie, bossCheckPhase,
   spawnEnemy, damageEnemy, shoot, part, burst, ring, playerHurt, bladeBox,

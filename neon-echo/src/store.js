@@ -14,7 +14,9 @@ export const Store = {
     // арсенал
     owned: ['arc', 'rail'], melee: 'arc', ranged: 'rail', freeSwap: 0,
     // нагороди й секрет
-    frags: [], bonusHp: 0, ngKey: 0, ng: 0
+    frags: [], bonusHp: 0, ngKey: 0, ng: 0,
+    // катсцени: які вже бачив (другий перегляд не обов'язковий)
+    seenCuts: [], cutAlways: 0
   },
   load() {
     try {
@@ -57,6 +59,8 @@ export const Store = {
           d.bonusHp = clamp(parseInt(o.bonusHp, 10) || 0, 0, 3);
           d.ngKey = o.ngKey ? 1 : 0;
           d.ng = o.ng ? 1 : 0;
+          d.seenCuts = Array.isArray(o.seenCuts) ? o.seenCuts.filter(v => typeof v === 'string') : [];
+          d.cutAlways = o.cutAlways ? 1 : 0;
           d.hand = o.hand ? 1 : 0;
           d.deaths = parseInt(o.deaths, 10) || 0;
         }
