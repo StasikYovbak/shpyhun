@@ -13,7 +13,8 @@
     "sync": "npm run build && npx cap sync android && node tools/patch-android.mjs",
     "apk:debug": "npm run sync && cd android && ./gradlew assembleDebug",
     "apk:release": "npm run sync && cd android && ./gradlew assembleRelease",
-    "test": "node tests/run-all.mjs"
+    "test": "node tests/run-all.mjs",
+    "check:release": "node tools/check-release.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.6.9",

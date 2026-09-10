@@ -65,7 +65,8 @@ ok(onPanel.x + onPanel.w <= panel.x + 1 || onPanel.x >= panel.x + panel.w - 1,
    `хрест ${onPanel.x.toFixed(0)}..${(onPanel.x + onPanel.w).toFixed(0)}, панель ${panel.x.toFixed(0)}..${(panel.x + panel.w).toFixed(0)}`);
 await page.click('#cResetPos'); await page.waitForTimeout(80);
 await drag('#dpad', 60, -70);
-ok(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem('echo_neon_courier_v1') || '{}');
+// ключ слота беремо в самої гри: при DEV_MODE вона пише в окремий
+ok(await page.evaluate(() => { const p = JSON.parse(localStorage.getItem(window.__DEV.SAVE_KEY) || '{}');
      return !!(p.dpadPos && typeof p.dpadPos.x === 'number'); }), 'позиція збережена в localStorage');
 
 await page.click('#cResetPos'); await page.waitForTimeout(80);

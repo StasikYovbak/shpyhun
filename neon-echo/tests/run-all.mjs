@@ -49,6 +49,7 @@ ok = run('weapons.mjs') && ok;
 ok = run('wfx.mjs') && ok;
 ok = run('boss2.mjs') && ok;
 ok = run('cut.mjs') && ok;
+ok = run('godmode.mjs') && ok;
 ok = run('flow.mjs') && ok;
 try { process.kill(-srv.pid); } catch (e) { }
 console.log('\n' + (ok ? '=== УСІ ПЕРЕВІРКИ ПРОЙДЕНО ===' : '=== Є ПРОБЛЕМИ ==='));
