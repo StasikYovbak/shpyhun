@@ -15,14 +15,17 @@ uniform vec3 uGradeB;
 uniform float uMix;
 uniform float uSat;
 uniform float uFlash;
+uniform float uTint;
 
 void main(void) {
   vec4 c = texture(uTexture, vTextureCoord);
   vec3 grade = mix(uGradeA, uGradeB, clamp(uMix, 0.0, 1.0));
   float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
   vec3 col = mix(vec3(lum), c.rgb, uSat);          // насиченість
-  col += grade * (1.0 - lum) * 0.5;                // тіні тягне у колір локації
-  col *= vec3(0.97) + grade * 0.45;                // світло злегка фарбується
+  // Тонування тільки тіней і дуже помірно: раніше тут стояло 0.5 і 0.45,
+  // через що весь кадр заливало однією пеленою кольору локації.
+  col += grade * (1.0 - lum) * uTint;
+  col *= vec3(1.0) + grade * uTint * 0.5;
   col += vec3(uFlash);                             // спалах (смерть боса / шкода)
   finalColor = vec4(clamp(col, 0.0, 1.0) * c.a, c.a);
 }
@@ -37,8 +40,9 @@ export class PaletteFilter extends Filter {
           uGradeA: { value: new Float32Array([0.1, 0.02, 0.18]), type: 'vec3<f32>' },
           uGradeB: { value: new Float32Array([0.1, 0.02, 0.18]), type: 'vec3<f32>' },
           uMix: { value: 1, type: 'f32' },
-          uSat: { value: 1.06, type: 'f32' },
-          uFlash: { value: 0, type: 'f32' }
+          uSat: { value: 1.0, type: 'f32' },
+          uFlash: { value: 0, type: 'f32' },
+          uTint: { value: 0.18, type: 'f32' }
         }
       }
     });
@@ -53,4 +57,5 @@ export class PaletteFilter extends Filter {
   }
   set flash(v) { this.u.uFlash = v; }
   set saturation(v) { this.u.uSat = v; }
+  set tint(v) { this.u.uTint = v; }
 }

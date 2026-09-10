@@ -56,8 +56,19 @@
     <div class="row"><span class="lab">Графіка</span><div class="seg" id="sGfx">
       <button data-v="perf">Продукт.</button><button data-v="bal">Збаланс.</button>
       <button data-v="max">Максимум</button><button data-v="auto">Авто</button></div></div>
-    <div class="row"><span class="lab">CRT-режим</span><div class="seg" id="sCrt">
+    <div class="row"><span class="lab">Bloom</span>
+      <input type="range" id="sBloom" min="0" max="100" step="5"><b class="val" id="vBloom"></b></div>
+    <div class="row"><span class="lab">Аберація</span>
+      <input type="range" id="sAb" min="0" max="100" step="5"><b class="val" id="vAb"></b></div>
+    <div class="row"><span class="lab">Яскравість фону</span>
+      <input type="range" id="sBg" min="20" max="100" step="5"><b class="val" id="vBg"></b></div>
+    <div class="row"><span class="lab">Scanlines / CRT</span><div class="seg" id="sCrt">
       <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
+    <div class="row"><span class="lab">Контур силуетів</span><div class="seg" id="sOut">
+      <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
+    <div class="row"><span class="lab">Хітбокси (розробнику)</span><div class="seg" id="sDbg">
+      <button data-v="1">Показати</button><button data-v="0">Сховати</button></div></div>
+    <button class="btn" id="sClean">Чистий режим — без пост-ефектів</button>
     <button class="btn" id="sCtrl">Керування…</button>
     <button class="btn" id="sInv">Арсенал…</button>
     <button class="btn" id="sReset">Скинути прогрес</button>
@@ -174,6 +185,20 @@
     <button class="btn" id="pInv">Арсенал</button>
     <button class="btn" id="pSet">Налаштування</button>
     <button class="btn" id="pMenu">У головне меню</button>
+  </div></div>
+
+  <div class="scr" id="assist"><div class="inner">
+    <h2>ЦЕЙ БІЙ ДАЄТЬСЯ ВАЖКО</h2>
+    <h1 id="asName">—</h1>
+    <div class="txt" style="text-align:center">
+      <p>Три спроби на одному босі. Можу дати <b>+2 серця</b> й зробити
+      телеграфи атак на <b>25% довшими</b> — але тільки на цьому бої.</p>
+      <p class="mini">Нічого не блокується: нагороду й сектор отримаєш ту саму.</p>
+    </div>
+    <div class="row2">
+      <button class="btn pri" id="asYes">Так, допоможи</button>
+      <button class="btn" id="asNo">Ні, я сам</button>
+    </div>
   </div></div>
 
   <div class="scr" id="dead"><div class="inner">

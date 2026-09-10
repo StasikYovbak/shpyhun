@@ -18,7 +18,8 @@ import { WEAPONS, LEVEL_REWARD, FRAG_LEVELS } from './weapons.js';
 export const hooks = {
   showScreen() { }, refreshLevels() { }, refreshProgress() { },
   setClear() { }, setWinStat() { },
-  showReward(reward, next) { next(); }
+  showReward(reward, next) { next(); },
+  askAssist() { }
 };
 
 /* ---------------- частинки (масив із компактуванням) ---------------- */
@@ -272,6 +273,15 @@ function loadLevel(idx) {
         if (type) world.spawnList.push({ t: type, x: px, y: py, elite: ch !== low });
       }
     }
+  }
+  // Чекпоінт просто перед ареною боса: смерть повертає одразу до боса,
+  // а не в початок сектора. Плюс дві аптечки на самій арені — вони
+  // відновлюються на кожній спробі разом з рештою пікапів.
+  if (world.bossX > 0) {
+    const gy = 12 * TS + 1;
+    world.cps.push({ x: world.bossX - 34, y: gy, taken: false, boss: true });
+    world.pickList.push({ x: world.bossX + 80, y: gy + 3, kind: 'med' });
+    world.pickList.push({ x: world.bossX + 260, y: gy + 3, kind: 'med' });
   }
   if (!world.cps.length) world.cps.push({ x: world.spawn.x, y: world.spawn.y, taken: false });
   world.cpPos = world.cps[0];                       // сумісність зі старим кодом/тестами
@@ -601,7 +611,7 @@ export function levelReward(idx) {
   return null;
 }
 export function maxHearts() {
-  return (Store.data.easy ? 7 : 5) + (Store.data.bonusHp || 0);
+  return (Store.data.easy ? 7 : 5) + (Store.data.bonusHp || 0) + (Game.assist ? 2 : 0);
 }
 /** Скільки фрагментів Ехо-Призми зібрано. */
 export function fragCount() { return Store.data.frags.length; }
@@ -638,6 +648,8 @@ export const DRONES = [];                         // дрони «Рою»
 
 /* ------------------------------------------------------- БЛИЖНІЙ БІЙ */
 function meleeUpdate(dt, S) {
+  whipStep(dt);
+  if (WHIP.tipHit && (WHIP.tipHit.t -= dt) <= 0) WHIP.tipHit = null;
   if (P.chronoCd > 0) P.chronoCd -= dt;
   if (S.bP && P.dashT <= 0) {
     if (EQ.m.id === 'arc') P.parryT = BL.PARRY;    // паріює лише тесак
@@ -672,10 +684,10 @@ function meleeStart() {
       break;
     }
     case 'whip':
-      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.slash(2);
-      for (let i = 0; i < 10; i++)
-        part(P.x + P.w / 2 + P.face * i * 5, P.y + 7 + Math.sin(i * 0.6) * 5,
-             P.face * 40, rnd(-30, 30), 0.16, '#7df9ff', 1, 0, 1);
+      P.atkIdx = 0;
+      P.atkT = BL.WHIP_WIND + BL.WHIP_LASH + BL.WHIP_BACK;
+      whipStart();
+      Sfx.dash();                                   // свист розсікання
       break;
     case 'brand':
       P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.slash(2); cam.hit(1.5);
@@ -694,6 +706,116 @@ function meleeStart() {
     part(b.x + rnd(0, b.w), b.y + rnd(0, b.h), P.face * rnd(20, 90), rnd(-40, 40),
          rnd(0.10, 0.22), w.id === 'claws' ? '#ff6b3d' : '#7df9ff', 1, 0, 1);
 }
+/* ------------------------------------------------------- ЕЛЕКТРОХЛИСТ
+   Мотузка з 12 ланок на верле-інтеграції: кожна ланка тягнеться за
+   попередньою з інерцією й затуханням, тому хлист провисає й
+   розпрямляється по черзі, а не малюється прямою лінією.
+   Хітбокс — сама крива: перевіряємо кожен сегмент, а не прямокутник. */
+const WHIP = { on: false, t: 0, phase: '', pts: [], prev: [], flash: 0, tipHit: null };
+const WHIP_N = 12;                                  // ланок
+const WHIP_SEG = 6.0;                               // довжина ланки, px (12 x 6 = 66)
+for (let i = 0; i < WHIP_N; i++) { WHIP.pts.push({ x: 0, y: 0 }); WHIP.prev.push({ x: 0, y: 0 }); }
+
+function whipStart() {
+  WHIP.on = true; WHIP.t = 0; WHIP.phase = 'wind'; WHIP.flash = 0;
+  const ax = P.x + P.w / 2, ay = P.y + 6;
+  for (let i = 0; i < WHIP_N; i++) {
+    WHIP.pts[i].x = ax - P.face * i * 1.5; WHIP.pts[i].y = ay + i * 0.6;
+    WHIP.prev[i].x = WHIP.pts[i].x; WHIP.prev[i].y = WHIP.pts[i].y;
+  }
+}
+/**
+ * Кут і виліт кінчика по стадіях. Замах іде назад через плече, викид —
+ * дугою вперед, повернення — з провисанням. Ланки розпрямляються ПО
+ * ЧЕРЗІ: хвиля біжить від рукояті до кінчика, тому форма дуги читається
+ * на всіх трьох стадіях.
+ */
+const WHIP_ARC = {                                  // кут біля рукояті + «завиток»
+  wind: { a0: -0.2, a1: 2.4, c0: 0.4, c1: 1.0 },   // збирається за спиною
+  lash: { a0: 2.4, a1: -0.2, c0: 1.0, c1: 0.05 },  // розпрямляється дугою вперед
+  back: { a0: -0.2, a1: 0.5, c0: 0.05, c1: 0.9 }   // повертається з провисанням
+};
+function whipStep(dt) {
+  if (!WHIP.on) return;
+  WHIP.t += dt;
+  const D = { wind: BL.WHIP_WIND, lash: BL.WHIP_LASH, back: BL.WHIP_BACK }[WHIP.phase];
+  if (WHIP.t >= D) {
+    WHIP.t = 0;
+    if (WHIP.phase === 'wind') { WHIP.phase = 'lash'; WHIP.flash = 0.08; Sfx.slash(2); }
+    else if (WHIP.phase === 'lash') WHIP.phase = 'back';
+    else { WHIP.on = false; return; }
+  }
+  const k = clamp(WHIP.t / D, 0, 1);
+  const e = k * k * (3 - 2 * k);                    // плавний старт і кінець
+  const A = WHIP_ARC[WHIP.phase];
+  const ang = lerp(A.a0, A.a1, e);
+  const curl = lerp(A.c0, A.c1, e);
+  const ax = P.x + P.w / 2, ay = P.y + 6;
+  // Ідеальна форма будується ЛАНКА ЗА ЛАНКОЮ від рукояті: кожна
+  // наступна відхиляється на невеликий сталий кут, тому мотузка завжди
+  // рівно WHIP_SEG між точками й ніколи не заплутується. Хвиля wave
+  // розпрямляє ланки по черзі — від рукояті до кінчика.
+  let x = ax, y = ay;
+  for (let i = 0; i < WHIP_N; i++) {
+    const u = i / (WHIP_N - 1);
+    const wave = clamp(e * 2.0 - u * 0.4, 0, 1);   // хвиля розпрямлення від рукояті
+    const aa = ang + curl * u + (1 - wave) * 0.5;
+    const p = WHIP.pts[i];
+    const f = 0.34 + 0.4 * (1 - u);                 // рукоять швидка, кінчик відстає
+    p.x += (x - p.x) * f; p.y += (y - p.y) * f;
+    x += P.face * Math.cos(aa) * WHIP_SEG;
+    // вертикаль приглушена: дуга йде більше вбік, ніж над головою —
+    // інакше хлист красиво свистить понад ворогами й нікого не зачіпає
+    y -= Math.sin(aa) * WHIP_SEG * 0.55;
+  }
+  WHIP.pts[0].x = ax; WHIP.pts[0].y = ay;
+  // жорстке обмеження довжини — після згладжування ланки не розтягуються
+  for (let i = 1; i < WHIP_N; i++) {
+    const a = WHIP.pts[i - 1], b = WHIP.pts[i];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const L = Math.hypot(dx, dy) || 1;
+    const d = (L - WHIP_SEG) / L;
+    b.x -= dx * d; b.y -= dy * d;
+  }
+  if (WHIP.flash > 0) WHIP.flash -= dt;
+  if (WHIP.phase === 'lash') whipHits();
+}
+/** Хітбокс = крива: перевіряємо всі сегменти мотузки. */
+function whipHits() {
+  // Йдемо по кривій дрібним кроком: між вузлами 6 px, а ворог буває
+  // вужчим — по самих вузлах хлист би просвистів повз.
+  for (let i = 2; i < WHIP_N; i++) {
+    const a = WHIP.pts[i - 1], b = WHIP.pts[i];
+    for (let m = 0; m < 3; m++) whipProbe(a.x + (b.x - a.x) * m / 3, a.y + (b.y - a.y) * m / 3, b.x - a.x);
+  }
+}
+function whipProbe(cx, cy, dir) {
+  {
+    for (let j = 0; j < ENEM.length; j++) {
+      const e = ENEM[j];
+      if (e.dead || e.charm > 0 || P.hitSet.indexOf(e.id) >= 0) continue;
+      if (!boxHit(cx - 5, cy - 6, 10, 12, e.x, e.y, e.w, e.h)) continue;
+      P.hitSet.push(e.id);
+      damageEnemy(e, EQ.m.dmg[0], sign(dir) * 40, { melee: true, stun: 0.5 });
+      WHIP.tipHit = { x: cx, y: cy, t: 0.2 };
+      Sfx.parry();                                  // електричний тріск при контакті
+      chainSpark(e);
+    }
+    if (BOSS.on) {
+      const hbs = bossHitBoxes();
+      for (let j = 0; j < hbs.length; j++) {
+        const hb = hbs[j], key = 'B' + (hb.id === undefined ? 0 : hb.id);
+        if (P.hitSet.indexOf(key) >= 0) continue;
+        if (!boxHit(cx - 5, cy - 6, 10, 12, hb.x, hb.y, hb.w, hb.h)) continue;
+        P.hitSet.push(key);
+        bossDamage(hb, EQ.m.dmg[0], { melee: true, kb: sign(dir) * 40 });
+        WHIP.tipHit = { x: cx, y: cy, t: 0.2 };
+        Sfx.parry();
+      }
+    }
+  }
+}
+
 /** Хроноріз: телепорт крізь ворога й удар у спину. */
 function chronoStrike() {
   if (P.chronoCd > 0) return false;
@@ -726,9 +848,14 @@ function brandSlam() {
   P.dischT = 0.4;
   Sfx.discharge(); buzz(40); cam.hit(6);
   ring(P.x + P.w / 2, P.y + P.h, 6, 54, 0.45, '#ffd23f', 3);
-  for (const d of [-1, 1])
+  for (const d of [-1, 1]) {
     shoot(P.x + P.w / 2, P.y + P.h - 6, d * 165, 0,
           { own: 'p', dmg: 2.5, col: '#ffd23f', w: 12, h: 14, life: 1.6, kind: 3 });
+    // хвиля пилу біжить по підлозі попереду хвилі — видно, куди вона йде
+    for (let i = 0; i < 12; i++)
+      part(P.x + P.w / 2 + d * i * 5, P.y + P.h - rnd(0, 3), d * rnd(30, 90), rnd(-40, -5),
+           rnd(0.3, 0.7), '#c9b08a', 2, 180, 1);
+  }
   for (let i = 0; i < 16; i++)
     part(P.x + rnd(-6, 16), P.y + P.h, rnd(-140, 140), rnd(-120, -20), rnd(0.3, 0.6), '#ffd23f', 2, 260, 1);
 }
@@ -742,7 +869,7 @@ function meleeHits() {
   let dmg, kb, opt;
   switch (w.id) {
     case 'arc': dmg = BL.DMG[P.atkIdx]; kb = P.atkIdx === 2 ? 190 : 70; opt = { melee: true, combo: P.atkIdx }; break;
-    case 'whip': dmg = w.dmg[0]; kb = 40; opt = { melee: true, stun: 0.5 }; break;
+    case 'whip': return;                            // хлист має власний хітбокс-криву
     case 'brand': dmg = w.dmg[0]; kb = 260; opt = { melee: true, stun: 0.35, heavy: true }; break;
     case 'claws': dmg = w.dmg[0]; kb = 18; opt = { melee: true, claw: true }; break;
     case 'chrono': dmg = w.dmg[0] * 0.4; kb = 40; opt = { melee: true }; break;   // затичка між телепортами
@@ -792,9 +919,13 @@ function chainSpark(from) {
     if (dist2(cx, cy, o.x + o.w / 2, o.y + o.h / 2) > 24 * 24) continue;
     P.hitSet.push(o.id);
     damageEnemy(o, 0.6, 0, { melee: true, stun: 0.25 });
-    for (let k = 0; k < 6; k++) {
-      const t = k / 6;
-      part(lerp(cx, o.x + o.w / 2, t), lerp(cy, o.y + o.h / 2, t), rnd(-20, 20), rnd(-20, 20), 0.18, '#7df9ff', 1, 0, 1);
+    // видима блискавка між ураженим і наступним — механіка ланцюга
+    // має пояснювати себе сама, без підказок у меню
+    BEAMS.push({ x: cx, y: cy, dir: 1, len: 0, dmg: 0, t: 0.22, max: 0.22,
+                 col: '#7df9ff', hitSet: [], arc: { x: o.x + o.w / 2, y: o.y + o.h / 2 } });
+    for (let k = 0; k < 8; k++) {
+      const t = k / 8;
+      part(lerp(cx, o.x + o.w / 2, t), lerp(cy, o.y + o.h / 2, t), rnd(-30, 30), rnd(-30, 30), 0.2, '#7df9ff', 1, 0, 1);
     }
     break;
   }
@@ -1002,6 +1133,9 @@ function shotFire() {
   Sfx.beam(); buzz(18); cam.hit(3);
   for (let i = 0; i < 8; i++)
     part(P.x + P.w / 2 + P.face * 12, y, P.face * rnd(60, 200), rnd(-70, 70), rnd(0.15, 0.3), '#ffd23f', 1, 40, 1);
+  for (let i = 0; i < 10; i++)                     // дим із дула — повільний і сірий
+    part(P.x + P.w / 2 + P.face * rnd(10, 22), y + rnd(-3, 3), P.face * rnd(10, 45), rnd(-25, 5),
+         rnd(0.4, 0.8), '#8a7fa0', 2, -12, 1);
   if (P.shells <= 0) P.reloadT = 1.8;
 }
 /** «Рій»: позначає ціль, дрони б'ють самі. */
@@ -2362,6 +2496,7 @@ function homeBullet(b, dt) {
 function updateBeams(dt) {
   for (let i = BEAMS.length - 1; i >= 0; i--) {
     const bm = BEAMS[i];
+    if (bm.arc) { bm.t -= dt; if (bm.t <= 0) { BEAMS[i] = BEAMS[BEAMS.length - 1]; BEAMS.pop(); } continue; }
     if (bm.t === bm.max) {                            // перший кадр — рахуємо влучання
       const x0 = bm.dir > 0 ? bm.x : bm.x - bm.len;
       for (let j = 0; j < ENEM.length; j++) {
@@ -2401,23 +2536,26 @@ function updateTele(dt) {
    13. БОСИ — 5 штук, у кожного 2-3 фази й читані телеграфи атак
    ================================================================ */
 const BOSSDEF = {
-  servotaur: { name: 'СЕРВОТАВР',   hp: 75,  w: 40, h: 30, sub: 'МЕХ-БИК ДОКІВ',       tel: 0.55 },
-  queen:     { name: 'МАТКА-РІЙ',   hp: 110, w: 36, h: 24, sub: 'ІНКУБАТОР ФАБРИКИ',   tel: 0.50 },
-  chrono:    { name: 'ХРОНОКЛИНОК', hp: 145, w: 14, h: 22, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.42 },
-  glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 110, w: 26, h: 26, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.38 },
-  architect: { name: 'АРХІТЕКТОР',  hp: 240, w: 22, h: 30, sub: 'ЯДРО КАЙЗЕН-ВОЛЬТ',   tel: 0.32 }
+  servotaur: { name: 'СЕРВОТАВР',   hp: 55,  w: 40, h: 30, sub: 'МЕХ-БИК ДОКІВ',       tel: 0.70, phases: 2 },
+  queen:     { name: 'МАТКА-РІЙ',   hp: 75,  w: 36, h: 24, sub: 'ІНКУБАТОР ФАБРИКИ',   tel: 0.65, phases: 2 },
+  chrono:    { name: 'ХРОНОКЛИНОК', hp: 95,  w: 14, h: 22, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.60, phases: 2 },
+  glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 95,  w: 26, h: 26, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.55, phases: 3 },
+  architect: { name: 'АРХІТЕКТОР',  hp: 150, w: 22, h: 30, sub: 'ЯДРО КАЙЗЕН-ВОЛЬТ',   tel: 0.50, phases: 3 }
 };
 /** Телеграф атаки: у полегшеному режимі на чверть довший. */
-function TEL(k) { return (BOSS.def ? BOSS.def.tel : 0.5) * (k || 1) * (Store.data.easy ? 1.25 : 1); }
-/** Режим люті: після 90 с бою пауза між атаками коротшає на 15%. */
-function RT() { return BOSS.rage ? 1 / 1.15 : 1; }
+function TEL(k) {
+  const assist = (Store.data.easy || Game.assist) ? 1.25 : 1;
+  return (BOSS.def ? BOSS.def.tel : 0.5) * (k || 1) * assist;
+}
+/** Режим люті прибрано: боса можна бити обережно й скільки завгодно довго. */
+function RT() { return 1; }
 const BOSS = {
   on: false, done: false, type: null, def: null,
   hp: 0, maxHp: 0, phase: 1, x: 0, y: 0, w: 0, h: 0, vx: 0, vy: 0,
   st: 'idle', tm: 0, tm2: 0, tm3: 0, flash: 0, face: -1, anim: 0,
   parts: [], intro: 0, nameT: 0, dieT: 0, spawned: 0, inv: 0,
   a0: 0, a1: 0, cx: 0, gravT: 0, offT: 0, dupT: 0, shadow: null, ground: 208,
-  silence: 0, rage: 0, fightT: 0
+  silence: 0, rage: 0, fightT: 0, lowT: 0, nodesLeft: undefined
 };
 
 function bossReset() {
@@ -2427,6 +2565,7 @@ function bossReset() {
   BOSS.tm = BOSS.tm2 = BOSS.tm3 = 0; BOSS.flash = 0; BOSS.anim = 0;
   BOSS.gravT = 0; BOSS.offT = 0; BOSS.dupT = 0; BOSS.shadow = null;
   BOSS.silence = 0; BOSS.rage = 0; BOSS.fightT = 0;
+  BOSS.lowT = 0; BOSS.nodesLeft = undefined;
   world.grav = 1; world.off = null;
 }
 function startBoss() {
@@ -2519,7 +2658,7 @@ function bossCheckPhase() {
     else if (BOSS.phase === 2 && f <= 0.33) bossArchPhase3();
     return;
   }
-  if (BOSS.phase === 2 && f <= 0.28) {
+  if (BOSS.phase === 2 && f <= 0.28 && (BOSS.def.phases || 3) >= 3) {
     BOSS.phase = 3; BOSS.inv = 0.9; BOSS.st = 'phase'; BOSS.tm = 0.9;
     Sfx.bossIn(); cam.hit(7);
     ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 6, 90, 0.8, '#ffd23f', 3);
@@ -2531,13 +2670,7 @@ function bossCheckPhase() {
     Sfx.bossIn(); cam.hit(6);
     ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 6, 70, 0.7, '#ff2e88', 3);
     burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 24, '#ff2e88', 200, 0.7, 40, 2);
-    if (BOSS.type === 'queen') {
-      // у фазі 2 матка піднімає лише дві нижні опори — бій не перетворюється на марафон
-      for (let i = 0; i < 2 && i < BOSS.parts.length; i++) {
-        const p = BOSS.parts[i];
-        p.alive = true; p.hp = p.maxHp = 8;
-      }
-    }
+    // Генератори більше не відроджуються: збив — назавжди.
   }
 }
 function bossDie() {
@@ -2678,7 +2811,7 @@ function bossServotaur(dt) {
 /* ---------------- БОС 2: МАТКА-РІЙ ---------------- */
 function bossQueen(dt) {
   const span = (BOSS.a1 - BOSS.a0) / 2 - 74;
-  if (BOSS.st !== 'dive' && BOSS.st !== 'diveTel') {
+  if (BOSS.st !== 'dive' && BOSS.st !== 'diveTel' && BOSS.lowT <= 0) {
     BOSS.x = BOSS.cx - BOSS.w / 2 + Math.sin(BOSS.anim * 0.55) * span;
     BOSS.y = 104 + Math.sin(BOSS.anim * 1.25) * 10; // висота, куди дістає стрибок із галереї
   }
@@ -2687,10 +2820,14 @@ function bossQueen(dt) {
   // хвилі ос
   BOSS.tm -= dt;
   if (BOSS.tm <= 0) {
-    BOSS.tm = p2 ? 2.2 : 3.4;
-    if (BOSS.spawned < (p2 ? 5 : 4)) {
-      const e = spawnEnemy('wasp', BOSS.x + BOSS.w / 2 - 8, BOSS.y + BOSS.h, p2);
-      if (e) { e.fromBoss = true; e.hy = BOSS.y + BOSS.h + 10; BOSS.spawned++; Sfx.shoot(); }
+    BOSS.tm = 2.5;                                  // не частіше ніж раз на 2,5 с
+    // одночасно на арені не більше трьох дронів: рахуємо живих, а не
+    // випущених за бій, інакше «спавнено 5» назавжди глушило хвилі
+    let live = 0;
+    for (let i = 0; i < ENEM.length; i++) if (ENEM[i].fromBoss && !ENEM[i].dead) live++;
+    if (live < 3) {
+      const e = spawnEnemy('wasp', BOSS.x + BOSS.w / 2 - 8, BOSS.y + BOSS.h, false);
+      if (e) { e.fromBoss = true; e.hy = BOSS.y + BOSS.h + 10; Sfx.shoot(); }
     }
   }
   // бомби з телеграфом
@@ -2701,8 +2838,10 @@ function bossQueen(dt) {
       BOSS.st = 'diveTel'; BOSS.tm3 = TEL(1.1);
       telegraph(P.x - 16, P.y - 10, P.w + 32, P.h + 20, TEL(1.1), '#ff2e88', 1);
     } else {
-      BOSS.st = 'bombTel'; BOSS.tm3 = TEL();
-      telegraph(P.x - 12, BOSS.ground - 26, P.w + 24, 26, TEL(), '#ff6b3d', 1);
+      // тінь під бомбою на землі рівно за 0,8 с до падіння
+      BOSS.st = 'bombTel'; BOSS.tm3 = Math.max(0.8, TEL());
+      telegraph(P.x - 12, BOSS.ground - 4, P.w + 24, 4, BOSS.tm3, '#ff6b3d', 1);
+      telegraph(P.x - 12, BOSS.ground - 26, P.w + 24, 26, BOSS.tm3, '#ff6b3d', 1);
     }
   }
   if (BOSS.st === 'diveTel') {
@@ -2733,6 +2872,17 @@ function bossQueen(dt) {
     alive++;
     if (Math.random() < 0.06)
       part(nd.x + rnd(0, nd.w), nd.y + rnd(0, nd.h), rnd(-20, 20), rnd(-30, 0), 0.4, '#22e0ff', 1, -20, 1);
+  }
+  if (BOSS.nodesLeft === undefined) BOSS.nodesLeft = alive;
+  if (alive < BOSS.nodesLeft) {                     // щойно збили генератор
+    BOSS.nodesLeft = alive;
+    BOSS.lowT = 3.0;
+    Sfx.bossHurt(); cam.hit(4);
+    ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h, 5, 70, 0.7, '#ffd23f', 3);
+  }
+  if (BOSS.lowT > 0) {                              // вікно, коли її дістає навіть клинок
+    BOSS.lowT -= dt;
+    BOSS.y = BOSS.ground - BOSS.h - 26 + Math.sin(BOSS.anim * 3) * 3;
   }
   BOSS.shielded = alive > 0;
   bossContact(1);
@@ -3078,13 +3228,7 @@ function updateBoss(dt) {
   BOSS.anim += dt;
   if (BOSS.flash > 0) BOSS.flash -= dt;
   if (BOSS.nameT > 0) BOSS.nameT -= dt;
-  if (BOSS.intro <= 0 && BOSS.st !== 'die') {
-    BOSS.fightT += dt;
-    if (!BOSS.rage && BOSS.fightT > 90) {           // режим люті: темп +15%, телеграфи ті самі
-      BOSS.rage = 1; Sfx.bossIn(); cam.hit(4);
-      ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 6, 80, 0.7, '#ff3355', 3);
-    }
-  }
+  if (BOSS.intro <= 0 && BOSS.st !== 'die') BOSS.fightT += dt;
   if (BOSS.inv > 0 && BOSS.st !== 'die') BOSS.inv -= dt;
   P.x = clamp(P.x, BOSS.a0 + 2, BOSS.a1 - P.w - 2);
   if (BOSS.silence > 0) {
@@ -3179,9 +3323,13 @@ function updateWeather(dt) {
 const Game = {
   state: 'menu', level: 0, introT: 0, cpTaken: false, cpIndex: 0, backTo: 'menu',
   pickupName: '', pickupT: 0, assembleT: 0, reward: null,
+  assist: false, assistAsked: false, bossDeaths: 0, bossDeathLvl: -1,
 
   startLevel(idx, useCp) {
-    this.level = clamp(idx, 0, LEVELS.length - 1);
+    const lvl = clamp(idx, 0, LEVELS.length - 1);
+    // разова допомога живе лише в межах одного сектора
+    if (lvl !== this.level) { this.assist = false; this.assistAsked = false; this.bossDeaths = 0; }
+    this.level = lvl;
     if (!useCp) { this.cpTaken = false; this.cpIndex = 0; }
     clearEntities();
     bossReset();
@@ -3236,6 +3384,24 @@ const Game = {
     Music.sting('die');
     Music.stop();
     Store.data.deaths++; Store.save();
+    // Три смерті на одному босі — пропонуємо допомогу. Пропонуємо, а не
+    // вмикаємо: вибір лишається за гравцем, контент не блокується.
+    const onBoss = world.bossType && this.cpTaken && world.cps[this.cpIndex] && world.cps[this.cpIndex].boss;
+    if (onBoss) {
+      if (this.bossDeathLvl !== this.level) { this.bossDeathLvl = this.level; this.bossDeaths = 0; }
+      this.bossDeaths++;
+      if (this.bossDeaths >= 3 && !this.assist && !this.assistAsked) {
+        this.assistAsked = true;
+        hooks.askAssist(BOSSDEF[world.bossType].name);
+        return;
+      }
+    }
+    hooks.showScreen('dead');
+  },
+  /** Відповідь на пропозицію допомоги. */
+  setAssist(on) {
+    this.assist = !!on;
+    if (on) { P.maxHp = maxHearts(); P.hp = P.maxHp; }
     hooks.showScreen('dead');
   },
   pause() {
@@ -3349,7 +3515,7 @@ export function setGod(v) { GOD = !!v; }
 export {
   cam, world, P, BOSS, Game,
   PARTS, RINGS, ZONES, TELE, BEAMS, GHOSTS, PICKS, PENDING, BULL, ENEM, TRAIL, WEATHER,
-  ETYPE, LEVELS, WEAPONS,
+  ETYPE, LEVELS, WEAPONS, WHIP,
   stepGame, updateMovingPlatforms,
   tAt, solidAtPx, rectSolid, isSolidCode, moveX, moveY, T_EMPTY, T_SOLID, T_PLAT, T_SPIKE, T_CONVR, T_CONVL,
   bossHitBoxes, bossInvulnerable, bossDamage, bossDie, bossCheckPhase,

@@ -19,7 +19,7 @@ export const WEAPONS = {
     id: 'whip', kind: 'melee', name: 'ЕЛЕКТРОХЛИСТ', sprite: 'w_whip',
     desc: 'Найдовший ближній: б\'є дугою всіх одразу, оглушує і перестрибує на сусіда.',
     from: 'секрет на секторі 3', unlock: { type: 'level', n: 2 },
-    dmg: [1.2], reach: 56, swing: [0.26], res: 'нема',
+    dmg: [1.8], reach: 56, swing: [0.45], res: 'нема',
     bars: { dmg: 2, spd: 3, rng: 5 },
     hint: 'B — дуга на 56 px б\'є всіх одразу й перестрибує на сусіда.'
   },

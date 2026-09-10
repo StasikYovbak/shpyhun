@@ -7,7 +7,7 @@ import { WEAPONS, MELEE_IDS, RANGED_IDS, unlockText } from './weapons.js';
 import { Gfx } from './render/index.js';
 
 const $ = id => document.getElementById(id);
-const SCREENS = ['menu', 'levels', 'settings', 'controls', 'inv', 'reward', 'about', 'pause', 'dead', 'clear', 'win'];
+const SCREENS = ['menu', 'levels', 'settings', 'controls', 'inv', 'reward', 'assist', 'about', 'pause', 'dead', 'clear', 'win'];
 export let curScreen = 'menu';
 
 export function showScreen(id) {
@@ -91,6 +91,11 @@ export function syncSettings() {
   $('sTrack').textContent = Music.title || '—';
   segSet('sGfx', Store.data.gfx);
   segSet('sCrt', String(Store.data.crt));
+  segSet('sOut', String(Store.data.outline));
+  segSet('sDbg', String(Store.data.dbg));
+  $('sBloom').value = Store.data.bloom; $('vBloom').textContent = Store.data.bloom + '%';
+  $('sAb').value = Store.data.ab; $('vAb').textContent = Store.data.ab + '%';
+  $('sBg').value = Store.data.bgDim; $('vBg').textContent = Store.data.bgDim + '%';
 }
 
 
@@ -223,6 +228,7 @@ export function initUI() {
   hooks.setClear = (title, sub) => { $('clTitle').textContent = title; $('clSub').textContent = sub; };
   hooks.setWinStat = s => { $('winStat').textContent = s; };
   hooks.showReward = showReward;
+  hooks.askAssist = name => { $('asName').textContent = name; showScreen('assist'); };
 
   $('mPlay').addEventListener('click', () => {
     Sfx.ui(); Game.startLevel(Math.max(0, Math.min(LEVELS.length - 1, Store.data.unlocked - 1)), false);
@@ -246,6 +252,8 @@ export function initUI() {
   $('pRestart').addEventListener('click', () => { Sfx.ui(); Game.startLevel(Game.level, false); });
   $('pSet').addEventListener('click', () => { Sfx.ui(); Game.backTo = 'pause'; syncSettings(); showScreen('settings'); });
   $('pMenu').addEventListener('click', () => { Sfx.ui(); Game.toMenu(); });
+  $('asYes').addEventListener('click', () => { Sfx.ui(); Game.setAssist(true); });
+  $('asNo').addEventListener('click', () => { Sfx.ui(); Game.setAssist(false); });
   $('dRetry').addEventListener('click', () => { Sfx.ui(); Game.startLevel(Game.level, true); });
   $('dMenu').addEventListener('click', () => { Sfx.ui(); Game.toMenu(); });
   $('clNext').addEventListener('click', () => { Sfx.ui(); Game.startLevel(Game.level + 1, false); });
@@ -262,6 +270,19 @@ export function initUI() {
   });
   segBind('sGfx', v => { Store.data.gfx = v; Gfx.applyQuality(); });
   segBind('sCrt', v => { Store.data.crt = +v; Gfx.applyQuality(); });
+  segBind('sOut', v => { Store.data.outline = +v; Gfx.applyQuality(); });
+  segBind('sDbg', v => { Store.data.dbg = +v; });
+  for (const [id, lab, key] of [['sBloom', 'vBloom', 'bloom'], ['sAb', 'vAb', 'ab'], ['sBg', 'vBg', 'bgDim']])
+    $(id).addEventListener('input', e => {
+      Store.data[key] = +e.target.value || 0;
+      $(lab).textContent = Store.data[key] + '%';
+      Gfx.applyQuality(); Store.save();
+    });
+  $('sClean').addEventListener('click', () => {
+    Sfx.ui(); Gfx.cleanMode(); Store.save(); syncSettings();
+    $('sClean').textContent = 'Чистий режим увімкнено';
+    setTimeout(() => { $('sClean').textContent = 'Чистий режим — без пост-ефектів'; }, 1200);
+  });
   $('sCtrl').addEventListener('click', () => { Sfx.ui(); syncControls(); showScreen('controls'); });
   $('sInv').addEventListener('click', () => { Sfx.ui(); openInv('settings'); });
   $('pInv').addEventListener('click', () => { Sfx.ui(); openInv('pause'); });

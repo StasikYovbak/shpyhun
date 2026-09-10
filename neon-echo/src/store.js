@@ -6,6 +6,8 @@ export const Store = {
   data: {
     unlocked: 1, cleared: [], deaths: 0, logs: [],
     vol: 70, mus: 50, vib: 1, gfx: 'auto', crt: 0, easy: 0,   // vib: 0 вимк / 1 слабка / 2 сильна
+    // пост-обробка у відсотках; аберація за замовчуванням вимкнена
+    bloom: 35, ab: 0, bgDim: 60, outline: 1, dbg: 0,
     // керування
     hand: 0, dpadOp: 55, btnOp: 55, dpadSize: 100, btnSize: 100,
     dpadPos: null, btnPos: null, size: 'M', op: 55,
@@ -32,6 +34,11 @@ export const Store = {
           d.op = clamp(parseInt(o.op, 10) || 55, 30, 90);
           d.gfx = ['perf', 'bal', 'max', 'auto'].indexOf(o.gfx) >= 0 ? o.gfx : 'auto';
           d.crt = o.crt ? 1 : 0;
+          d.bloom = clamp(parseInt(o.bloom, 10) >= 0 ? parseInt(o.bloom, 10) : 35, 0, 100);
+          d.ab = clamp(parseInt(o.ab, 10) >= 0 ? parseInt(o.ab, 10) : 0, 0, 100);
+          d.bgDim = clamp(parseInt(o.bgDim, 10) >= 0 ? parseInt(o.bgDim, 10) : 60, 20, 100);
+          d.outline = o.outline === undefined ? 1 : (o.outline ? 1 : 0);
+          d.dbg = o.dbg ? 1 : 0;
           d.easy = o.easy ? 1 : 0;
           d.freeSwap = o.freeSwap ? 1 : 0;
           d.dpadOp = clamp(parseInt(o.dpadOp, 10) || 55, 20, 100);

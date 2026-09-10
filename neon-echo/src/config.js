@@ -52,7 +52,9 @@ export const PH = CONFIG;
 // «Арк-тесак»
 export const BL = {
   DUR: [0.18, 0.18, 0.30], DMG: [2, 2, 3], WIN: 0.40,
-  PARRY: 0.15, MAXQ: 10, HOLD: 0.50, RAD: 48, DDMG: 4, STUN: 1.0
+  PARRY: 0.15, MAXQ: 10, HOLD: 0.50, RAD: 48, DDMG: 4, STUN: 1.0,
+  // Електрохлист: замах назад -> викид уперед дугою -> повернення
+  WHIP_WIND: 0.12, WHIP_LASH: 0.18, WHIP_BACK: 0.15
 };
 // «Рейкострил»
 export const RG = {

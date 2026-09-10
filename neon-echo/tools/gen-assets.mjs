@@ -23,111 +23,18 @@ const make = (name, w, h, fn) => { const b = new Bitmap(w, h); fn(b); return add
 
 
 /* ------------------------------------------------------------ ГЕРОЇНЯ
-   16x22, по чотири тони на кожен матеріал (база, тінь, світло, відблиск).
-   Малюється прямокутниками — так легше тримати однакове освітлення
-   в усіх дев'яти позах. Хітбокс у грі лишається 10x14, спрайт
-   прив'язаний до ніг. */
-const HP = {
-  skinB: '#f7c9a6', skinS: '#c9805c', skinL: '#ffe3c6', skinR: '#fff5e6',
-  hoodB: '#ff2e88', hoodS: '#a0104f', hoodL: '#ff7fb5', hoodR: '#ffd6e8',
-  jacB: '#5b238c', jacS: '#2a1140', jacL: '#8b3fd0', jacR: '#c48cff',
-  chrB: '#d8f0ff', chrS: '#7fa8c9', chrL: '#ffffff', chrR: '#eaf9ff',
-  visor: '#22e0ff', visorL: '#bff4ff',
-  bootB: '#241338', bootS: '#150a22', bootL: '#3d2456',
-  scarf: '#ffd23f', scarfS: '#c98a12'
-};
-function heroFrame(pose) {
-  const b = new Bitmap(16, 22);
-  const P = HP;
-  const body = (oy) => {
-    // капюшон
-    b.rect(4, 0 + oy, 8, 2, P.hoodB);
-    b.rect(3, 1 + oy, 10, 3, P.hoodB);
-    b.rect(3, 1 + oy, 10, 1, P.hoodL);
-    b.rect(3, 3 + oy, 10, 1, P.hoodS);
-    b.rect(12, 1 + oy, 1, 3, P.hoodR);
-    // обличчя й візор
-    b.rect(4, 4 + oy, 8, 4, P.skinB);
-    b.rect(4, 4 + oy, 8, 1, P.skinL);
-    b.rect(4, 7 + oy, 8, 1, P.skinS);
-    b.rect(11, 4 + oy, 1, 4, P.skinR);
-    b.rect(5, 5 + oy, 6, 2, P.visor);
-    b.rect(5, 5 + oy, 6, 1, P.visorL);
-    // куртка
-    b.rect(3, 8 + oy, 10, 7, P.jacB);
-    b.rect(3, 8 + oy, 10, 1, P.jacL);
-    b.rect(3, 14 + oy, 10, 1, P.jacS);
-    b.rect(3, 8 + oy, 1, 7, P.jacS);
-    b.rect(12, 8 + oy, 1, 7, P.jacR);
-    b.rect(5, 10 + oy, 6, 3, P.jacS);
-  };
-  const legs = (lx, ly, rx, ry) => {
-    b.rect(4 + lx, 15 + ly, 3, 5, P.jacS);
-    b.rect(4 + lx, 19 + ly, 4, 3, P.bootB);
-    b.rect(4 + lx, 19 + ly, 4, 1, P.bootL);
-    b.rect(9 + rx, 15 + ry, 3, 5, P.jacS);
-    b.rect(8 + rx, 19 + ry, 4, 3, P.bootB);
-    b.rect(8 + rx, 19 + ry, 4, 1, P.bootL);
-  };
-  const armChrome = (x, y, len) => {
-    b.rect(x, y, len, 3, P.chrB);
-    b.rect(x, y, len, 1, P.chrL);
-    b.rect(x, y + 2, len, 1, P.chrS);
-    b.rect(x + len - 1, y, 1, 3, P.chrR);
-  };
-  const armJacket = (x, y, len) => {
-    b.rect(x, y, len, 3, P.jacB);
-    b.rect(x, y, len, 1, P.jacL);
-    b.rect(x, y + 2, len, 1, P.jacS);
-  };
-  switch (pose) {
-    case 'idle': body(0); legs(0, 0, 0, 0); armJacket(1, 9, 3); armChrome(12, 9, 4); break;
-    case 'blink':
-      body(0); legs(0, 0, 0, 0); armJacket(1, 9, 3); armChrome(12, 9, 4);
-      b.rect(5, 5, 6, 2, P.skinB); b.rect(5, 5, 6, 1, P.skinS); break;
-    case 'run1': body(0); legs(-2, 0, 2, 1); armJacket(0, 8, 4); armChrome(12, 10, 4); break;
-    case 'run2': body(1); legs(0, 0, 0, 0); armJacket(1, 10, 3); armChrome(11, 9, 4); break;
-    case 'run3': body(0); legs(2, 1, -2, 0); armJacket(2, 10, 3); armChrome(13, 8, 3); break;
-    case 'jump': body(0); legs(-1, -1, 1, 0); armJacket(0, 7, 4); armChrome(12, 7, 4); break;
-    case 'fall': body(0); legs(-2, 0, 2, -1); armJacket(0, 6, 4); armChrome(12, 6, 4); break;
-    case 'atk':  body(0); legs(-1, 0, 1, 0); armJacket(1, 11, 3); armChrome(12, 8, 4);
-                 b.rect(15, 8, 1, 3, P.chrR); break;
-    case 'crouch':
-      body(4); legs(-1, 2, 1, 2); armJacket(1, 13, 3); armChrome(12, 13, 4); break;
-    case 'hurt': body(0); legs(-2, 0, 2, 0); armJacket(0, 7, 4); armChrome(12, 11, 4);
-                 b.rect(3, 8, 10, 7, '#ff2e8855'); break;
-    // приземлення: присідання глибше за crouch, руки йдуть униз
-    case 'land':
-      body(3); legs(-2, 2, 2, 2); armJacket(0, 13, 4); armChrome(12, 13, 4);
-      b.rect(2, 21, 12, 1, '#22e0ff44'); break;
-    // довгий простій: Ехо піднімає хромовану руку й поправляє протез
-    case 'idle2a':
-      body(0); legs(0, 0, 0, 0); armJacket(1, 9, 3);
-      armChrome(11, 7, 3); b.rect(12, 5, 2, 3, P.chrB); b.rect(12, 5, 2, 1, P.chrL); break;
-    case 'idle2b':
-      body(0); legs(0, 0, 0, 0); armJacket(1, 9, 3);
-      armChrome(10, 6, 3); b.rect(11, 4, 3, 3, P.chrB); b.rect(11, 4, 3, 1, P.chrL);
-      b.rect(12, 5, 1, 1, P.visorL); break;
-  }
-  return b;
-}
+   12x15, п'ять матеріалів — рівно той дизайн, що був у версії 1.x.
+   Спрайт майже збігається з хітбоксом 10x14: різниця в один піксель
+   іде ВГОРУ (маківка), тому ноги стоять точно на поверхні.
+   Дозволено лише рух того, що вже є: кліпання, приземлення, довгий
+   простій. Жодного нового кольору й жодної нової деталі. */
 const HERO_POSES = ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk',
                     'crouch', 'hurt', 'land', 'idle2a', 'idle2b'];
-for (const pose of HERO_POSES) add('hero_' + pose, heroFrame(pose));
+for (const pose of HERO_POSES)
+  make('hero_' + pose, 12, 15, b => b.art(HERO[pose], PAL_HERO));
 // фантом — та сама фігура в примарній палітрі
-{
-  const swap = { skinB: '#6ef7d8', skinS: '#1f8f7a', skinL: '#bafff0', skinR: '#ffffff',
-    hoodB: '#1f8f7a', hoodS: '#08302c', hoodL: '#6ef7d8', hoodR: '#bafff0',
-    jacB: '#12604f', jacS: '#08302c', jacL: '#2fae90', jacR: '#6ef7d8',
-    chrB: '#bafff0', chrS: '#2fae90', chrL: '#ffffff', chrR: '#ffffff',
-    visor: '#ffffff', visorL: '#ffffff', bootB: '#04211d', bootS: '#021512', bootL: '#0d3a33',
-    scarf: '#6ef7d8', scarfS: '#1f8f7a' };
-  const keep = { ...HP };
-  Object.assign(HP, swap);
-  for (const pose of ['idle', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'crouch', 'hurt'])
-    add('phantom_' + pose, heroFrame(pose));
-  Object.assign(HP, keep);
-}
+for (const pose of ['idle', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'crouch', 'hurt'])
+  make('phantom_' + pose, 12, 15, b => b.art(HERO[pose], PAL_PHANTOM));
 
 /* ---------------------------------------------------------------- ВОРОГИ */
 // Палітри: [основа, світле, акцент]; елітні — золоті вставки.
@@ -487,15 +394,16 @@ function portrait(name, fn) {
   });
 }
 portrait('p_echo', b => {
-  b.rect(9, 36, 30, 12, HP.jacB); b.rect(9, 36, 30, 3, HP.jacL);
-  b.rect(13, 6, 22, 30, HP.hoodB); b.rect(13, 6, 22, 4, HP.hoodL);
-  b.rect(13, 6, 4, 30, HP.hoodS); b.rect(31, 6, 4, 30, HP.hoodS);
-  b.rect(17, 12, 14, 22, HP.skinB); b.rect(17, 28, 14, 6, HP.skinS);
-  b.rect(15, 16, 18, 6, '#150a22'); b.rect(16, 17, 16, 4, HP.visor);
-  b.rect(18, 18, 5, 2, HP.visorL);
-  b.rect(20, 30, 8, 2, HP.skinS);
-  b.rect(12, 34, 24, 6, HP.scarf); b.rect(12, 39, 24, 2, HP.scarfS);
-  b.rect(34, 34, 8, 12, HP.scarf); b.rect(34, 44, 8, 2, HP.scarfS);
+  // Той самий персонаж і та сама п'ятиколірна палітра, що й у спрайті.
+  const C = PAL_HERO;
+  b.rect(9, 36, 30, 12, C['4']); b.rect(9, 36, 30, 3, C['2']);
+  b.rect(13, 6, 22, 30, C['2']);
+  b.rect(13, 6, 4, 30, C['3']); b.rect(31, 6, 4, 30, C['3']);
+  b.rect(17, 12, 14, 22, C['1']);
+  b.rect(15, 16, 18, 6, C['3']); b.rect(16, 17, 16, 4, C['7']);
+  b.rect(18, 18, 5, 2, C['5']);
+  b.rect(12, 34, 24, 6, C['4']); b.rect(12, 39, 24, 2, C['3']);
+  b.rect(34, 30, 8, 14, C['5']); b.rect(34, 30, 8, 3, '#ffffff');
 });
 portrait('p_servotaur', b => {
   b.rect(2, 10, 10, 12, '#c7d3e0'); b.rect(36, 10, 10, 12, '#c7d3e0');

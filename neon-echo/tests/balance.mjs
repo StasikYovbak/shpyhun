@@ -24,9 +24,9 @@ await page.click('#mPlay');
 await page.waitForTimeout(200);
 
 const RUNS = Number(process.env.RUNS || 2);
-const HEARTS = 5, SURVIVE = HEARTS - 1;         // п'яте влучання вбиває
+const HEARTS = 5, SURVIVE = 4;                  // ТЗ: не більше 4 влучань за бій
 const UPTIME = 0.70;                            // частка бою, коли гравець атакує, а не ухиляється
-const ACC = 0.60;                               // точність за ТЗ
+const ACC = 0.50;                               // точність за ТЗ промта №7
 const DODGE = 0.85;                             // той самий гравець пропускає кожну сьому атаку
 const MAXATK = SURVIVE / (1 - DODGE);           // скільки атак бос має право встигнути
 

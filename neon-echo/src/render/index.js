@@ -6,7 +6,7 @@
  */
 import {
   Application, Assets, Container, Sprite, Spritesheet, Texture, Text,
-  RenderTexture, BlurFilter, DisplacementFilter, TilingSprite
+  RenderTexture, BlurFilter, DisplacementFilter, TilingSprite, ColorMatrixFilter
 } from 'pixi.js';
 import { AdvancedBloomFilter, CRTFilter, RGBSplitFilter } from 'pixi-filters';
 import { SpritePool } from './pool.js';
@@ -23,7 +23,7 @@ let vw = VW, scale = 1, dpr = 1;
 
 /* ---------------------------------------------------------------- шари */
 let root, worldC, hudC;
-let skySpr, bgP, tileP, reflectC, reflectP, entP, entAddP, lightP, darkP, weatherP, hudP;
+let skySpr, bgC, bgDimF, bgP, tileP, reflectC, reflectP, entP, outlineP, entAddP, lightP, darkP, weatherP, hudP;
 let hudTexts = {};
 let paletteF, bloomF, crtF, rgbF, dispF, dispSpr;
 let quality = 'auto', fpsAvg = 60, autoLevel = 2;   // 0 perf, 1 bal, 2 max
@@ -68,17 +68,26 @@ export const Gfx = {
     root.addChild(worldC, hudC);
     app.stage.addChild(root);
 
+    // Небо, силуети міста й відбиття живуть в одному контейнері, якому
+    // ми знімаємо яскравість і насиченість: правило «ігрові об'єкти —
+    // найяскравіші на екрані» має виконуватись саме тут, а не в шейдері.
+    bgC = new Container(); worldC.addChild(bgC);
+    bgDimF = new ColorMatrixFilter();
+    bgC.filters = [bgDimF];
+
     skySpr = new Sprite(T['sky_slum']);
     skySpr.width = MAXVW; skySpr.height = VH;
-    worldC.addChild(skySpr);
+    bgC.addChild(skySpr);
 
     const mk = (blend) => { const c = new Container(); worldC.addChild(c); return new SpritePool(c, blend); };
-    bgP = mk('normal');
-    reflectC = new Container(); worldC.addChild(reflectC);
+    const bgc = new Container(); bgC.addChild(bgc);
+    bgP = new SpritePool(bgc, 'normal');
+    reflectC = new Container(); bgC.addChild(reflectC);
     reflectP = new SpritePool(reflectC, 'add');
     reflectC.filters = [new BlurFilter({ strength: 3, quality: 2 })];
     reflectC.alpha = 0.32;
     tileP = mk('normal');
+    outlineP = mk('normal');            // темний контур силуетів — шар ПІД спрайтами
     entP = mk('normal');
     entAddP = mk('add');
     lightP = mk('add');
@@ -88,7 +97,9 @@ export const Gfx = {
 
     // --- пост-обробка ---
     paletteF = new PaletteFilter();
-    bloomF = new AdvancedBloomFilter({ threshold: 0.62, bloomScale: 0.9, brightness: 1.0, blur: 5, quality: 4 });
+    // Поріг підняли: світяться самі джерела світла, а не весь кадр.
+    // Радіус удвічі менший, сила за замовчуванням 0.35 (було 0.9).
+    bloomF = new AdvancedBloomFilter({ threshold: 0.86, bloomScale: 0.35, brightness: 1.0, blur: 2.5, quality: 4 });
     rgbF = new RGBSplitFilter({ red: { x: 0, y: 0 }, green: { x: 0, y: 0 }, blue: { x: 0, y: 0 } });
     crtF = new CRTFilter({ curvature: 1.4, lineWidth: 1.1, lineContrast: 0.18, vignetting: 0.28, vignettingAlpha: 0.7, noise: 0.06 });
     dispSpr = new TilingSprite({ texture: noiseTex, width: MAXVW, height: VH });
@@ -124,16 +135,35 @@ export const Gfx = {
   applyQuality() {
     quality = Store.data.gfx || 'auto';
     const lvl = quality === 'perf' ? 0 : quality === 'bal' ? 1 : quality === 'max' ? 2 : autoLevel;
+    const D = Store.data;
+    const bloom = (D.bloom === undefined ? 35 : D.bloom) / 100;
+    const ab = (D.ab === undefined ? 0 : D.ab) / 100;
     const fx = [paletteF];
     if (lvl >= 1) fx.push(dispF);
-    if (lvl >= 1) fx.push(bloomF);
-    if (lvl >= 2) fx.push(rgbF);
+    if (lvl >= 1 && bloom > 0) fx.push(bloomF);
+    if (lvl >= 2 && ab > 0) fx.push(rgbF);          // аберацію додаємо лише коли вона потрібна
     worldC.filters = fx;
     reflectC.visible = lvl >= 1;
+    bloomF.bloomScale = bloom;
     bloomF.quality = lvl >= 2 ? 4 : 2;
-    bloomF.blur = lvl >= 2 ? 5 : 3;
-    root.filters = Store.data.crt ? [crtF] : null;
+    bloomF.blur = lvl >= 2 ? 2.5 : 1.6;
+    // фон: -40% яскравості й -25% насиченості за замовчуванням
+    const dim = (D.bgDim === undefined ? 60 : D.bgDim) / 100;
+    bgDimF.reset();
+    bgDimF.saturate(-0.25, true);
+    bgDimF.brightness(dim, true);
+    this.outline = D.outline === undefined ? true : !!D.outline;
+    this.ab = ab;
+    root.filters = D.crt ? [crtF] : null;
     this.level = lvl;
+  },
+  /** Скільки спрайтів у шарі сутностей — для перевірок рендеру. */
+  entCount() { return entP.n + entAddP.n; },
+  /** «Чистий режим»: жодних пост-ефектів, лише піксель-арт. */
+  cleanMode() {
+    const D = Store.data;
+    D.bloom = 0; D.ab = 0; D.crt = 0; D.bgDim = 75; D.outline = 1;
+    this.applyQuality();
   },
 
   /** Авто-режим: тримаємо 60 FPS, знімаючи ефекти згори вниз. */
@@ -152,7 +182,7 @@ export const Gfx = {
     const W = G.world, th = THEME[W.theme] || THEME.slum;
     camX = Math.round(G.cam.ox()); camY = Math.round(G.cam.oy());
     lights.length = 0;
-    bgP.begin(); reflectP.begin(); tileP.begin(); entP.begin(); entAddP.begin();
+    bgP.begin(); reflectP.begin(); tileP.begin(); entP.begin(); outlineP.begin(); entAddP.begin();
     lightP.begin(); darkP.begin(); weatherP.begin(); hudP.begin();
 
     if (G.Game.state === 'menu') {
@@ -181,11 +211,12 @@ export const Gfx = {
     drawDarkness();
     drawLights();
     drawHud();
+    if (Store.data.dbg) drawDebug();
     updateFx(th);
     finish();
 
     function finish() {
-      bgP.end(); reflectP.end(); tileP.end(); entP.end(); entAddP.end();
+      bgP.end(); reflectP.end(); tileP.end(); entP.end(); outlineP.end(); entAddP.end();
       lightP.end(); darkP.end(); weatherP.end(); hudP.end();
     }
   }
@@ -208,6 +239,31 @@ function floorUnder(x, y) {
   return null;
 }
 /** Дзеркальна копія спрайта на мокрому асфальті. */
+/**
+ * Ставить спрайт НОГАМИ на низ хітбокса: anchor (0.5, 1), центр по X,
+ * y = низ хітбокса. Уся різниця між висотою спрайта й висотою хітбокса
+ * іде вгору, у голову, а не вниз у підлогу. Єдина точка прив'язки для
+ * героїні, фантома й усіх ворогів.
+ */
+function putEnt(pool, tex, x, y, w, h, face, dy) {
+  const s = pool.get(tex);
+  s.anchor.set(0.5, 1);
+  s.x = Math.round(x + w / 2 - camX);
+  s.y = Math.round(y + h - camY + (dy || 0));
+  if (face < 0) s.scale.x = -1;
+  return s;
+}
+/** Темний контур 1 px: той самий кадр чотири рази зі зсувом, під спрайтом. */
+function outline(tex, x, y, w, h, face, dy) {
+  if (!Gfx.outline) return;
+  for (const [ox, oy] of OFF4) {
+    const o = putEnt(outlineP, tex, x, y, w, h, face, dy);
+    o.x += ox; o.y += oy;
+    o.tint = 0x0a0612; o.alpha = 0.85;
+  }
+}
+const OFF4 = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
 function reflect(tex, x, y, w, h, tint, alpha) {
   const f = floorUnder(x + w / 2, y + h);
   if (f === null) return;
@@ -373,9 +429,7 @@ function drawEnemies() {
       pushLight(e.x + e.w / 2, e.y + e.h / 2, 40, COL.pink, k * 0.5);
     }
     if (e.t === 'phantom') {
-      const s = entP.get(T['phantom_idle']);
-      s.x = Math.round(sx - 1); s.y = Math.round(sy);
-      if (e.face < 0) { s.scale.x = -1; s.x += 12; }
+      const s = putEnt(entP, T['phantom_idle'], e.x, e.y, e.w, e.h, e.face, 0);
       s.alpha = 0.55 + 0.25 * Math.sin(t * 5 + e.id);
       pushLight(e.x + 6, e.y + 7, 34, 0x6ef7d8, 0.35);
       if (e.flash > 0) entAddP.rect(px(), sx, sy, e.w, e.h, COL.white, 0.7);
@@ -383,9 +437,8 @@ function drawEnemies() {
     }
     const tex = T[`e_${e.t}_${e.elite ? 'x' : 'n'}`];
     if (tex) {
-      const s = entP.get(tex);
-      s.x = Math.round(sx); s.y = Math.round(sy);
-      if (e.face < 0) { s.scale.x = -1; s.x += e.w; }
+      outline(tex, e.x, e.y, e.w, e.h, e.face, 0);
+      const s = putEnt(entP, tex, e.x, e.y, e.w, e.h, e.face, 0);
       if (e.flash > 0) s.tint = 0xffffff;
       else if (e.charm > 0) s.tint = 0x8effe4;      // перехоплений Гліч-Кодом
       reflect(tex, e.x, e.y, e.w, e.h, 0xffffff, 0.35);
@@ -631,12 +684,14 @@ const SCARF = [];
 for (let i = 0; i < 5; i++) SCARF.push({ x: 0, y: 0 });
 let scarfReady = false;
 function drawScarf(P, t) {
-  const ax = P.x + (P.face > 0 ? 1 : P.w - 1), ay = P.y + 4;
+  // Кріпиться до шиї спрайта 12x15 і тримається близько до тіла:
+  // це шарф, а не окрема деталь, що літає поруч.
+  const ax = P.x + (P.face > 0 ? 2 : P.w - 2), ay = P.y + 5;
   if (!scarfReady || Math.hypot(SCARF[0].x - ax, SCARF[0].y - ay) > 48) {
     for (const q of SCARF) { q.x = ax; q.y = ay; }   // старт рівня / телепорт
     scarfReady = true;
   }
-  const wind = -P.face * (1.4 + clamp(Math.abs(P.vx) / 130, 0, 1) * 2.6);
+  const wind = -P.face * (1.0 + clamp(Math.abs(P.vx) / 130, 0, 1) * 1.8);
   const lift = clamp(-P.vy / 300, -1.2, 1.6);
   let px0 = ax, py0 = ay;
   for (let i = 0; i < SCARF.length; i++) {
@@ -644,12 +699,58 @@ function drawScarf(P, t) {
     const tx = px0 + wind, ty = py0 - lift + Math.sin(t * 9 - i * 0.9) * (0.6 + i * 0.25);
     q.x += (tx - q.x) * (0.42 - i * 0.05);           // хвіст в'ялий, основа жорстка
     q.y += (ty - q.y) * (0.42 - i * 0.05);
-    const w = 3 - i * 0.35;
+    const w = 2.4 - i * 0.3;
     entP.rect(px(), q.x - camX - w / 2, q.y - camY - 1, w, 2,
               i === 0 ? COL.yellow : (i < 3 ? 0xffb03f : 0xc98a12), 1 - i * 0.11);
     px0 = q.x; py0 = q.y;
   }
 }
+/* ЕЛЕКТРОХЛИСТ. Мотузка малюється ланка за ланкою: біля рукояті 3 px,
+   на кінчику 1 px — класичний конус батога. Уздовж біжать розряди,
+   кінчик світиться яскравіше, дуга лишає шлейф, що згасає за 0,2 с. */
+const WHIP_TRAIL = [];
+function drawWhip(t) {
+  const W = G.WHIP;
+  if (!W.on) { if (WHIP_TRAIL.length) WHIP_TRAIL.length = 0; return; }
+  const pts = W.pts, n = pts.length;
+  // шлейф: запам'ятовуємо кінчик і малюємо згасаючий слід
+  WHIP_TRAIL.push({ x: pts[n - 1].x, y: pts[n - 1].y, t: 0.2 });
+  if (WHIP_TRAIL.length > 14) WHIP_TRAIL.shift();
+  for (let i = WHIP_TRAIL.length - 1; i >= 0; i--) {
+    const q = WHIP_TRAIL[i];
+    q.t -= 1 / 60;
+    if (q.t <= 0) { WHIP_TRAIL.splice(i, 1); continue; }
+    entAddP.rect(px(), q.x - 1 - camX, q.y - 1 - camY, 2, 2, COL.ice, (q.t / 0.2) * 0.55);
+  }
+  // сама мотузка: товщина від 3 px біля рукояті до 1 px на кінчику
+  const white = W.flash > 0 ? W.flash / 0.08 : 0;
+  for (let i = 1; i < n; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const k = i / (n - 1);
+    const th = Math.max(1, Math.round(3 - k * 2));
+    const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 2));
+    for (let m = 0; m <= steps; m++) {
+      const x = a.x + (b.x - a.x) * m / steps, y = a.y + (b.y - a.y) * m / steps;
+      entP.rect(px(), Math.round(x - th / 2 - camX), Math.round(y - th / 2 - camY), th, th,
+                white > 0.4 ? COL.white : 0x2a1140, 1);
+      entAddP.rect(px(), Math.round(x - th / 2 - camX), Math.round(y - th / 2 - camY), th, th,
+                   white > 0.4 ? COL.white : COL.ice, 0.30 + 0.5 * k + white * 0.5);
+    }
+    // розряди, що біжать уздовж мотузки
+    if (((t * 26 + i) | 0) % 4 === 0)
+      entAddP.rect(px(), Math.round(b.x - camX) - 1, Math.round(b.y - camY) - 1, 3, 3, COL.white, 0.8);
+  }
+  const tip = pts[n - 1];
+  entAddP.rect(px(), Math.round(tip.x - camX) - 2, Math.round(tip.y - camY) - 2, 4, 4, COL.white, 0.95);
+  pushLight(tip.x, tip.y, 40 + white * 40, COL.ice, 0.55 + white * 0.4);
+  pushLight(pts[0].x, pts[0].y, 22, COL.ice, 0.3);
+  if (W.tipHit) {                                   // іскри в точці удару
+    const h = W.tipHit;
+    entAddP.rect(px(), h.x - 4 - camX, h.y - 4 - camY, 8, 8, COL.white, h.t / 0.2);
+    pushLight(h.x, h.y, 46, COL.white, h.t / 0.2);
+  }
+}
+
 /* Дрони «Рою»: тіло, слід і промінь до позначеної цілі. */
 function drawDrones() {
   const t = G.world.time;
@@ -661,6 +762,11 @@ function drawDrones() {
     s.x = Math.round(sx); s.y = Math.round(sy);
     s.rotation = t * 6 + i;                          // корпус повільно крутиться
     const hot = d.hitT > 0;
+    if (!d.tr) d.tr = [];                          // видима траєкторія дрона
+    d.tr.push({ x: d.x, y: d.y });
+    if (d.tr.length > 10) d.tr.shift();
+    for (let k = 0; k < d.tr.length; k++)
+      entAddP.rect(px(), d.tr[k].x - camX, d.tr[k].y - camY, 1, 1, COL.cyan, (k / d.tr.length) * 0.4);
     entAddP.rect(px(), sx - 1, sy - 1, 2, 2, hot ? COL.yellow : COL.cyan, 0.9);
     pushLight(d.x, d.y, hot ? 44 : 26, hot ? COL.yellow : COL.cyan, hot ? 0.6 : 0.32);
     if (d.t < 1.2 && Math.floor(t * 14) % 2) s.alpha = 0.4;   // блимає перед згасанням
@@ -677,6 +783,7 @@ function drawDrones() {
 
 function drawPlayer(th) {
   const P = G.P, t = G.world.time;
+  drawWhip(t);                                     // зброя видима навіть коли героїня блимає
   if (P.dead && P.deadT <= 0.05) return;
   if (P.inv > 0 && P.hurtT <= 0 && Math.floor(P.inv * 22) % 2 === 0) return;
   const tex = T['hero_' + P.anim] || T.hero_idle;
@@ -699,35 +806,46 @@ function drawPlayer(th) {
     if (d < nd && d < 170) { nd = d; near = l; }
   }
   if (near) {
-    const rim = entAddP.get(tex);
-    rim.x = sx; rim.y = sy;
-    if (P.face < 0) { rim.scale.x = -1; rim.x += 12; }
+    const rim = putEnt(entAddP, tex, P.x, P.y, P.w, P.h, P.face, 0);
     rim.tint = near.color;
     rim.alpha = clamp(0.42 - nd / 500, 0.05, 0.4);
   }
   drawScarf(P, t);
-  const s = entP.get(tex);
   // дихання: у спокої силует піднімається на піксель — персонаж «живий»
   const br = (P.anim === 'idle' || P.anim === 'blink') && Math.sin(P.breath) > 0.45 ? 1 : 0;
-  s.x = sx; s.y = sy - br;
-  if (P.flipT > 0) {
+  outline(tex, P.x, P.y, P.w, P.h, P.face, -br);
+  const s = putEnt(entP, tex, P.x, P.y, P.w, P.h, P.face, -br);
+  if (P.flipT > 0) {                             // сальто подвійного стрибка
     const k = 1 - P.flipT / 0.40;
     s.anchor.set(0.5, 0.5);
-    s.x = sx + 6; s.y = sy + 7.5;
+    s.y -= P.h / 2;
     s.rotation = k * Math.PI * 2 * P.face;
-  } else if (P.face < 0) { s.scale.x = -1; s.x += 12; }
-  if (G.world.grav < 0) { s.scale.y = -Math.abs(s.scale.y); s.y += 15; }
+  }
+  if (G.world.grav < 0) { s.scale.y = -Math.abs(s.scale.y); s.y -= P.h; }
   if (P.hurtT > 0 || P.dischT > 0) s.tint = 0xffffff;
-  reflect(tex, P.x - 1, P.y, 12, 15, 0xffffff, 0.45);
+  reflect(tex, P.x + P.w / 2 - tex.width / 2, P.y + P.h - tex.height, tex.width, tex.height, 0xffffff, 0.45);
 
   // клинок
-  if (P.atkT > 0) {
+  if (P.atkT > 0 && G.EQ.m.id !== 'whip') {
     const b = G.bladeBox();
-    const k = 1 - P.atkT / (P.atkIdx === 2 ? 0.30 : 0.18);
+    const wid = G.EQ.m.id;
+    const dur = wid === 'arc' ? (P.atkIdx === 2 ? 0.30 : 0.18) : G.EQ.m.swing[0];
+    const k = 1 - P.atkT / dur;
     const a = clamp(1 - Math.abs(k - 0.5) * 2, 0, 1) * 0.95;
-    const col = P.atkIdx === 2 ? COL.yellow : COL.ice;
-    entAddP.rect(px(), b.x - camX, b.y + b.h / 2 - 2 + (P.atkIdx ? 4 : -3) - camY, b.w, 4, col, a);
-    pushLight(b.x + b.w / 2, b.y + b.h / 2, 54, col, a * 0.8);
+    if (wid === 'claws') {                         // три короткі паралельні розрізи
+      for (let i = 0; i < 3; i++) {
+        const oy = b.y + 2 + i * 4;
+        const sx0 = b.x + (P.face > 0 ? -2 : 2) + P.face * k * 6;
+        entAddP.rect(px(), sx0 - camX, oy - camY + i, b.w + 4, 1, 0x00ffcc, a);
+        entAddP.rect(px(), sx0 + P.face * 2 - camX, oy - camY + i, b.w, 1, COL.white, a * 0.7);
+      }
+      pushLight(b.x + b.w / 2, b.y + b.h / 2, 34, 0x00ffcc, a * 0.7);
+    } else {
+      const col = P.atkIdx === 2 ? COL.yellow : (wid === 'brand' ? COL.orange : COL.ice);
+      const th = wid === 'brand' ? 6 : 4;
+      entAddP.rect(px(), b.x - camX, b.y + b.h / 2 - th / 2 + (P.atkIdx ? 4 : -3) - camY, b.w, th, col, a);
+      pushLight(b.x + b.w / 2, b.y + b.h / 2, 54, col, a * 0.8);
+    }
   }
   if (P.parryT > 0) entAddP.rect(px(), P.x - 5 - camX, P.y - 4 - camY, P.w + 10, P.h + 8, COL.yellow, 0.35 * (P.parryT / 0.15));
   if (P.q >= 10) {
@@ -751,6 +869,13 @@ function drawBullets() {
     entP.rect(px(), b.x - b.w / 2 - camX, b.y - b.h / 2 - camY, b.w, b.h, c, 1);
     entP.rect(px(), b.x - b.w / 2 + 1 - camX, b.y - b.h / 2 + 1 - camY, Math.max(1, b.w - 2), Math.max(1, b.h - 2), 0xffffff, 0.9);
     pushLight(b.x, b.y, b.kind === 3 ? 40 : 26, c, 0.4);
+    if (b.falloff) {                               // дробовик: трасер, а не точка
+      const L = clamp(Math.hypot(b.vx, b.vy) * 0.016, 3, 9);
+      const nx = b.vx / (Math.hypot(b.vx, b.vy) || 1), ny = b.vy / (Math.hypot(b.vx, b.vy) || 1);
+      for (let k = 1; k <= 3; k++)
+        entAddP.rect(px(), b.x - nx * k * L / 3 - camX - 1, b.y - ny * k * L / 3 - camY - 1,
+                     2, 2, c, 0.5 - k * 0.12);
+    }
     if (b.kind === 6) {                            // Ехо-Призма: слід і лічильник відбиттів
       const k = (b.bounce || 0) / 5;
       entAddP.rect(px(), b.x - b.vx * 0.02 - 1 - camX, b.y - b.vy * 0.02 - 1 - camY, 3, 3, COL.white, 0.4);
@@ -759,8 +884,20 @@ function drawBullets() {
   }
 }
 function drawBeams() {
+  // дуга ланцюгового розряду: ламана між двома ворогами
   for (let i = 0; i < G.BEAMS.length; i++) {
     const b = G.BEAMS[i];
+    if (b.arc) {
+      const a = b.t / b.max;
+      for (let k = 0; k <= 6; k++) {
+        const u = k / 6;
+        const x = b.x + (b.arc.x - b.x) * u + Math.sin(u * 9 + G.world.time * 40) * 3;
+        const y = b.y + (b.arc.y - b.y) * u + Math.cos(u * 11 + G.world.time * 40) * 3;
+        entAddP.rect(px(), Math.round(x - camX) - 1, Math.round(y - camY) - 1, 2, 2, COL.ice, a);
+      }
+      pushLight((b.x + b.arc.x) / 2, (b.y + b.arc.y) / 2, 40, COL.ice, a * 0.6);
+      continue;
+    }
     const k = b.t / b.max, c = toHex(b.col);
     const x0 = b.dir > 0 ? b.x : b.x - b.len;
     entAddP.rect(px(), x0 - camX, b.y - 4 * k - camY, b.len, 8 * k, c, k);
@@ -972,8 +1109,57 @@ function drawHud() {
   if (G.Game.state === 'pause') hudP.rect(px(), 0, 0, vw, VH, 0x0b0413, 0.55);
 }
 
+/* --------------------------------------------- РЕЖИМ НАЛАГОДЖЕННЯ
+   Червоне — хітбокси, зелене — сітка тайлів, жовте — рівень підлоги
+   під героїнею. Саме тут видно, чи збігається низ спрайта з низом
+   хітбокса й чи стоїть хітбокс рівно на поверхні тайла. */
+function drawDebug() {
+  const P = G.P, W = G.world;
+  const box = (x, y, w, h, col, a) => {
+    entAddP.rect(px(), Math.round(x - camX), Math.round(y - camY), w, 1, col, a);
+    entAddP.rect(px(), Math.round(x - camX), Math.round(y + h - 1 - camY), w, 1, col, a);
+    entAddP.rect(px(), Math.round(x - camX), Math.round(y - camY), 1, h, col, a);
+    entAddP.rect(px(), Math.round(x + w - 1 - camX), Math.round(y - camY), 1, h, col, a);
+  };
+  // сітка тайлів
+  const x0 = Math.floor(camX / TS), x1 = Math.ceil((camX + vw) / TS);
+  const y0 = Math.floor(camY / TS), y1 = Math.ceil((camY + VH) / TS);
+  for (let tx = x0; tx <= x1; tx++)
+    entAddP.rect(px(), tx * TS - camX, 0, 1, VH, 0x3dff9a, 0.14);
+  for (let ty = y0; ty <= y1; ty++)
+    entAddP.rect(px(), 0, ty * TS - camY, vw, 1, 0x3dff9a, 0.14);
+  // тверді тайли — яскравіша сітка
+  for (let ty = Math.max(0, y0); ty <= Math.min(W.th - 1, y1); ty++)
+    for (let tx = Math.max(0, x0); tx <= Math.min(W.tw - 1, x1); tx++) {
+      const c = G.tAt(tx, ty);
+      if (c === G.T_EMPTY) continue;
+      const col = c === G.T_PLAT ? 0x22e0ff : (c === G.T_SPIKE ? 0xff3355 : 0x3dff9a);
+      box(tx * TS, ty * TS, TS, TS, col, 0.45);
+    }
+  // хітбокси ворогів і героїні
+  for (let i = 0; i < G.ENEM.length; i++) {
+    const e = G.ENEM[i];
+    if (e.dead) continue;
+    box(e.x, e.y, e.w, e.h, 0xff3355, 0.9);
+  }
+  if (G.BOSS.on) for (const hb of G.bossHitBoxes()) box(hb.x, hb.y, hb.w, hb.h, 0xff3355, 0.9);
+  box(P.x, P.y, P.w, P.h, 0xff3355, 1);
+  // рівень підлоги під героїнею — жовта лінія на всю ширину екрана
+  const f = floorUnder(P.x + P.w / 2, P.y + P.h);
+  if (f !== null) {
+    entAddP.rect(px(), 0, Math.round(f - camY), vw, 1, 0xffd23f, 0.9);
+    entAddP.rect(px(), Math.round(P.x + P.w / 2 - camX), Math.round(f - camY) - 3, 1, 3, 0xffd23f, 0.9);
+  }
+  // цифри: низ хітбокса й низ спрайта — мають збігатись
+  const tex = T['hero_' + P.anim] || T.hero_idle;
+  txt('dbg1', 'ХІТБОКС ' + P.w + 'x' + P.h + '  СПРАЙТ ' + tex.width + 'x' + tex.height, 4, VH - 26, 9, 0xffd23f);
+  txt('dbg2', 'НИЗ ХІТБОКСА y=' + (P.y + P.h).toFixed(1) + '   ПІДЛОГА y=' + (f === null ? '—' : f.toFixed(1)) +
+              '   onGround=' + (P.onGround ? '1' : '0'), 4, VH - 15, 9, 0x3dff9a);
+}
+
 /* ------------------------------------------------- ПОСТ-ОБРОБКА КАДРУ */
 let gradeFrom = THEME.slum.grade, gradeTo = THEME.slum.grade, gradeMix = 1, lastTheme = 'slum';
+let abT = 0;
 function updateFx(th) {
   const P = G.P, B = G.BOSS, W = G.world;
   if (W.theme !== lastTheme) {                    // плавний перехід палітри між локаціями
@@ -981,15 +1167,20 @@ function updateFx(th) {
   }
   gradeMix = Math.min(1, gradeMix + 0.02);
   paletteF.setGrade(gradeFrom, gradeTo, gradeMix);
-  paletteF.saturation = 1.06 + (W.theme === 'virtual' ? 0.12 : 0);
+  paletteF.saturation = 1.0 + (W.theme === 'virtual' ? 0.08 : 0);
   const flash = (B.on && B.st === 'die') ? 0.10 + 0.10 * Math.sin(W.time * 30) :
                 (P.hurtT > 0 ? 0.10 * P.hurtT : 0);
   paletteF.flash = flash;
 
-  if (Gfx.level >= 2) {                            // хроматична аберація
-    const hit = P.hurtT > 0 ? 3.2 : 0;
-    const glitch = (B.on && B.type === 'glitch') ? 1.2 + Math.sin(W.time * 9) * 0.9 : 0;
-    const base = 0.4 + hit + glitch;
+  // Хроматична аберація: постійного розшарування нема взагалі.
+  // Тільки короткий сплеск 0,15 с при шкоді і фонове тремтіння на арені
+  // Гліч-Ядра — і те, й те множиться на повзунок «Аберація».
+  if (Gfx.level >= 2 && Gfx.ab > 0) {
+    abT = Math.max(abT - 1 / 60, 0);
+    if (P.hurtT > 0.14) abT = 0.15;                // новий удар — новий сплеск
+    const hit = abT > 0 ? 3.0 * (abT / 0.15) : 0;
+    const glitch = (B.on && B.type === 'glitch') ? 1.0 + Math.sin(W.time * 9) * 0.7 : 0;
+    const base = (hit + glitch) * Gfx.ab;
     rgbF.red = { x: -base, y: 0 };
     rgbF.green = { x: 0, y: 0 };
     rgbF.blue = { x: base, y: 0 };
