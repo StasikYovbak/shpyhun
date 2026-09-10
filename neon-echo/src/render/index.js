@@ -11,7 +11,8 @@ import {
 import { AdvancedBloomFilter, CRTFilter, RGBSplitFilter } from 'pixi-filters';
 import { SpritePool } from './pool.js';
 import { PaletteFilter } from './palette.js';
-import { VW, VH, TS, clamp, lerp, rnd } from '../config.js';
+import { VW, VH, TS, clamp, lerp, rnd, DEV_MODE } from '../config.js';
+import { CH } from '../cheats.js';
 import { THEME } from '../themes.js';
 import { Store } from '../store.js';
 import * as G from '../core.js';
@@ -32,6 +33,7 @@ const lights = [];                                  // збираються за
 
 /* ------------------------------------------------------------ утиліти */
 const px = () => T.px;
+let msAvg = 16.7;                                   // згладжений час кадру, мс
 function pushLight(x, y, r, color, alpha) {
   if (lights.length > 90) return;
   lights.push({ x, y, r, color, alpha });
@@ -171,9 +173,11 @@ export const Gfx = {
   },
 
   /** Авто-режим: тримаємо 60 FPS, знімаючи ефекти згори вниз. */
+  get frameMs() { return msAvg; },
   sampleFps(dtMs) {
     const f = 1000 / Math.max(1, dtMs);
     fpsAvg = fpsAvg * 0.92 + f * 0.08;
+    msAvg = msAvg * 0.92 + Math.min(999, dtMs) * 0.08;
     if ((Store.data.gfx || 'auto') !== 'auto') return;
     if (fpsAvg < 50 && autoLevel > 0) { autoLevel--; this.applyQuality(); }
     else if (fpsAvg > 58.5 && autoLevel < 2 && Math.random() < 0.002) { autoLevel++; this.applyQuality(); }
@@ -218,7 +222,8 @@ export const Gfx = {
     drawLights();
     if (!G.Cut.on) drawHud();               // під час катсцени HUD не потрібен
     drawCut();
-    if (Store.data.dbg) drawDebug();
+    if (Store.data.dbg || (DEV_MODE && (CH.boxes || CH.grid))) drawDebug();
+    if (DEV_MODE) drawDiag();
     updateFx(th);
     finish();
 
@@ -1449,6 +1454,11 @@ function drawHud() {
    хітбокса й чи стоїть хітбокс рівно на поверхні тайла. */
 function drawDebug() {
   const P = G.P, W = G.world;
+  // Панель розробника вмикає сітку й хітбокси окремо; старий прапорець
+  // Store.data.dbg із налаштувань лишається й показує все одразу.
+  const all = Store.data.dbg;
+  const wantGrid = all || (DEV_MODE && CH.grid);
+  const wantBox = all || (DEV_MODE && CH.boxes);
   const box = (x, y, w, h, col, a) => {
     entAddP.rect(px(), Math.round(x - camX), Math.round(y - camY), w, 1, col, a);
     entAddP.rect(px(), Math.round(x - camX), Math.round(y + h - 1 - camY), w, 1, col, a);
@@ -1457,6 +1467,7 @@ function drawDebug() {
   };
   // сітка тайлів
   const x0 = Math.floor(camX / TS), x1 = Math.ceil((camX + vw) / TS);
+  if (wantGrid) {
   const y0 = Math.floor(camY / TS), y1 = Math.ceil((camY + VH) / TS);
   for (let tx = x0; tx <= x1; tx++)
     entAddP.rect(px(), tx * TS - camX, 0, 1, VH, 0x3dff9a, 0.14);
@@ -1470,25 +1481,102 @@ function drawDebug() {
       const col = c === G.T_PLAT ? 0x22e0ff : (c === G.T_SPIKE ? 0xff3355 : 0x3dff9a);
       box(tx * TS, ty * TS, TS, TS, col, 0.45);
     }
-  // хітбокси ворогів і героїні
-  for (let i = 0; i < G.ENEM.length; i++) {
-    const e = G.ENEM[i];
-    if (e.dead) continue;
-    box(e.x, e.y, e.w, e.h, 0xff3355, 0.9);
+    // рівень підлоги під героїнею — жовта лінія на всю ширину екрана
+    const f0 = floorUnder(P.x + P.w / 2, P.y + P.h);
+    if (f0 !== null) {
+      entAddP.rect(px(), 0, Math.round(f0 - camY), vw, 1, 0xffd23f, 0.9);
+      entAddP.rect(px(), Math.round(P.x + P.w / 2 - camX), Math.round(f0 - camY) - 3, 1, 3, 0xffd23f, 0.9);
+    }
   }
-  if (G.BOSS.on) for (const hb of G.bossHitBoxes()) box(hb.x, hb.y, hb.w, hb.h, 0xff3355, 0.9);
-  box(P.x, P.y, P.w, P.h, 0xff3355, 1);
-  // рівень підлоги під героїнею — жовта лінія на всю ширину екрана
-  const f = floorUnder(P.x + P.w / 2, P.y + P.h);
-  if (f !== null) {
-    entAddP.rect(px(), 0, Math.round(f - camY), vw, 1, 0xffd23f, 0.9);
-    entAddP.rect(px(), Math.round(P.x + P.w / 2 - camX), Math.round(f - camY) - 3, 1, 3, 0xffd23f, 0.9);
+  if (wantBox) {                                   // хітбокси ворогів, атак і героїні
+    for (let i = 0; i < G.ENEM.length; i++) {
+      const e = G.ENEM[i];
+      if (e.dead) continue;
+      box(e.x, e.y, e.w, e.h, 0xff3355, 0.9);
+    }
+    if (G.BOSS.on) for (const hb of G.bossHitBoxes()) box(hb.x, hb.y, hb.w, hb.h, 0xff3355, 0.9);
+    for (let i = 0; i < G.BULL.length; i++) {      // кулі — теж хітбокси
+      const b = G.BULL[i];
+      box(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, b.own === 'e' ? 0xff6b3d : 0x3dff9a, 0.8);
+    }
+    if (P.atkT > 0) { const bb = G.bladeBox(); box(bb.x, bb.y, bb.w, bb.h, 0xffd23f, 0.95); }
+    box(P.x, P.y, P.w, P.h, 0xff3355, 1);
   }
-  // цифри: низ хітбокса й низ спрайта — мають збігатись
-  const tex = T['hero_' + P.anim] || T.hero_idle;
-  txt('dbg1', 'ХІТБОКС ' + P.w + 'x' + P.h + '  СПРАЙТ ' + tex.width + 'x' + tex.height, 4, VH - 26, 9, 0xffd23f);
-  txt('dbg2', 'НИЗ ХІТБОКСА y=' + (P.y + P.h).toFixed(1) + '   ПІДЛОГА y=' + (f === null ? '—' : f.toFixed(1)) +
-              '   onGround=' + (P.onGround ? '1' : '0'), 4, VH - 15, 9, 0x3dff9a);
+  if (all) {                                       // цифри старого режиму з налаштувань
+    const f = floorUnder(P.x + P.w / 2, P.y + P.h);
+    const tex = T['hero_' + P.anim] || T.hero_idle;
+    txt('dbg1', 'ХІТБОКС ' + P.w + 'x' + P.h + '  СПРАЙТ ' + tex.width + 'x' + tex.height, 4, VH - 26, 9, 0xffd23f);
+    txt('dbg2', 'НИЗ ХІТБОКСА y=' + (P.y + P.h).toFixed(1) + '   ПІДЛОГА y=' + (f === null ? '—' : f.toFixed(1)) +
+                '   onGround=' + (P.onGround ? '1' : '0'), 4, VH - 15, 9, 0x3dff9a);
+  } else { hideTxt('dbg1'); hideTxt('dbg2'); }
+}
+
+/* ------------------------------------------------- ДІАГНОСТИКА (DEV)
+   Усе тут вмикається окремими перемикачами в панелі й НЕ міняє поведінку
+   гри — тільки малює поверх. При DEV_MODE = false Rollup викидає і цю
+   функцію, і її виклик разом із модулем читів. */
+const AST_NAME = { 10: 'IDLE', 20: 'RUN', 30: 'LAND', 45: 'FALL', 50: 'JUMP',
+                   60: 'DASH', 70: 'ATTACK', 80: 'HURT', 90: 'DEAD' };
+const ALERT_COL = { calm: 0x3dff9a, suspect: 0xffd23f, fight: 0xff3355, lost: 0x22e0ff };
+let poolPeak = { bull: 0, enem: 0, part: 0 };
+function drawDiag() {
+  const P = G.P, W = G.world;
+
+  /* --- стан ШІ кожного ворога: колір за станом, лінія до цілі, токен --- */
+  if (CH.ai) {
+    for (let i = 0; i < G.ENEM.length; i++) {
+      const e = G.ENEM[i];
+      if (e.dead) continue;
+      const sx = e.x - camX, sy = e.y - camY;
+      if (sx < -60 || sx > vw + 60) continue;
+      const col = ALERT_COL[e.alertSt] || 0x9a7fb5;
+      entAddP.rect(px(), Math.round(sx), Math.round(sy) - 6, e.w, 2, col, 0.95);
+      // токен атаки — жовта позначка збоку: видно, кому дозволено бити
+      if (e.token) entAddP.rect(px(), Math.round(sx) + e.w + 1, Math.round(sy) - 6, 3, 3, 0xffd23f, 1);
+      // лінія до цілі: у бою — до героїні, інакше до останньої відомої точки
+      if (e.alertSt === 'fight')
+        line(entAddP, sx + e.w / 2, sy + e.h / 2, P.x + P.w / 2 - camX, P.y + P.h / 2 - camY, col, 0.30, 1);
+      else if (e.alertSt === 'lost')                 // до останньої відомої точки
+        line(entAddP, sx + e.w / 2, sy + e.h / 2, e.lastSeen - camX, sy + e.h / 2, col, 0.30, 1);
+      txt('ai' + i, (e.st || '?') + (e.token ? '*' : ''), Math.round(sx), Math.round(sy) - 16, 8, col);
+    }
+    for (let i = G.ENEM.length; i < 24; i++) hideTxt('ai' + i);
+  } else for (let i = 0; i < 24; i++) hideTxt('ai' + i);
+
+  /* --- цифри: кадр, героїня, пули --- */
+  if (CH.diag) {
+    hudP.rect(px(), 0, 0, 232, 60, 0x000000, 0.62);   // підкладка: цифри читаються поверх HUD
+    const cnt = { bull: G.BULL.length, enem: G.ENEM.length, part: G.PARTS.length };
+    poolPeak.bull = Math.max(poolPeak.bull, cnt.bull);
+    poolPeak.enem = Math.max(poolPeak.enem, cnt.enem);
+    poolPeak.part = Math.max(poolPeak.part, cnt.part);
+    const fps = Gfx.fps;
+    txt('dg0', 'FPS ' + fps.toFixed(0) + '   КАДР ' + Gfx.frameMs.toFixed(1) + ' мс   СПРАЙТІВ ' + Gfx.entCount(),
+        4, 4, 9, fps < 50 ? 0xff6b3d : 0x3dff9a);
+    txt('dg1', 'x ' + P.x.toFixed(1) + '  y ' + P.y.toFixed(1) +
+               '   vx ' + P.vx.toFixed(1) + '  vy ' + P.vy.toFixed(1), 4, 15, 9, 0xbff4ff);
+    txt('dg2', 'onGround ' + (P.onGround ? '1' : '0') +
+               '   СТАН ' + (AST_NAME[P.aState] || P.aState) + '   КАДР ' + P.anim, 4, 26, 9, 0xffd23f);
+    txt('dg3', 'ПУЛИ  кулі ' + cnt.bull + '/' + poolPeak.bull +
+               '  вороги ' + cnt.enem + '/' + poolPeak.enem +
+               '  частинки ' + cnt.part + '/' + poolPeak.part +
+               '  дрони ' + G.DRONES.length, 4, 37, 9,
+        poolPeak.part >= 255 ? 0xff6b3d : 0x9a7fb5);
+    txt('dg4', 'СЕКТОР ' + (W.idx + 1) + '   HP ' + P.hp + '/' + P.maxHp +
+               (G.BOSS.on ? '   БОС ' + G.BOSS.hp.toFixed(0) + '/' + G.BOSS.maxHp +
+                            ' ФАЗА ' + G.BOSS.phase + (G.BOSS.rage ? ' ЛЮТЬ' : '') : ''),
+        4, 48, 9, 0x22e0ff);
+  } else for (const k of ['dg0', 'dg1', 'dg2', 'dg3', 'dg4']) hideTxt(k);
+
+  /* --- останні помилки з консолі --- */
+  if (CH.errs) {
+    const list = (window.__DBG && window.__DBG.errors) || [];
+    for (let i = 0; i < 10; i++) {
+      const m = list[list.length - 1 - i];
+      if (m) txt('er' + i, m.slice(0, 74), 4, VH - 12 - i * 10, 8, 0xff6b7f);
+      else hideTxt('er' + i);
+    }
+  } else for (let i = 0; i < 10; i++) hideTxt('er' + i);
 }
 
 /* ------------------------------------------------- ПОСТ-ОБРОБКА КАДРУ */
