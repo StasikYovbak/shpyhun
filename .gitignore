@@ -1,0 +1,38 @@
+# --- залежності й збірка ---
+node_modules/
+dist/
+out/
+build/
+
+# --- Android / Gradle ---
+android/build/
+android/app/build/
+**/android/build/
+**/android/app/build/
+.gradle/
+**/.gradle/
+local.properties
+**/local.properties
+capacitor-cordova-android-plugins/build/
+**/capacitor-cordova-android-plugins/build/
+**/android/app/src/main/assets/public/
+
+# --- КЛЮЧІ ПІДПИСУ: у репозиторій не потрапляють ніколи ---
+*.keystore
+*.jks
+keystore.properties
+**/keystore.properties
+keystore.b64
+
+# --- згенеровані ресурси (перезбираються з коду: npm run assets) ---
+neon-echo/public/assets/
+neon-echo/src/sfx-sprite.js
+
+# --- сміття ОС і редакторів ---
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+.idea/
+.vscode/
+*.swp
