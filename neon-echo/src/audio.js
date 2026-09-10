@@ -89,9 +89,13 @@ export const Music = {
 /** Вібрація: на Android — через Capacitor Haptics, у браузері — navigator.vibrate. */
 let haptics = null;
 export function setHaptics(h) { haptics = h; }
+const VIB_K = [0, 0.6, 1.4];                    // вимк. / слабка / сильна
 export function buzz(ms) {
-  if (!Store.data.vib) return;
-  const dur = Array.isArray(ms) ? ms.reduce((a, b) => a + b, 0) : ms;
+  const k = VIB_K[Store.data.vib] || 0;
+  if (!k) return;
+  const scale = v => Math.max(1, Math.round(v * k));
+  const pat = Array.isArray(ms) ? ms.map(scale) : scale(ms);
+  const dur = Array.isArray(pat) ? pat.reduce((a, b) => a + b, 0) : pat;
   if (haptics) { try { haptics(dur); return; } catch (e) { } }
-  try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { }
+  try { if (navigator.vibrate) navigator.vibrate(pat); } catch (e) { }
 }

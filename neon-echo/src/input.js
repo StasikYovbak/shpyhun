@@ -23,13 +23,15 @@ export const Input = (function () {
   const tc = { a: 0, b: 0, c: 0 };                 // стан кнопок дій
   const held = { a: 0, b: 0, c: 0 };
   const prev = { a: 0, b: 0, c: 0 };
-  const btnPos = { A: { x: 0, y: 0, r: 34 }, B: { x: 0, y: 0, r: 34 },
-                   C: { x: 0, y: 0, r: 34 }, Dash: { x: 0, y: 0, r: 23 } };
-  const pad = { x: 0, y: 0, half: 75, dead: 16 };
+  const btnPos = { A: { x: 0, y: 0, r: 34, hit: 42 }, B: { x: 0, y: 0, r: 34, hit: 42 },
+                   C: { x: 0, y: 0, r: 34, hit: 42 }, Dash: { x: 0, y: 0, r: 23, hit: 29 } };
+  const pad = { x: 0, y: 0, half: 75, dead: 16, hit: 94 };
   const pauseBox = { x: 0, y: 0, w: 44, h: 44 };
+  const box = { pad: { x: 0, y: 0, w: 0, h: 0 }, btn: { x: 0, y: 0, w: 0, h: 0 } };
 
   const ptrs = new Map();
   let dashQ = false, dashDir = 0, pauseQ = false, enabled = false;
+  let preview = false, drag = null, onMoved = null;
 
   const S = {
     ax: 0, down: false,
@@ -39,7 +41,14 @@ export const Input = (function () {
     dashP: false, dashDir: 0, pauseP: false
   };
 
+  // Пресети розміру лишаються, але тепер це просто пари значень повзунків.
   const SCALE = { S: 0.85, M: 1, L: 1.15 };
+  const PRESETS = {
+    default: { dpadSize: 100, btnSize: 100, dpadOp: 55, btnOp: 55, dpadPos: null, btnPos: null },
+    big:     { dpadSize: 140, btnSize: 135, dpadOp: 70, btnOp: 70, dpadPos: null, btnPos: null },
+    compact: { dpadSize: 78,  btnSize: 82,  dpadOp: 45, btnOp: 50, dpadPos: null, btnPos: null },
+    lefty:   { dpadSize: 100, btnSize: 100, dpadOp: 55, btnOp: 55, dpadPos: null, btnPos: null, hand: 1 }
+  };
 
   // Відступи безпечної зони (виріз камери / жестова смуга): читаємо з
   // елемента-проби, якому в CSS задано padding: env(safe-area-inset-*).
@@ -50,37 +59,64 @@ export const Input = (function () {
     const n = parseFloat(getComputedStyle(el)[SIDE[side]]);
     return isFinite(n) ? n : 0;
   }
+  // Обидва блоки мають власний розмір (70..160%), прозорість (20..100%)
+  // і — за бажанням — власне місце. Позиція зберігається в частках
+  // безпечної зони, тож переживає поворот екрана й іншу роздільність.
   function layout() {
-    const k = SCALE[Store.data.size] || 1;
+    const D = Store.data;
+    const kd = clamp(D.dpadSize || 100, 70, 160) / 100;
+    const kb2 = clamp(D.btnSize || 100, 70, 160) / 100;
     const sl = safeInset('l'), sr = safeInset('r'), sb = safeInset('b');
     const W = window.innerWidth - sl - sr, H = window.innerHeight - sb;
-    const mir = Store.data.hand ? -1 : 1;          // 1 = хрестовина ліворуч
+    const mir = D.hand ? -1 : 1;                   // 1 = хрестовина ліворуч
     const edge = CONFIG.DPAD_EDGE;
     const OX = sl;                                 // зсув усього керування вправо на виріз
 
     // --- хрестовина ---
-    const size = CONFIG.DPAD * k;
-    const px = OX + (mir > 0 ? (edge + size / 2) : (W - edge - size / 2));
-    const py = H - edge - size / 2;
-    pad.x = px; pad.y = py; pad.half = size / 2; pad.dead = CONFIG.DPAD_DEAD * k;
+    const size = CONFIG.DPAD * kd;
+    let px = OX + (mir > 0 ? (edge + size / 2) : (W - edge - size / 2));
+    let py = H - edge - size / 2;
+    if (D.dpadPos) { px = OX + D.dpadPos.x * W; py = D.dpadPos.y * H; }
+    px = clamp(px, OX + size / 2 + 2, OX + W - size / 2 - 2);
+    py = clamp(py, size / 2 + 2, H - size / 2 - 2);
+    pad.x = px; pad.y = py; pad.half = size / 2; pad.dead = CONFIG.DPAD_DEAD * kd;
+    // хітбокс ніколи не менший за той, що при 100% — зменшений хрест лишається зручним
+    pad.hit = Math.max(pad.half, CONFIG.DPAD / 2) * CONFIG.DPAD_HIT;
     el.dpad.style.width = size + 'px'; el.dpad.style.height = size + 'px';
     el.dpad.style.left = (px - size / 2) + 'px';
     el.dpad.style.top = (py - size / 2) + 'px';
+    box.pad.x = px - size / 2; box.pad.y = py - size / 2; box.pad.w = size; box.pad.h = size;
 
     // --- кнопки дій ромбом: A знизу, B збоку, C зверху, D (ривок) навпроти B ---
-    const d = CONFIG.BTN * k, gap = CONFIG.BTN_GAP * k, dd = CONFIG.BTN_DASH * k;
+    const d = CONFIG.BTN * kb2, gap = CONFIG.BTN_GAP * kb2, dd = CONFIG.BTN_DASH * kb2;
     const rad = (d + gap) / Math.SQRT2;
-    const cx = OX + (mir > 0 ? (W - edge - rad - d / 2) : (edge + rad + d / 2));
-    const cy = H - edge - rad - d / 2;
+    const half = rad + d / 2;
+    let cx = OX + (mir > 0 ? (W - edge - half) : (edge + half));
+    let cy = H - edge - half;
+    if (D.btnPos) { cx = OX + D.btnPos.x * W; cy = D.btnPos.y * H; }
+    cx = clamp(cx, OX + half + 2, OX + W - half - 2);
+    cy = clamp(cy, half + 2, H - half - 2);
     btnPos.A.x = cx;             btnPos.A.y = cy + rad;  btnPos.A.r = d / 2;
     btnPos.C.x = cx;             btnPos.C.y = cy - rad;  btnPos.C.r = d / 2;
     btnPos.B.x = cx - mir * rad; btnPos.B.y = cy;        btnPos.B.r = d / 2;
     btnPos.Dash.x = cx + mir * rad; btnPos.Dash.y = cy;  btnPos.Dash.r = dd / 2;
+    btnPos.A.hit = btnPos.B.hit = btnPos.C.hit = Math.max(d, CONFIG.BTN) / 2 * 1.25;
+    btnPos.Dash.hit = Math.max(dd, CONFIG.BTN_DASH) / 2 * 1.25;
     place('A', d); place('B', d); place('C', d); place('Dash', dd);
+    box.btn.x = cx - half; box.btn.y = cy - half; box.btn.w = half * 2; box.btn.h = half * 2;
 
     pauseBox.x = OX + W - 8 - 44; pauseBox.y = 8 + safeInset('t');
     el.pause.style.left = pauseBox.x + 'px'; el.pause.style.top = pauseBox.y + 'px';
-    el.layer.style.setProperty('--ctlop', (Store.data.op || 55) / 100);
+    el.layer.style.setProperty('--dpadop', clamp(D.dpadOp || 55, 20, 100) / 100);
+    el.layer.style.setProperty('--btnop', clamp(D.btnOp || 55, 20, 100) / 100);
+  }
+  // Пресет розкладки: значення повзунків + скидання ручних позицій.
+  function applyPreset(name) {
+    const p = PRESETS[name] || PRESETS.default;
+    for (const k of Object.keys(p)) Store.data[k] = p[k];
+    if (name !== 'lefty') Store.data.hand = 0;
+    Store.data.size = 'M'; Store.data.op = Store.data.btnOp;
+    layout();
   }
   function place(key, size) {
     const p = btnPos[key], e = el[key];
@@ -93,7 +129,7 @@ export const Input = (function () {
   function padDirs(x, y, bounded) {
     const ax = x - pad.x, ay = y - pad.y;
     if (bounded) {
-      const hx = pad.half * CONFIG.DPAD_HIT;       // хітбокс на 25% більший
+      const hx = pad.hit;                          // хітбокс на 25% більший за видимий
       if (Math.abs(ax) > hx || Math.abs(ay) > hx) return null;
     }
     return { l: ax < -pad.dead ? 1 : 0, r: ax > pad.dead ? 1 : 0,
@@ -116,11 +152,40 @@ export const Input = (function () {
   }
   function inBtn(k, x, y) {
     const p = btnPos[k], dx = x - p.x, dy = y - p.y;
-    return dx * dx + dy * dy <= (p.r * 1.22) * (p.r * 1.22);
+    return dx * dx + dy * dy <= p.hit * p.hit;
   }
   function setBtnVisual(k, on) { el[k].classList.toggle('hit', !!on); }
 
+  // --- перетягування блоків у налаштуваннях -------------------------------
+  function inBox(b, x, y) { return x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h; }
+  function dragStart(x, y) {
+    if (inBox(box.pad, x, y)) return { what: 'pad', dx: x - (box.pad.x + box.pad.w / 2), dy: y - (box.pad.y + box.pad.h / 2) };
+    if (inBox(box.btn, x, y)) return { what: 'btn', dx: x - (box.btn.x + box.btn.w / 2), dy: y - (box.btn.y + box.btn.h / 2) };
+    return null;
+  }
+  function dragTo(x, y) {
+    const sl = safeInset('l'), sr = safeInset('r'), sb = safeInset('b');
+    const W = window.innerWidth - sl - sr, H = window.innerHeight - sb;
+    const snap = v => Math.round(v / 8) * 8;       // прилипання до сітки 8 px
+    let px = snap(x - drag.dx), py = snap(y - drag.dy);
+    // Блок не можна кинути поверх панелі налаштувань — інакше він
+    // накриє її кнопки й повзунки, і дістати їх стане ніяк.
+    const b = drag.what === 'pad' ? box.pad : box.btn;
+    const panel = document.querySelector('#controls .inner');
+    if (panel) {
+      const r = panel.getBoundingClientRect(), hw = b.w / 2 + 6, hh = b.h / 2 + 6;
+      if (px + hw > r.left && px - hw < r.right && py + hh > r.top && py - hh < r.bottom)
+        px = (px < (r.left + r.right) / 2) ? r.left - hw : r.right + hw;
+    }
+    const cx = clamp(px - sl, 0, W) / W;
+    const cy = clamp(py, 0, H) / H;
+    Store.data[drag.what === 'pad' ? 'dpadPos' : 'btnPos'] = { x: cx, y: cy };
+    layout();
+    if (onMoved) onMoved();
+  }
+
   function down(id, x, y) {
+    if (preview) { drag = dragStart(x, y); if (drag) ptrs.set(id, { kind: 'drag' }); return; }
     if (!enabled) return;
     if (x >= pauseBox.x && x <= pauseBox.x + pauseBox.w && y >= pauseBox.y && y <= pauseBox.y + pauseBox.h) {
       pauseQ = true; ptrs.set(id, { kind: 'pause' }); return;
@@ -145,6 +210,7 @@ export const Input = (function () {
   function move(id, x, y) {
     const p = ptrs.get(id);
     if (!p) return;
+    if (p.kind === 'drag') { if (drag) dragTo(x, y); return; }
     if (p.kind === 'pad') {
       applyDirs(padDirs(x, y, false));              // ковзання ← -> → без відриву
     } else if (p.kind === 'A' || p.kind === 'B' || p.kind === 'C') {
@@ -158,6 +224,7 @@ export const Input = (function () {
     const p = ptrs.get(id);
     ptrs.delete(id);
     if (!p) return;
+    if (p.kind === 'drag') { drag = null; Store.save(); return; }
     if (p.kind === 'pad') clearDirs();
     else if (p.kind === 'Dash') setBtnVisual('Dash', false);
     else if (p.kind === 'A' || p.kind === 'B' || p.kind === 'C') {
@@ -205,9 +272,21 @@ export const Input = (function () {
     kb: kb,
     btn: btnPos,
     pad: pad,
+    box: box,
     layout: layout,
+    preset: applyPreset,
+    presets: PRESETS,
+    // Живий перегляд у налаштуваннях: керування видно й тягається,
+    // але в гру нічого не передається.
+    setPreview(on, moved) {
+      preview = !!on; drag = null; onMoved = moved || null;
+      el.layer.classList.toggle('on', !!on || enabled);
+      el.layer.classList.toggle('prev', !!on);
+      if (on) { tc.a = tc.b = tc.c = 0; ptrs.clear(); clearDirs(); ['A', 'B', 'C', 'Dash'].forEach(k => setBtnVisual(k, false)); }
+    },
     enable(on) {
       enabled = !!on;
+      if (preview) return;
       el.layer.classList.toggle('on', !!on);
       if (!on) {
         tc.a = tc.b = tc.c = 0;

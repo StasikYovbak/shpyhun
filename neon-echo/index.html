@@ -53,15 +53,53 @@
       <button data-v="max">Максимум</button><button data-v="auto">Авто</button></div></div>
     <div class="row"><span class="lab">CRT-режим</span><div class="seg" id="sCrt">
       <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
-    <div class="row"><span class="lab">Вібрація</span><div class="seg" id="sVib">
-      <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
-    <div class="row"><span class="lab">Розмір керування</span><div class="seg" id="sSize">
-      <button data-v="S">S</button><button data-v="M">M</button><button data-v="L">L</button></div></div>
-    <div class="row"><span class="lab">Прозорість керування</span><input type="range" id="sOp" min="30" max="90" step="10"></div>
-    <div class="row"><span class="lab">Розкладка</span><div class="seg" id="sHand">
-      <button data-v="0">Стрілки ліворуч</button><button data-v="1">Дзеркально</button></div></div>
+    <button class="btn" id="sCtrl">Керування…</button>
+    <button class="btn" id="sInv">Арсенал…</button>
     <button class="btn" id="sReset">Скинути прогрес</button>
     <button class="btn" data-back="menu">Назад</button>
+  </div></div>
+
+
+  <div class="scr" id="controls"><div class="inner narrow">
+    <h2>Керування</h2>
+    <div class="hint" id="cHint">Перетягни блоки пальцем — вони лишаються на місці.</div>
+    <div class="row"><span class="lab">Пресети</span><div class="seg" id="cPreset">
+      <button data-v="default">Класика</button><button data-v="big">Великі</button>
+      <button data-v="compact">Компакт</button><button data-v="lefty">Ліворукий</button></div></div>
+    <div class="row"><span class="lab">Прозорість хрестовини</span>
+      <input type="range" id="cDpadOp" min="20" max="100" step="5"><b class="val" id="vDpadOp"></b></div>
+    <div class="row"><span class="lab">Розмір хрестовини</span>
+      <input type="range" id="cDpadSize" min="70" max="160" step="5"><b class="val" id="vDpadSize"></b></div>
+    <div class="row"><span class="lab">Прозорість кнопок</span>
+      <input type="range" id="cBtnOp" min="20" max="100" step="5"><b class="val" id="vBtnOp"></b></div>
+    <div class="row"><span class="lab">Розмір кнопок</span>
+      <input type="range" id="cBtnSize" min="70" max="160" step="5"><b class="val" id="vBtnSize"></b></div>
+    <div class="row"><span class="lab">Дзеркальна розкладка</span><div class="seg" id="cHand">
+      <button data-v="0">Стрілки ліворуч</button><button data-v="1">Стрілки праворуч</button></div></div>
+    <div class="row"><span class="lab">Вібрація</span><div class="seg" id="cVib">
+      <button data-v="0">Вимк.</button><button data-v="1">Слабка</button><button data-v="2">Сильна</button></div></div>
+    <div class="row2">
+      <button class="btn" id="cResetPos">Скинути позиції</button>
+      <button class="btn" id="cResetAll">Скинути все</button>
+      <button class="btn pri" id="cDone">Готово</button>
+    </div>
+  </div></div>
+
+  <div class="scr" id="inv"><div class="inner">
+    <h2>Арсенал</h2>
+    <div class="slots">
+      <div class="slot" id="slotMelee"><span>БЛИЖНІЙ (B)</span><img alt=""><b></b></div>
+      <div class="slot" id="slotRanged"><span>ДАЛЬНІЙ (C)</span><img alt=""><b></b></div>
+    </div>
+    <div class="seg tabs" id="iTabs"><button data-v="melee">Ближній бій</button><button data-v="ranged">Дальній бій</button></div>
+    <div class="wgrid" id="iGrid"></div>
+    <div class="wcard" id="iCard"></div>
+    <div class="row"><span class="lab">Вільна зміна зброї</span><div class="seg" id="iFree">
+      <button data-v="0">Тільки на чекпоінтах</button><button data-v="1">Будь-коли</button></div></div>
+    <div class="row2">
+      <div class="hint" id="iHint"></div>
+      <button class="btn pri" id="iDone">Готово</button>
+    </div>
   </div></div>
 
   <div class="scr" id="about"><div class="inner">
@@ -69,14 +107,28 @@
     <div class="txt">
       <p><b>ЕХО</b> — кур'єр-нетранер із хромованою рукою. Корпорація <b>КАЙЗЕН-ВОЛЬТ</b>
       запустила ядро «АРХІТЕКТОР». Десять секторів між тобою і ним.</p>
-      <p><span class="k">КЛИНОК (B)</span> — комбо з трьох ударів. Натисни <span class="k">B</span>
-      за мить <i>до</i> влучання кулі — і вона полетить назад із подвійною шкодою.</p>
-      <p><span class="k">РЕЙКОСТРИЛ (C)</span> — без набоїв, але з теплом. Перегрів блокує зброю на 2 с;
+      <p><span class="k">B</span> — екіпірована ближня зброя, <span class="k">C</span> — дальня.
+      Слотів два: один ближній, один дальній. Решта лежить в <b>Арсеналі</b>
+      (Налаштування → Арсенал або пауза → Арсенал). Міняти комірки можна
+      на чекпоінті, у паузі та перед ареною боса — або будь-коли, якщо
+      ввімкнути «Вільну зміну зброї».</p>
+      <p>Десять зброй: <span class="k">АРК-ТЕСАК</span> (комбо ×3 і парирування куль),
+      <span class="k">ЕЛЕКТРОХЛИСТ</span> (дуга по натовпу), <span class="k">ТАВРО</span> (важкий удар і хвиля),
+      <span class="k">ХРОНОРІЗ</span> (телепорт за спину крізь щити), <span class="k">ПЛАЗМОВІ КІГТІ</span> (впритул, найвищий DPS);
+      <span class="k">РЕЙКОСТРИЛ</span> (тепло замість набоїв), <span class="k">«ОСА»</span> (самонаведення),
+      <span class="k">РІЙ</span> (дрони), <span class="k">«КАРТЕЧ»</span> (дробовик із віддачею),
+      <span class="k">ГЛІЧ-КОД</span> (перехоплює ворога на 6 с).</p>
+      <p>Парирування: натисни <span class="k">B</span> тесаком за мить <i>до</i> влучання кулі —
+      і вона полетить назад із подвійною шкодою. Перегрів рейкострила блокує зброю на 2 с;
       влучний тап по <span class="k">C</span> у зеленій зоні шкали миттєво скидає тепло.</p>
       <p><span class="k">РИВОК (D)</span> — окрема кнопка. Під час ривка ти невразливий.</p>
       <p><span class="k">ХРЕСТОВИНА</span> ліворуч: <span class="k">←/→</span> рух,
       <span class="k">↑</span> стрибок, <span class="k">↓</span> присісти (утримати 0,3 с —
       зістрибнути крізь платформу). <span class="k">ПОДВІЙНИЙ СТРИБОК</span> — другий тап у повітрі.</p>
+      <p><b>Налаштування → Керування</b>: окремо прозорість (20–100%) і розмір (70–160%)
+      для хрестовини й для кнопок, пресети, перетягування блоків пальцем,
+      дзеркальна розкладка для лівші, три рівні вібрації. Усе видно одразу,
+      просто під панеллю.</p>
       <p>Клавіатура: <span class="k">A/D</span> або стрілки, <span class="k">Пробіл</span> — стрибок,
       <span class="k">J</span> — клинок, <span class="k">L</span> — рейкострил,
       <span class="k">Shift</span> — ривок, <span class="k">Esc</span> — пауза.</p>
@@ -89,6 +141,7 @@
     <h2>Пауза</h2>
     <button class="btn pri" id="pRes">Продовжити</button>
     <button class="btn" id="pRestart">Почати рівень спочатку</button>
+    <button class="btn" id="pInv">Арсенал</button>
     <button class="btn" id="pSet">Налаштування</button>
     <button class="btn" id="pMenu">У головне меню</button>
   </div></div>

@@ -38,7 +38,10 @@ ok = run('gaps.mjs') && ok;
 ok = run('reach.mjs') && ok;
 ok = run('smoke.mjs') && ok;
 ok = run('mechanics.mjs') && ok;
+ok = run('ui.mjs') && ok;
 ok = run('bosskill.mjs') && ok;
+ok = run('balance.mjs') && ok;
+ok = run('weapons.mjs') && ok;
 ok = run('boss2.mjs') && ok;
 ok = run('flow.mjs') && ok;
 try { process.kill(-srv.pid); } catch (e) { }

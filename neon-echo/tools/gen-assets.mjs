@@ -21,10 +21,99 @@ const items = [];
 const add = (name, bmp) => { items.push({ name, bmp }); return bmp; };
 const make = (name, w, h, fn) => { const b = new Bitmap(w, h); fn(b); return add(name, b); };
 
-/* ------------------------------------------------------------------ ГЕРОЙ */
-for (const [k, rows] of Object.entries(HERO)) {
-  make('hero_' + k, 12, 15, b => b.art(rows, PAL_HERO));
-  make('phantom_' + k, 12, 15, b => b.art(rows, PAL_PHANTOM));
+
+/* ------------------------------------------------------------ ГЕРОЇНЯ
+   16x22, по чотири тони на кожен матеріал (база, тінь, світло, відблиск).
+   Малюється прямокутниками — так легше тримати однакове освітлення
+   в усіх дев'яти позах. Хітбокс у грі лишається 10x14, спрайт
+   прив'язаний до ніг. */
+const HP = {
+  skinB: '#f7c9a6', skinS: '#c9805c', skinL: '#ffe3c6', skinR: '#fff5e6',
+  hoodB: '#ff2e88', hoodS: '#a0104f', hoodL: '#ff7fb5', hoodR: '#ffd6e8',
+  jacB: '#5b238c', jacS: '#2a1140', jacL: '#8b3fd0', jacR: '#c48cff',
+  chrB: '#d8f0ff', chrS: '#7fa8c9', chrL: '#ffffff', chrR: '#eaf9ff',
+  visor: '#22e0ff', visorL: '#bff4ff',
+  bootB: '#241338', bootS: '#150a22', bootL: '#3d2456',
+  scarf: '#ffd23f', scarfS: '#c98a12'
+};
+function heroFrame(pose) {
+  const b = new Bitmap(16, 22);
+  const P = HP;
+  const body = (oy) => {
+    // капюшон
+    b.rect(4, 0 + oy, 8, 2, P.hoodB);
+    b.rect(3, 1 + oy, 10, 3, P.hoodB);
+    b.rect(3, 1 + oy, 10, 1, P.hoodL);
+    b.rect(3, 3 + oy, 10, 1, P.hoodS);
+    b.rect(12, 1 + oy, 1, 3, P.hoodR);
+    // обличчя й візор
+    b.rect(4, 4 + oy, 8, 4, P.skinB);
+    b.rect(4, 4 + oy, 8, 1, P.skinL);
+    b.rect(4, 7 + oy, 8, 1, P.skinS);
+    b.rect(11, 4 + oy, 1, 4, P.skinR);
+    b.rect(5, 5 + oy, 6, 2, P.visor);
+    b.rect(5, 5 + oy, 6, 1, P.visorL);
+    // куртка
+    b.rect(3, 8 + oy, 10, 7, P.jacB);
+    b.rect(3, 8 + oy, 10, 1, P.jacL);
+    b.rect(3, 14 + oy, 10, 1, P.jacS);
+    b.rect(3, 8 + oy, 1, 7, P.jacS);
+    b.rect(12, 8 + oy, 1, 7, P.jacR);
+    b.rect(5, 10 + oy, 6, 3, P.jacS);
+  };
+  const legs = (lx, ly, rx, ry) => {
+    b.rect(4 + lx, 15 + ly, 3, 5, P.jacS);
+    b.rect(4 + lx, 19 + ly, 4, 3, P.bootB);
+    b.rect(4 + lx, 19 + ly, 4, 1, P.bootL);
+    b.rect(9 + rx, 15 + ry, 3, 5, P.jacS);
+    b.rect(8 + rx, 19 + ry, 4, 3, P.bootB);
+    b.rect(8 + rx, 19 + ry, 4, 1, P.bootL);
+  };
+  const armChrome = (x, y, len) => {
+    b.rect(x, y, len, 3, P.chrB);
+    b.rect(x, y, len, 1, P.chrL);
+    b.rect(x, y + 2, len, 1, P.chrS);
+    b.rect(x + len - 1, y, 1, 3, P.chrR);
+  };
+  const armJacket = (x, y, len) => {
+    b.rect(x, y, len, 3, P.jacB);
+    b.rect(x, y, len, 1, P.jacL);
+    b.rect(x, y + 2, len, 1, P.jacS);
+  };
+  switch (pose) {
+    case 'idle': body(0); legs(0, 0, 0, 0); armJacket(1, 9, 3); armChrome(12, 9, 4); break;
+    case 'blink':
+      body(0); legs(0, 0, 0, 0); armJacket(1, 9, 3); armChrome(12, 9, 4);
+      b.rect(5, 5, 6, 2, P.skinB); b.rect(5, 5, 6, 1, P.skinS); break;
+    case 'run1': body(0); legs(-2, 0, 2, 1); armJacket(0, 8, 4); armChrome(12, 10, 4); break;
+    case 'run2': body(1); legs(0, 0, 0, 0); armJacket(1, 10, 3); armChrome(11, 9, 4); break;
+    case 'run3': body(0); legs(2, 1, -2, 0); armJacket(2, 10, 3); armChrome(13, 8, 3); break;
+    case 'jump': body(0); legs(-1, -1, 1, 0); armJacket(0, 7, 4); armChrome(12, 7, 4); break;
+    case 'fall': body(0); legs(-2, 0, 2, -1); armJacket(0, 6, 4); armChrome(12, 6, 4); break;
+    case 'atk':  body(0); legs(-1, 0, 1, 0); armJacket(1, 11, 3); armChrome(12, 8, 4);
+                 b.rect(15, 8, 1, 3, P.chrR); break;
+    case 'crouch':
+      body(4); legs(-1, 2, 1, 2); armJacket(1, 13, 3); armChrome(12, 13, 4); break;
+    case 'hurt': body(0); legs(-2, 0, 2, 0); armJacket(0, 7, 4); armChrome(12, 11, 4);
+                 b.rect(3, 8, 10, 7, '#ff2e8855'); break;
+  }
+  return b;
+}
+for (const pose of ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'crouch', 'hurt'])
+  add('hero_' + (pose === 'blink' ? 'blink' : pose), heroFrame(pose));
+// фантом — та сама фігура в примарній палітрі
+{
+  const swap = { skinB: '#6ef7d8', skinS: '#1f8f7a', skinL: '#bafff0', skinR: '#ffffff',
+    hoodB: '#1f8f7a', hoodS: '#08302c', hoodL: '#6ef7d8', hoodR: '#bafff0',
+    jacB: '#12604f', jacS: '#08302c', jacL: '#2fae90', jacR: '#6ef7d8',
+    chrB: '#bafff0', chrS: '#2fae90', chrL: '#ffffff', chrR: '#ffffff',
+    visor: '#ffffff', visorL: '#ffffff', bootB: '#04211d', bootS: '#021512', bootL: '#0d3a33',
+    scarf: '#6ef7d8', scarfS: '#1f8f7a' };
+  const keep = { ...HP };
+  Object.assign(HP, swap);
+  for (const pose of ['idle', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'crouch', 'hurt'])
+    add('phantom_' + pose, heroFrame(pose));
+  Object.assign(HP, keep);
 }
 
 /* ---------------------------------------------------------------- ВОРОГИ */
@@ -85,6 +174,73 @@ function enemySprite(type, elite) {
   }
 }
 for (const t of Object.keys(EPAL)) { enemySprite(t, false); enemySprite(t, true); }
+/* --- Нові типи (Промт №5). Кожен має власний силует: тарано-бот — низький
+   клин на котках, ковадло — верхня вага з кулаками, носій — широкий корпус
+   із трюмом, пілон — висока щогла з короною, блінк-щур — присідання з
+   хвостом, хробак — сегменти зі свердлом, конструкти — три різні постаті. */
+const NEWE = {
+  rammer: { w: 14, h: 12, trim: 'S',
+    pal: { '#': '#8a4a22', L: '#c4762f', D: '#4a2410', S: '#d8f0ff', E: '#ff3355', o: '#1a1030' },
+    rows: ['..........SSS.', '..........SSS.', '...LLLLLL.SSS.', '..########SSSS',
+           '.#########SSSS', '.###E#####SSSS', '.###E#####SSSS', '.#########SSSS',
+           '..########SSSS', '..DDDDDDD.SSS.', '.oo..oo..oo...', '.oo..oo..oo...'] },
+  anvil: { w: 16, h: 16, trim: 'F',
+    pal: { '#': '#4a4f5e', L: '#6b7285', D: '#252a36', F: '#c7d3e0', E: '#ff8a3d' },
+    rows: ['.....######.....', '....########....', '....#EE##EE#....', '....########....',
+           '..############..', '.##############.', '.##############.', 'FF############FF',
+           'FFFF########FFFF', 'FFFF########FFFF', 'FFFF..####..FFFF', '.FF...####...FF.',
+           '......####......', '....###..###....', '...####..####...', '...####..####...'] },
+  carrier: { w: 18, h: 14, trim: 'H',
+    pal: { '#': '#2f5f66', L: '#57a8b0', D: '#173338', H: '#7df9ff', E: '#ff3355', o: '#bff4ff' },
+    rows: ['..................', '...LLLLLLLLLLLL...', '..L############L..', '.L##############L.',
+           '.################.', '.##EE########EE##.', '.################.', '..DD##########DD..',
+           '....##########....', '....#HHHHHHHH#....', '....#HHHHHHHH#....', '.....########.....',
+           '..oo..........oo..', '..oo..........oo..'] },
+  pylon: { w: 12, h: 20, trim: 'G',
+    pal: { '#': '#3c2a63', G: '#8b3fd0', C: '#22e0ff' },
+    rows: ['...GGGGGG...', '..G######G..', '.G########G.', '.G##CCCC##G.', '.G##CCCC##G.',
+           '.G########G.', '..G######G..', '...######...', '....####....', '....####....',
+           '....####....', '...######...', '...#CCCC#...', '...######...', '....####....',
+           '....####....', '....####....', '...######...', '..########..', '.##########.'] },
+  blinker: { w: 12, h: 10, trim: 'T',
+    pal: { '#': '#2a1440', T: '#ff2e88', E: '#ffd23f' },
+    rows: ['.T..........', '.TT.........', '..TT.#####..', '...T#######.', '....########',
+           '...#####EE##', '...########.', '....######..', '...#..##..#.', '...#..##..#.'] },
+  worm: { w: 14, h: 10, trim: 'D',
+    pal: { '#': '#4c7a1e', L: '#8fd13a', D: '#c7d3e0', E: '#ff3355' },
+    rows: ['..............', '..##..##..#...', '.LLLL.LLLL.LL.', '.##########DDD',
+           '###########DDD', '########E##DDD', '.##########DDD', '.LLLL.LLLL.LL.',
+           '..##..##..#...', '..............'] },
+  arch1: { w: 16, h: 20, trim: 'H',
+    pal: { '#': '#d8e6f2', D: '#7f93ad', C: '#ffb347', H: '#ffd23f' },
+    rows: ['................', '.....######.....', '....########....', '....##CC##CC..HH',
+           '....########..HH', '.....######.....', '..############..', '.##############.',
+           '.##############.', '.####CCCCCC####.', '.##############.', '..############..',
+           '...##########...', '...####..####...', '...####..####...', '....###..###....',
+           '....###..###....', '....###..###....', '...####..####...', '...####..####...'] },
+  arch2: { w: 16, h: 20, trim: 'R',
+    pal: { '#': '#d8e6f2', C: '#ff3355', R: '#ff2e88' },
+    rows: ['................', '......####......', '.....######.....', '....########....',
+           '....##CCCC##....', '....##CCCC##....', '....########....', '.....######.....',
+           'RR..########..RR', 'RR.##########.RR', 'RR.##########.RR', 'RR.##########.RR',
+           'RR..########..RR', '.....######.....', '......####......', '......####......',
+           '.....######.....', '....########....', '...####..####...', '...####..####...'] },
+  arch3: { w: 16, h: 20, trim: 'B',
+    pal: { '#': '#d8e6f2', C: '#22e0ff', B: '#7df9ff' },
+    rows: ['.......CC.......', '.......CC.......', '......####......', '.....######.....',
+           '.....#CC#.......', '.....######.....', '......####......', '....########..BB',
+           '....########.BB.', '....########BB..', '....########....', '.....######.....',
+           '.....######.....', '.....######.....', '.....##..##.....', '.....##..##.....',
+           '.....##..##.....', '.....##..##.....', '....###..###....', '....###..###....'] }
+};
+for (const [t, d] of Object.entries(NEWE)) for (const el of [false, true]) {
+  const pal = { ...d.pal };
+  if (el) pal[d.trim] = GOLD;
+  make(`e_${t}_${el ? 'x' : 'n'}`, d.w, d.h, b => b.art(d.rows, pal));
+}
+// Дрібні супутники нових типів
+make('e_mote', 6, 6, b => { b.rect(1, 0, 4, 6, '#7df9ff'); b.rect(0, 1, 6, 4, '#7df9ff'); b.rect(2, 2, 2, 2, '#ffffff'); });
+make('e_link', 4, 4, b => b.rect(0, 0, 4, 4, '#22e0ffaa'));
 // Деталі, що рухаються окремо від тіла
 make('e_pipe', 12, 2, b => b.rect(0, 0, 12, 2, '#c7d3e0'));
 make('e_blade', 16, 2, b => { b.rect(0, 0, 16, 2, '#7df9ff'); b.rect(0, 0, 4, 1, '#ffffff'); });
@@ -198,6 +354,146 @@ make('heart', 7, 6, b => {
 make('drop', 1, 6, b => b.rect(0, 0, 1, 6, '#8fdcff'));
 make('petal', 2, 2, b => b.rect(0, 0, 2, 2, '#ffb7d5'));
 
+/* ------------------------------------------------- ІКОНКИ ЗБРОЇ 16x16 */
+// Кожна іконка — інша форма: тесак, ланцюг, довбня, рапіра, кігті,
+// довгий ствол, пістолет, касета, дві цівки, збій.
+function seg(b, x0, y0, x1, y1, col, th = 1) {
+  const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  for (let i = 0; i <= n; i++) {
+    const x = Math.round(x0 + (x1 - x0) * i / n), y = Math.round(y0 + (y1 - y0) * i / n);
+    b.rect(x, y, th, th, col);
+  }
+}
+make('w_arc', 16, 16, b => {
+  seg(b, 3, 13, 12, 4, '#5b238c', 3);
+  seg(b, 4, 12, 13, 3, '#22e0ff', 2);
+  seg(b, 5, 11, 14, 2, '#bff4ff', 1);
+  b.rect(1, 12, 4, 3, '#ff2e88'); b.rect(0, 14, 3, 2, '#a0104f');
+});
+make('w_whip', 16, 16, b => {
+  b.rect(0, 12, 4, 4, '#5b238c');
+  for (const [x, y] of [[4, 11], [6, 8], [8, 9], [10, 5], [12, 6], [13, 2]]) {
+    b.rect(x, y, 3, 3, '#ffd23f'); b.rect(x + 1, y + 1, 1, 1, '#fff6c9');
+  }
+  b.rect(13, 0, 3, 2, '#7df9ff');
+});
+make('w_brand', 16, 16, b => {
+  b.rect(6, 7, 4, 9, '#5b238c'); b.rect(6, 13, 4, 3, '#2a1140');
+  b.rect(2, 1, 12, 7, '#8a3a1a'); b.rect(2, 1, 12, 2, '#c4762f');
+  b.rect(4, 3, 8, 4, '#ff8a3d'); b.rect(7, 4, 2, 2, '#fff0c9');
+});
+make('w_chrono', 16, 16, b => {
+  seg(b, 3, 13, 14, 2, '#e0d0ff', 2);
+  seg(b, 4, 12, 15, 1, '#ffffff', 1);
+  b.ring(5, 11, 3.2, 1.3, '#22e0ff');
+  b.rect(0, 13, 4, 3, '#241a44');
+});
+make('w_claws', 16, 16, b => {
+  for (let i = 0; i < 3; i++) {
+    seg(b, 2 + i * 4, 14, 7 + i * 4, 3, '#00ffcc', 2);
+    seg(b, 3 + i * 4, 13, 8 + i * 4, 2, '#d9fff6', 1);
+  }
+  b.rect(0, 12, 6, 4, '#2a1140');
+});
+make('w_rail', 16, 16, b => {
+  b.rect(1, 6, 14, 4, '#4a5568'); b.rect(1, 6, 14, 1, '#8fa3bd');
+  for (let i = 0; i < 3; i++) b.rect(4 + i * 4, 4, 2, 8, '#22e0ff');
+  b.rect(14, 5, 2, 6, '#bff4ff'); b.rect(0, 9, 5, 5, '#2a3140');
+});
+make('w_osa', 16, 16, b => {
+  b.rect(2, 5, 12, 4, '#5a6472'); b.rect(2, 5, 12, 1, '#9aa8bb');
+  b.rect(3, 9, 4, 6, '#2a1140'); b.rect(13, 6, 3, 2, '#ffd23f');
+  b.rect(7, 9, 3, 2, '#39414d');
+});
+make('w_swarm', 16, 16, b => {
+  b.rect(2, 3, 12, 10, '#3a4a6a'); b.rect(2, 3, 12, 1, '#6b83ad');
+  for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
+    b.rect(4 + i * 5, 5 + j * 4, 3, 3, '#0a0a28'); b.rect(5 + i * 5, 6 + j * 4, 1, 1, '#ff3355');
+  }
+  b.rect(3, 13, 5, 3, '#2a1140');
+});
+make('w_shot', 16, 16, b => {
+  b.rect(2, 5, 11, 3, '#6a4a2a'); b.rect(2, 8, 11, 3, '#4a2f18');
+  b.rect(12, 4, 4, 8, '#8a8f9e'); b.rect(13, 5, 2, 2, '#0a0a28'); b.rect(13, 9, 2, 2, '#0a0a28');
+  b.rect(0, 8, 4, 5, '#3a2418'); b.rect(2, 5, 11, 1, '#a07a4a');
+});
+make('w_glitch', 16, 16, b => {
+  b.rect(2, 3, 10, 4, '#00ffcc'); b.rect(4, 7, 10, 3, '#ff2e88');
+  b.rect(1, 10, 8, 3, '#22e0ff'); b.rect(9, 12, 5, 3, '#ffd23f');
+  b.rect(6, 5, 3, 8, '#0a0a28');
+});
+
+/* ------------------------------------------- МАРКЕРИ УВАГИ ВОРОГІВ */
+make('mk_q', 5, 8, b => {
+  b.rect(1, 0, 3, 2, '#bff4ff'); b.rect(3, 1, 2, 3, '#bff4ff');
+  b.rect(2, 3, 2, 2, '#bff4ff'); b.rect(2, 6, 2, 2, '#bff4ff');
+});
+make('mk_ex', 3, 8, b => { b.rect(0, 0, 3, 5, '#ffd23f'); b.rect(0, 6, 3, 2, '#ffd23f'); });
+
+/* -------------------------------------------------- ПОРТРЕТИ 48x48 */
+function portrait(name, fn) {
+  return make(name, 48, 48, b => {
+    b.rect(0, 0, 48, 48, '#120a26');
+    b.radial(24, 30, 32, '#2a1a4a', 1.4);
+    fn(b);
+    b.rect(0, 0, 48, 1, '#ff2e8899'); b.rect(0, 47, 48, 1, '#ff2e8899');
+    b.rect(0, 0, 1, 48, '#ff2e8899'); b.rect(47, 0, 1, 48, '#ff2e8899');
+  });
+}
+portrait('p_echo', b => {
+  b.rect(9, 36, 30, 12, HP.jacB); b.rect(9, 36, 30, 3, HP.jacL);
+  b.rect(13, 6, 22, 30, HP.hoodB); b.rect(13, 6, 22, 4, HP.hoodL);
+  b.rect(13, 6, 4, 30, HP.hoodS); b.rect(31, 6, 4, 30, HP.hoodS);
+  b.rect(17, 12, 14, 22, HP.skinB); b.rect(17, 28, 14, 6, HP.skinS);
+  b.rect(15, 16, 18, 6, '#150a22'); b.rect(16, 17, 16, 4, HP.visor);
+  b.rect(18, 18, 5, 2, HP.visorL);
+  b.rect(20, 30, 8, 2, HP.skinS);
+  b.rect(12, 34, 24, 6, HP.scarf); b.rect(12, 39, 24, 2, HP.scarfS);
+  b.rect(34, 34, 8, 12, HP.scarf); b.rect(34, 44, 8, 2, HP.scarfS);
+});
+portrait('p_servotaur', b => {
+  b.rect(2, 10, 10, 12, '#c7d3e0'); b.rect(36, 10, 10, 12, '#c7d3e0');
+  b.rect(2, 10, 10, 3, '#ffffff'); b.rect(36, 10, 10, 3, '#ffffff');
+  b.rect(8, 18, 32, 26, '#5a6472'); b.rect(8, 18, 32, 4, '#8592a3');
+  b.rect(11, 22, 26, 8, '#39414d');
+  b.rect(13, 24, 8, 5, '#ffd23f'); b.rect(27, 24, 8, 5, '#ffd23f');
+  b.rect(14, 25, 3, 2, '#fff6c9');
+  b.rect(15, 34, 18, 10, '#2b323c');
+  for (let i = 0; i < 4; i++) b.rect(16 + i * 5, 34, 3, 10, '#c7d3e0');
+});
+portrait('p_queen', b => {
+  b.rect(5, 3, 5, 15, '#c9a227'); b.rect(38, 3, 5, 15, '#c9a227');
+  b.rect(10, 14, 28, 28, '#6a4a1a'); b.rect(10, 14, 28, 5, '#c9a227');
+  b.rect(13, 21, 9, 9, '#ff3355'); b.rect(26, 21, 9, 9, '#ff3355');
+  b.rect(14, 22, 3, 3, '#ffb7c5'); b.rect(27, 22, 3, 3, '#ffb7c5');
+  b.rect(16, 33, 16, 4, '#8a5a2a');
+  b.rect(13, 38, 5, 9, '#c9a227'); b.rect(30, 38, 5, 9, '#c9a227');
+});
+portrait('p_chrono', b => {
+  seg(b, 4, 44, 42, 4, '#2e2a55', 4);
+  seg(b, 6, 44, 44, 6, '#7df9ff', 2);
+  b.rect(11, 34, 26, 14, '#241a44'); b.rect(11, 34, 26, 2, '#3a2a6a');
+  b.rect(14, 8, 20, 28, '#e0d0ff'); b.rect(14, 8, 20, 4, '#ffffff');
+  b.rect(12, 13, 24, 5, '#ff2e88');
+  b.rect(18, 21, 4, 9, '#241a44'); b.rect(26, 21, 4, 9, '#241a44');
+  b.rect(20, 32, 8, 2, '#a08fc0');
+});
+portrait('p_glitch', b => {
+  b.rect(6, 6, 36, 36, '#0a0a28'); b.rect(9, 9, 30, 30, '#00ffcc');
+  b.rect(16, 16, 16, 16, '#0a0a28');
+  for (let y = 6; y < 42; y += 4) b.rect(6, y, 36, 1, '#0a0a28aa');
+  b.rect(2, 18, 13, 5, '#ff2e88'); b.rect(33, 26, 13, 5, '#22e0ff');
+  b.rect(20, 20, 8, 8, '#ffffff44');
+});
+portrait('p_architect', b => {
+  b.rect(8, 30, 32, 18, '#2e2450'); b.rect(5, 32, 38, 6, '#5b238c');
+  b.rect(11, 3, 26, 29, '#d8e6f2'); b.rect(11, 3, 26, 4, '#ffffff');
+  b.rect(11, 3, 3, 29, '#8fa3bd'); b.rect(34, 3, 3, 29, '#8fa3bd');
+  b.rect(13, 11, 22, 7, '#22e0ff'); b.rect(15, 12, 6, 3, '#bff4ff');
+  for (let i = 0; i < 6; i++) b.rect(13 + i * 4, 23, 3, 9, '#8fa3bd');
+  b.rect(20, 36, 8, 8, '#22e0ff'); b.rect(22, 38, 4, 4, '#ffffff');
+});
+
 /* --------------------------------------------------------- ЗАПИС АТЛАСУ */
 const { atlas, frames } = pack(items, 512);
 function writePNG(bmp, file) {
@@ -206,6 +502,13 @@ function writePNG(bmp, file) {
   fs.writeFileSync(file, PNG.sync.write(png));
 }
 writePNG(atlas, path.join(outDir, 'atlas.png'));
+// Іконки зброї — ще й окремими PNG: їх показує DOM-екран «Арсенал»,
+// який не має доступу до атласу PixiJS.
+const wpnDir = path.join(outDir, 'wpn');
+fs.mkdirSync(wpnDir, { recursive: true });
+let nWpn = 0;
+for (const it of items) if (it.name.startsWith('w_')) { writePNG(it.bmp, path.join(wpnDir, it.name.slice(2) + '.png')); nWpn++; }
+
 fs.writeFileSync(path.join(outDir, 'atlas.json'), JSON.stringify({
   meta: { image: 'atlas.png', size: { w: atlas.w, h: atlas.h }, scale: 1, format: 'RGBA8888' },
   frames: Object.fromEntries(Object.entries(frames).map(([k, f]) => [k, {
@@ -286,6 +589,7 @@ if (fs.existsSync(resDir)) {
   }
 }
 
+console.log(`іконки зброї: ${nWpn} PNG`);
 console.log(`атлас: ${atlas.w}x${atlas.h}, кадрів ${Object.keys(frames).length}, ` +
             `${(fs.statSync(path.join(outDir, 'atlas.png')).size / 1024).toFixed(1)} КБ`);
 console.log(`іконки: ${Object.keys(DPI).join(', ')} + splash 1280x720`);

@@ -171,6 +171,7 @@ export const Gfx = {
     drawBoss();
     drawGhosts();
     drawPlayer(th);
+    drawDrones();
     drawBullets();
     drawBeams();
     drawZones();
@@ -347,7 +348,8 @@ function drawEnemies() {
     const e = G.ENEM[i];
     const sx = e.x - camX, sy = e.y - camY;
     if (sx < -40 || sx > vw + 40) continue;
-    const tel = (e.st === 'wind' || e.st === 'wind2' || e.st === 'aim' || e.st === 'tele' || e.st === 'beep');
+    const tel = (e.st === 'wind' || e.st === 'wind2' || e.st === 'aim' || e.st === 'tele' ||
+                 e.st === 'beep' || e.st === 'blink' || e.st === 'slam');
     if (tel) {
       const k = 0.35 + 0.45 * Math.abs(Math.sin(t * 22));
       entAddP.rect(px(), sx - 3, sy - 3, e.w + 6, e.h + 6, COL.pink, k * 0.5);
@@ -368,7 +370,15 @@ function drawEnemies() {
       s.x = Math.round(sx); s.y = Math.round(sy);
       if (e.face < 0) { s.scale.x = -1; s.x += e.w; }
       if (e.flash > 0) s.tint = 0xffffff;
+      else if (e.charm > 0) s.tint = 0x8effe4;      // перехоплений Гліч-Кодом
       reflect(tex, e.x, e.y, e.w, e.h, 0xffffff, 0.35);
+    }
+    if (e.charm > 0) {
+      entAddP.rect(px(), sx - 2, sy - 2, e.w + 4, e.h + 4, 0x00ffcc, 0.18 + 0.12 * Math.sin(t * 9));
+      pushLight(e.x + e.w / 2, e.y + e.h / 2, 40, 0x00ffcc, 0.4);
+    }
+    if (e.warded > 0) {                              // щит від пілона
+      entAddP.rect(px(), sx - 3, sy - 3, e.w + 6, e.h + 6, COL.cyan, 0.20 + 0.10 * Math.sin(t * 7 + e.id));
     }
     if (e.flash > 0) entAddP.rect(px(), sx, sy, e.w, e.h, COL.white, 0.8);
     // деталі станів окремими спрайтами
@@ -405,6 +415,69 @@ function drawEnemies() {
       if (e.st === 'stagger') entAddP.rect(px(), sx - 2, sy - 6, e.w + 4, 3, COL.yellow, 0.6);
     } else if (e.t === 'spider' && e.st === 'hang') {
       entP.rect(px(), sx + e.w / 2 - 0.5, e.hy - 24 - camY, 1, 24 + (e.y - e.hy), 0xc8dcff, 0.35);
+    } else if (e.t === 'rammer') {
+      if (e.st === 'ram') {                          // смуги швидкості вздовж розгону
+        for (let k = 0; k < 3; k++)
+          entAddP.rect(px(), sx - e.face * (6 + k * 7), sy + 3 + k * 3, 6, 1, 0xff8a3d, 0.55 - k * 0.15);
+        pushLight(e.x + e.w / 2, e.y + e.h / 2, 52, 0xff8a3d, 0.5);
+      } else if (e.st === 'stun2') {                 // вікно шкоди читається окремо
+        entAddP.rect(px(), sx - 2, sy - 2, e.w + 4, e.h + 4, COL.cyan, 0.25 + 0.2 * Math.sin(t * 14));
+      }
+    } else if (e.t === 'anvil') {
+      if (e.st === 'slam') {
+        entAddP.rect(px(), sx - 14, sy + e.h - 4, e.w + 28, 4, COL.yellow, 0.7);
+        pushLight(e.x + e.w / 2, e.y + e.h, 70, COL.yellow, 0.65);
+      }
+      const g = e.st === 'wind' ? 0.8 : 0.35;
+      entAddP.rect(px(), sx + 4, sy + 2, 2, 2, 0xff8a3d, g);
+      entAddP.rect(px(), sx + e.w - 6, sy + 2, 2, 2, 0xff8a3d, g);
+    } else if (e.t === 'carrier') {
+      const pl = 0.5 + 0.5 * Math.sin(t * 3 + e.id);
+      entAddP.rect(px(), sx + 4, sy + 9, e.w - 8, 3, COL.ice, 0.35 + 0.35 * pl);
+      pushLight(e.x + e.w / 2, e.y + e.h, 34, COL.ice, 0.25 + 0.2 * pl);
+      for (let j = 0; j < G.ENEM.length; j++) {      // ниточка до кожного випущеного малого
+        const k = G.ENEM[j];
+        if (k.parent !== e || k.dead) continue;
+        const ax = sx + e.w / 2, ay = sy + e.h, bx = k.x + k.w / 2 - camX, by = k.y - camY;
+        for (let m = 0; m < 5; m++)
+          entP.rect(px(), ax + (bx - ax) * m / 5, ay + (by - ay) * m / 5, 1, 1, 0x7df9ff, 0.35);
+      }
+    } else if (e.t === 'pylon') {
+      const pl = 0.5 + 0.5 * Math.sin(t * 5);
+      entAddP.rect(px(), sx + 3, sy + 3, e.w - 6, 4, COL.cyan, 0.4 + 0.4 * pl);
+      pushLight(e.x + e.w / 2, e.y + 6, 46 + e.wards * 8, COL.cyan, 0.35 + 0.25 * pl);
+      for (let j = 0; j < G.ENEM.length; j++) {      // видно, кого саме він тримає
+        const o = G.ENEM[j];
+        if (o === e || o.dead || !(o.warded > 0)) continue;
+        const ax = sx + e.w / 2, ay = sy + 5, bx = o.x + o.w / 2 - camX, by = o.y + o.h / 2 - camY;
+        for (let m = 1; m < 6; m++)
+          entAddP.rect(px(), ax + (bx - ax) * m / 6, ay + (by - ay) * m / 6, 1, 1, COL.cyan, 0.30);
+      }
+    } else if (e.t === 'blinker' && e.st === 'blink') {
+      const g = entAddP.get(tex || T.e_blinker_n);   // привид у точці появи — це і є телеграф
+      g.x = Math.round(e.tx - camX); g.y = Math.round(e.ty - camY);
+      g.tint = 0x6ef7d8; g.alpha = 0.30 + 0.35 * (1 - e.tm / 0.35);
+      pushLight(e.tx + e.w / 2, e.ty + e.h / 2, 40, 0x6ef7d8, 0.45);
+    } else if (e.t === 'worm') {
+      const spin = Math.floor(t * 22) % 2;           // свердло крутиться
+      entAddP.rect(px(), e.face > 0 ? sx + e.w - 3 : sx, sy + 3 + spin, 3, 2, COL.white, 0.5);
+    } else if (e.t === 'arch1' || e.t === 'arch2' || e.t === 'arch3') {
+      const c = e.t === 'arch1' ? 0xffb347 : (e.t === 'arch2' ? 0xff3355 : COL.cyan);
+      const pl = 0.4 + 0.3 * Math.sin(t * 6 + e.id);
+      entAddP.rect(px(), sx + 5, sy + 9, e.w - 10, 2, c, pl);
+      pushLight(e.x + e.w / 2, e.y + 10, 40, c, pl * 0.7);
+    }
+    // маркер уваги: '?' — почув, '!' — побачив і зараз піде в бій
+    if (e.charm <= 0 && !e.dead) {
+      const mk = (e.alertSt === 'fight' && e.react > 0) ? T.mk_ex
+        : (e.alertSt === 'suspect' || e.alertSt === 'lost') ? T.mk_q : null;
+      if (mk) {
+        const m = entP.get(mk);
+        m.x = Math.round(sx + e.w / 2 - mk.width / 2);
+        m.y = Math.round(sy - 11 + Math.sin(t * 8) * 1);
+        m.alpha = e.alertSt === 'lost' ? clamp(e.alertT / 3, 0.25, 0.8) : 1;
+        pushLight(e.x + e.w / 2, e.y - 8, 22, mk === T.mk_ex ? COL.yellow : COL.ice, 0.35);
+      }
     }
     if (e.elite) entAddP.rect(px(), sx + e.w / 2 - 2, sy - 4, 4, 2, COL.yellow, 0.7);
     if (e.hp < e.maxHp && e.maxHp > 3) {
@@ -534,6 +607,57 @@ function drawGhosts() {
 }
 
 /* ------------------------------------------------------------ ГЕРОЙ */
+/* Шарф — ланцюжок із п'яти ланок: кожна тягнеться за попередньою з
+   запізненням, тому на розвороті він відстає, а в падінні здіймається.
+   Стан живе між кадрами, тому це модульний масив, а не локальна змінна. */
+const SCARF = [];
+for (let i = 0; i < 5; i++) SCARF.push({ x: 0, y: 0 });
+let scarfReady = false;
+function drawScarf(P, t) {
+  const ax = P.x + (P.face > 0 ? 1 : P.w - 1), ay = P.y + 4;
+  if (!scarfReady || Math.hypot(SCARF[0].x - ax, SCARF[0].y - ay) > 48) {
+    for (const q of SCARF) { q.x = ax; q.y = ay; }   // старт рівня / телепорт
+    scarfReady = true;
+  }
+  const wind = -P.face * (1.4 + clamp(Math.abs(P.vx) / 130, 0, 1) * 2.6);
+  const lift = clamp(-P.vy / 300, -1.2, 1.6);
+  let px0 = ax, py0 = ay;
+  for (let i = 0; i < SCARF.length; i++) {
+    const q = SCARF[i];
+    const tx = px0 + wind, ty = py0 - lift + Math.sin(t * 9 - i * 0.9) * (0.6 + i * 0.25);
+    q.x += (tx - q.x) * (0.42 - i * 0.05);           // хвіст в'ялий, основа жорстка
+    q.y += (ty - q.y) * (0.42 - i * 0.05);
+    const w = 3 - i * 0.35;
+    entP.rect(px(), q.x - camX - w / 2, q.y - camY - 1, w, 2,
+              i === 0 ? COL.yellow : (i < 3 ? 0xffb03f : 0xc98a12), 1 - i * 0.11);
+    px0 = q.x; py0 = q.y;
+  }
+}
+/* Дрони «Рою»: тіло, слід і промінь до позначеної цілі. */
+function drawDrones() {
+  const t = G.world.time;
+  for (let i = 0; i < G.DRONES.length; i++) {
+    const d = G.DRONES[i];
+    const sx = d.x - camX, sy = d.y - camY;
+    const s = entP.get(T.e_mote);
+    s.anchor.set(0.5, 0.5);
+    s.x = Math.round(sx); s.y = Math.round(sy);
+    s.rotation = t * 6 + i;                          // корпус повільно крутиться
+    const hot = d.hitT > 0;
+    entAddP.rect(px(), sx - 1, sy - 1, 2, 2, hot ? COL.yellow : COL.cyan, 0.9);
+    pushLight(d.x, d.y, hot ? 44 : 26, hot ? COL.yellow : COL.cyan, hot ? 0.6 : 0.32);
+    if (d.t < 1.2 && Math.floor(t * 14) % 2) s.alpha = 0.4;   // блимає перед згасанням
+  }
+  const m = G.P.mark;
+  if (m && !m.dead) {                                // мітка цілі — чотири кутики
+    const mx = m.x - camX, my = m.y - camY, k = 0.6 + 0.4 * Math.sin(t * 10);
+    for (const [ox, oy, dx, dy] of [[0, 0, 1, 1], [m.w, 0, -1, 1], [0, m.h, 1, -1], [m.w, m.h, -1, -1]]) {
+      entAddP.rect(px(), mx + ox - (dx > 0 ? 2 : 0) - 1, my + oy - 1, 3, 1, COL.cyan, k);
+      entAddP.rect(px(), mx + ox - 1, my + oy - (dy > 0 ? 2 : 0) - 1, 1, 3, COL.cyan, k);
+    }
+  }
+}
+
 function drawPlayer(th) {
   const P = G.P, t = G.world.time;
   if (P.dead && P.deadT <= 0.05) return;
@@ -564,19 +688,11 @@ function drawPlayer(th) {
     rim.tint = near.color;
     rim.alpha = clamp(0.42 - nd / 500, 0.05, 0.4);
   }
-  // шарф реагує на швидкість
-  const sp = clamp(Math.abs(P.vx) / 140, 0, 1);
-  if (sp > 0.05 || !P.onGround) {
-    const len = 5 + sp * 11;
-    for (let i = 0; i < 3; i++) {
-      const k = i / 3;
-      entP.rect(px(), P.x + (P.face > 0 ? -2 : P.w - 1) - P.face * (i * len / 3) - camX,
-                P.y + 4 + Math.sin(t * 14 - i * 1.2) * (1 + sp * 2) - camY,
-                len / 3 + 1, 2, i === 0 ? COL.yellow : 0xffb03f, 1 - k * 0.35);
-    }
-  }
+  drawScarf(P, t);
   const s = entP.get(tex);
-  s.x = sx; s.y = sy;
+  // дихання: у спокої силует піднімається на піксель — персонаж «живий»
+  const br = (P.anim === 'idle' || P.anim === 'blink') && Math.sin(P.breath) > 0.45 ? 1 : 0;
+  s.x = sx; s.y = sy - br;
   if (P.flipT > 0) {
     const k = 1 - P.flipT / 0.40;
     s.anchor.set(0.5, 0.5);
@@ -736,25 +852,72 @@ function drawHud() {
     s.x = 6 + i * 9; s.y = 6;
     s.tint = i < P.hp ? 0xffffff : 0x3a2050;
   }
-  const full = P.q >= 10;
-  for (let i = 0; i < 10; i++) {
-    const on = i < P.q;
-    hudP.rect(px(), 6 + i * 5, 15, 4, 4,
-      on ? (full ? (Math.floor(W.time * 10) % 2 ? 0xffffff : COL.cyan) : COL.cyan) : 0x241a3a, 1);
+  // --- ліворуч: іконка ближньої зброї і її власний ресурс ---
+  const mw = G.EQ.m, rw = G.EQ.r;
+  const mi = hudP.get(T[mw.sprite] || T.w_arc);
+  mi.x = 5; mi.y = 15;
+  if (mw.id === 'arc') {                          // заряд клинка — десять поділок
+    const full = P.q >= 10;
+    for (let i = 0; i < 10; i++)
+      hudP.rect(px(), 23 + i * 5, 20, 4, 5, i < P.q
+        ? (full ? (Math.floor(W.time * 10) % 2 ? 0xffffff : COL.cyan) : COL.cyan) : 0x241a3a, 1);
+    hideTxt('mres');
+  } else if (mw.id === 'chrono') {                // кулдаун телепорту
+    const k = 1 - clamp(P.chronoCd / 1.2, 0, 1);
+    hudP.rect(px(), 23, 20, 50, 5, 0x241a3a, 1);
+    hudP.rect(px(), 23, 20, Math.round(50 * k), 5, k >= 1 ? COL.cyan : 0x8f7fb0, 1);
+    hideTxt('mres');
+  } else {
+    txt('mres', mw.res === 'нема' ? '' : mw.res.toUpperCase(), 23, 18, 9, 0x8f7fb0);
   }
+
+  // --- праворуч: ресурс дальньої зброї, під ним ривок ---
   const bx = vw - 68, by = 6, bw = 62, bh = 7;
-  hudP.rect(px(), bx, by, bw, bh, 0x241a3a, 1);
-  const k = clamp(P.heat / 100, 0, 1);
-  hudP.rect(px(), bx + 1, by + 1, Math.round((bw - 2) * k), bh - 2,
-    P.lock ? 0xff3355 : (k > 0.75 ? COL.orange : (k > 0.45 ? COL.yellow : COL.cyan)), 1);
-  if (P.lock) {
-    hudP.rect(px(), bx + 1 + (bw - 2) * P.arA, by + 1, Math.max(2, (bw - 2) * (P.arB - P.arA)), bh - 2, COL.green, 1);
-    hudP.rect(px(), bx + 1 + (bw - 2) * P.arMark, by, 2, bh, 0xffffff, 1);
-    if (Math.floor(W.time * 8) % 2) txt('oh', 'ПЕРЕГРІВ', bx + bw, by + 9, 9, 0xff3355, 'right'); else hideTxt('oh');
-  } else hideTxt('oh');
+  const pips = (n, max, on, off) => {
+    for (let i = 0; i < max; i++)
+      hudP.rect(px(), bx + i * (bw / max), by, bw / max - 2, bh, i < n ? on : off, 1);
+  };
+  if (rw.id === 'rail') {
+    hudP.rect(px(), bx, by, bw, bh, 0x241a3a, 1);
+    const k = clamp(P.heat / 100, 0, 1);
+    hudP.rect(px(), bx + 1, by + 1, Math.round((bw - 2) * k), bh - 2,
+      P.lock ? 0xff3355 : (k > 0.75 ? COL.orange : (k > 0.45 ? COL.yellow : COL.cyan)), 1);
+    if (P.lock) {
+      hudP.rect(px(), bx + 1 + (bw - 2) * P.arA, by + 1, Math.max(2, (bw - 2) * (P.arB - P.arA)), bh - 2, COL.green, 1);
+      hudP.rect(px(), bx + 1 + (bw - 2) * P.arMark, by, 2, bh, 0xffffff, 1);
+      if (Math.floor(W.time * 8) % 2) txt('oh', 'ПЕРЕГРІВ', bx + bw, by + 9, 9, 0xff3355, 'right'); else hideTxt('oh');
+    } else hideTxt('oh');
+  } else if (rw.id === 'shot') {
+    pips(P.shells, 6, COL.yellow, 0x241a3a);
+    if (P.reloadT > 0) {
+      hudP.rect(px(), bx, by + bh + 1, Math.round(bw * (1 - P.reloadT / 1.8)), 2, COL.orange, 1);
+      if (Math.floor(W.time * 8) % 2) txt('oh', 'ПЕРЕЗАРЯДКА', bx + bw, by + 10, 9, COL.orange, 'right'); else hideTxt('oh');
+    } else hideTxt('oh');
+  } else if (rw.id === 'glitch') {
+    pips(P.cores, 3, 0x00ffcc, 0x241a3a);
+    if (P.cores < 3) hudP.rect(px(), bx + P.cores * (bw / 3), by, (bw / 3 - 2) * clamp(P.coreFrac, 0, 1), bh, 0x0a6b5c, 1);
+    hideTxt('oh');
+  } else if (rw.id === 'swarm') {
+    pips(G.DRONES.length, 3, COL.cyan, 0x241a3a);
+    if (P.droneCd > 0) hudP.rect(px(), bx, by + bh + 1, Math.round(bw * (1 - P.droneCd / 3)), 2, COL.ice, 1);
+    hideTxt('oh');
+  } else {                                        // «Оса» — нескінченні набої
+    hudP.rect(px(), bx, by, bw, bh, 0x241a3a, 1);
+    hudP.rect(px(), bx + 1, by + 1, bw - 2, bh - 2, 0x2f6b4a, 1);
+    txt('oh', '∞', bx + bw / 2, by - 2, 11, COL.green, 'center');
+  }
+  const ri = hudP.get(T[rw.sprite] || T.w_rail);
+  ri.x = vw - 21; ri.y = 15;
   const dashReady = P.dashCd <= 0;
-  for (let i = 0; i < 3; i++) hudP.rect(px(), bx + 46 + i * 5, 16, 3, 4, dashReady ? COL.ice : 0x3a2050, 1);
-  txt('dash', 'РИВОК', bx, 14, 9, dashReady ? 0x7df9ff : 0x5b4a72);
+  for (let i = 0; i < 3; i++) hudP.rect(px(), vw - 44 + i * 5, 20, 3, 5, dashReady ? COL.ice : 0x3a2050, 1);
+  txt('dash', 'РИВОК', vw - 46, 17, 9, dashReady ? 0x7df9ff : 0x5b4a72, 'right');
+
+  // підказка про знайдену зброю
+  if (G.Game.pickupT > 0) {
+    const a = clamp(G.Game.pickupT / 0.6, 0, 1);
+    hudP.rect(px(), vw / 2 - 78, VH - 40, 156, 16, 0x0b0413, 0.72 * a);
+    txt('pick', 'ЗНАЙДЕНО: ' + G.Game.pickupName, vw / 2, VH - 37, 11, COL.yellow, 'center').alpha = a;
+  } else hideTxt('pick');
   txt('sector', 'СЕКТОР ' + (W.idx + 1), vw / 2, 4, 10, 0xc9b8dd, 'center');
 
   if (B.on && B.intro <= 0) {
