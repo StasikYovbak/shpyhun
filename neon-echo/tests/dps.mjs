@@ -40,11 +40,11 @@ async function measure(id, dist) {
     D.Store.data.owned = Object.keys(D.WEAPONS);
     D.equip(melee ? id : 'arc', melee ? 'rail' : id);
     for (let i = 0; i < 3; i++) D.step();
-    P.x = 80; P.y = 208 - P.h; P.vy = 0; P.face = 1;
+    P.x = 80; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1;
     P.heat = 0; P.cores = 3; P.shells = 6; P.reloadT = 0; P.droneCd = 0;
     D.kb.l = D.kb.r = D.kb.a = D.kb.b = D.kb.c = 0;
 
-    const e = D.spawnEnemy('thug', P.x + dist, 208 - 20, false);
+    const e = D.spawnEnemy('thug', P.x + dist, 13 * D.TS - 20, false);
     if (!e) return { dps: 0 };
     e.blind = 1; e.sp = 0; e.st = 'idle'; e.alertSt = 'calm'; e.tm = 999;
     e.hp = e.maxHp = 1e7;
@@ -54,11 +54,11 @@ async function measure(id, dist) {
     const N = Math.round(secs * 60);
     for (let f = 0; f < N; f++) {
       // мішень тримаємо строго на місці й на потрібній дистанції
-      e.x = P.x + P.w / 2 + dist; e.y = 208 - e.h; e.vx = 0; e.vy = 0;
+      e.x = P.x + P.w / 2 + dist; e.y = 13 * D.TS - e.h; e.vx = 0; e.vy = 0;
       e.dead = false; e.stun = 0; e.charm = 0; e.thrown = 0; e.hs = 0;
       if (e.hp < before) { dealt += before - e.hp; }
       before = e.hp = 1e7;
-      P.x = 80; P.y = 208 - P.h; P.vy = 0; P.face = 1; P.hp = P.maxHp; P.inv = 1;
+      P.x = 80; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1; P.hp = P.maxHp; P.inv = 1;
       D.kb[key] = (f % 2) ? 1 : 0;
       D.step();
     }

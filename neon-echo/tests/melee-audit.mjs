@@ -29,7 +29,7 @@ const res = await page.evaluate(() => {
   const D = window.__DEV, G = D.G, P = D.P;
   // розмір героїні беремо в гри: після збільшення спрайтів
   // зашитий 14 давав би зону ураження від старого зросту
-  const FLOOR = 208, PH = P.h;
+  const FLOOR = 13 * D.TS, PH = P.h;
 
   // Справжня висота стрибка — міряємо грою, а не беремо з константи.
   D.Game.startLevel(0, false); D.god(true);
@@ -54,11 +54,11 @@ const res = await page.evaluate(() => {
   const reach = (hb) => {
     const band = sy => Math.min(sy, hb.y + hb.h) - Math.max(sy - PH - jumpH, hb.y);
     let best = band(FLOOR);
-    const txc = Math.floor((hb.x + hb.w / 2) / 16);
+    const txc = Math.floor((hb.x + hb.w / 2) / D.TS);
     for (let tx = txc - 5; tx <= txc + 5; tx++)
       for (let ty = 0; ty <= 13; ty++) {
         const c = D.tAt(tx, ty);
-        if (c === 1 || c === 2) { best = Math.max(best, band(ty * 16)); break; }
+        if (c === 1 || c === 2) { best = Math.max(best, band(ty * D.TS)); break; }
       }
     return best;
   };
@@ -122,12 +122,12 @@ const res = await page.evaluate(() => {
     rec.states = Object.keys(rec.states).join('/');
     out.push(rec);
   }
-  return { jumpH: +jumpH.toFixed(1), apexY: +apexY.toFixed(1), ph: PH, rows: out };
+  return { jumpH: +jumpH.toFixed(1), apexY: +apexY.toFixed(1), ph: PH, floor: FLOOR, rows: out };
 });
 
 console.log('АУДИТ ДОСЯЖНОСТІ БЛИЖНЬОЮ ЗБРОЄЮ\n');
 console.log('  висота стрибка ' + res.jumpH + ' px, дуга клинка по вертикалі ' + res.ph + ' px,');
-console.log('  підлога арен y=208 (стоячи y=' + (208 - res.ph) + ', вершина стрибка y=' + res.apexY + ')\n');
+console.log('  підлога арен y=' + res.floor + ' (стоячи y=' + (res.floor - res.ph) + ', вершина стрибка y=' + res.apexY + ')\n');
 console.log('  бос                       HP   вікно раз на  вразлива зона  дістає  запас   у зоні  пауза');
 console.log('  ' + '-'.repeat(90));
 for (const r of res.rows) {

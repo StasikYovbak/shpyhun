@@ -43,7 +43,7 @@ const tp = await page.evaluate(() => {
   for (let f = 0; f < 60 * 90; f++) {
     // гравець просто стоїть посеред арени й дивиться вправо:
     // хай бос сам вирішує, з якого боку зайти
-    P.x = (B.a0 + B.a1) / 2; P.y = 208 - P.h; P.vy = 0; P.face = 1; P.hp = P.maxHp; P.inv = 1;
+    P.x = (B.a0 + B.a1) / 2; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1; P.hp = P.maxHp; P.inv = 1;
     D.step();
     if (B.st === 'blinkTel' && prevSt !== 'blinkTel') { telStart = f; telX = B.tx; telSpot = B.tpSpot; }
     if (prevSt === 'blinkTel' && B.st !== 'blinkTel') {
@@ -116,7 +116,7 @@ const p2 = await page.evaluate(() => {
   B.hp = B.maxHp = 1e6;
   const seen = {}; let trailZones = 0, ghosts = 0, rushJumpable = 1e9;
   for (let f = 0; f < 60 * 120; f++) {
-    P.x = (B.a0 + B.a1) / 2; P.y = 208 - P.h; P.vy = 0; P.face = 1; P.hp = P.maxHp; P.inv = 1;
+    P.x = (B.a0 + B.a1) / 2; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1; P.hp = P.maxHp; P.inv = 1;
     D.step();
     seen[B.st] = (seen[B.st] || 0) + 1;
     if (B.st === 'rush') {

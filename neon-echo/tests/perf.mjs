@@ -13,7 +13,7 @@ await page.goto(process.env.URL || 'http://localhost:4173/');
 await page.waitForFunction(() => !!window.__DEV, null, { timeout: 20000 });
 await page.click('#mPlay'); await page.waitForTimeout(400);
 
-console.log('БЮДЖЕТ КАДРУ (Chromium, кадр 528x270)\n');
+console.log('БЮДЖЕТ КАДРУ (Chromium, кадр 640x360)\n');
 console.log('  рівень            крок    побудова кадру   спрайтів   ворогів');
 for (const [lvl, boss] of [[0, false], [3, true], [7, true], [8, false], [9, true]]) {
   const r = await page.evaluate(({ lvl, boss }) => {
@@ -48,4 +48,40 @@ const info = await page.evaluate(() => {
   return { type: gl.type === 1 ? 'WebGL' : 'WebGPU/інше', res: gl.resolution, w: gl.width, h: gl.height };
 });
 console.log('\n  рендерер: %s, роздільність кадру %dx%d, множник %s', info.type, info.w, info.h, info.res);
+
+/* ---------- ЖИВИЙ FPS ----------
+ * Крок і побудова кадру — це процесор. Після збільшення спрайтів
+ * навантаження йде ще й на ЗАПОВНЕННЯ екрана, а його видно тільки в
+ * справжньому циклі rAF. Тут GPU програмний (swiftshader), тож числа
+ * свідомо гірші за телефон — але саме тому вони й показові як нижня межа.
+ */
+console.log('\nЖИВИЙ FPS (справжній цикл rAF)');
+console.log('  GPU у контейнері ПРОГРАМНИЙ (swiftshader) — 60 тут не буває ні в кого,');
+console.log('  тому планка не абсолютна, а РЕГРЕСІЙНА: не повільніше за версію до');
+console.log('  масштабування, яка на тому ж залізі давала 28,0 FPS у найгіршому місці.');
+let worst = 999;
+for (const [lvl, boss] of [[0, false], [3, true], [9, true]]) {
+  const r = await page.evaluate(({ lvl, boss }) => new Promise(res => {
+    const D = window.__DEV;
+    D.Game.startLevel(lvl, false); D.god(true);
+    if (boss) D.gotoBoss();
+    D.kb.r = boss ? 0 : 1;
+    let n = 0, t0 = 0, last = 0, worstDt = 0;
+    const tick = t => {
+      if (!t0) { t0 = t; last = t; requestAnimationFrame(tick); return; }
+      worstDt = Math.max(worstDt, t - last); last = t; n++;
+      if (t - t0 < 3000) requestAnimationFrame(tick);
+      else { D.kb.r = 0; res({ fps: n / ((t - t0) / 1000), worstDt: worstDt }); }
+    };
+    requestAnimationFrame(tick);
+  }), { lvl, boss });
+  worst = Math.min(worst, r.fps);
+  console.log('  сектор %s   %s FPS   найдовший кадр %s мс',
+    (String(lvl + 1) + (boss ? ' (бос)' : '')).padEnd(10),
+    r.fps.toFixed(1).padStart(5), r.worstDt.toFixed(1).padStart(5));
+}
+const BASE = 28.0;                                  // заміряно на версії 528x297
+console.log('\n  найгірше: ' + worst.toFixed(1) + ' FPS проти ' + BASE + ' до масштабування');
+console.log('  ' + (worst >= BASE ? 'ПІСЛЯ ЗБІЛЬШЕННЯ НЕ ПОВІЛЬНІШЕ' : 'ПРОСІДАННЯ ВІД МАСШТАБУВАННЯ'));
 await browser.close();
+process.exit(worst >= BASE ? 0 : 1);

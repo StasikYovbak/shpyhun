@@ -41,10 +41,10 @@ const geo = await page.evaluate(() => {
     D.kb.a = 0;
     return top;
   };
-  const floorStand = W.def ? 208 - P.h : 194;
+  const floorStand = 13 * D.TS - P.h;
   const apexFloor = jump(floorStand);
 
-  const out = { floor: 208, ceil: G.GLITCH.CEIL, openH: G.GLITCH.OPEN_H,
+  const out = { floor: 13 * D.TS, ceil: G.GLITCH.CEIL, openH: G.GLITCH.OPEN_H,
                 playerH: P.h, standFloor: floorStand, apexFloor,
                 jumpH: floorStand - apexFloor, docks: [], inv: [] };
 
@@ -57,21 +57,21 @@ const geo = await page.evaluate(() => {
       const d = G.glitchDockPos(i);
       const hb = { top: d.y, bot: d.y + G.GLITCH.OPEN_H };
       // 1) зі стрибка з підлоги (або зі стелі при інверсії)
-      const stand = g > 0 ? 208 - P.h : G.GLITCH.CEIL;
+      const stand = g > 0 ? 13 * D.TS - P.h : G.GLITCH.CEIL;
       const apex = g > 0 ? stand - out.jumpH : stand + out.jumpH;
       const bl = bladeSpan(apex);
       const ov = Math.min(bl.bot, hb.bot) - Math.max(bl.top, hb.top);
       // 2) з платформи поруч: шукаємо в карті тайл '=' або '#' під ядром
       let platY = null;
-      const txc = Math.floor((d.x + B.w / 2) / 16);
+      const txc = Math.floor((d.x + B.w / 2) / D.TS);
       if (g > 0) {
         for (let tx = txc - 4; tx <= txc + 4 && platY === null; tx++)
-          for (let ty = Math.floor(hb.top / 16); ty <= 13; ty++) {
+          for (let ty = Math.floor(hb.top / D.TS); ty <= 13; ty++) {
             const c = D.tAt(tx, ty);
             if (c === 1 || c === 2) {
-              const py = ty * 16 - P.h;
+              const py = ty * D.TS - P.h;
               const b = bladeSpan(py);
-              if (Math.min(b.bot, hb.bot) - Math.max(b.top, hb.top) > 0) { platY = ty * 16; break; }
+              if (Math.min(b.bot, hb.bot) - Math.max(b.top, hb.top) > 0) { platY = ty * D.TS; break; }
             }
           }
       }

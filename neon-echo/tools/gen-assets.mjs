@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import { PNG } from 'pngjs';
 import { Bitmap, pack } from './raster.mjs';
 import { HERO, HERO_ATK, PAL_HERO, PAL_PHANTOM, upscale } from './art.mjs';
-import { SPR, BSPR } from '../src/config.js';
+import { SPR, BSPR, SCALE } from '../src/config.js';
 import { THEME } from '../src/themes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -40,7 +40,7 @@ const ES = SPR, BS = BSPR;                     // вороги / боси
    разом — 10x14 -> 13x19. Спрайт ставиться по низу хітбокса
    (anchor 0.5/1.0), тож ноги так само стоять точно на поверхні.
    Жодного нового кольору й жодної нової деталі — саме як домовлялись. */
-const HW = 16, HH = 20;
+const HW = Math.round(16 * SCALE), HH = Math.round(20 * SCALE);   // 24x30
 // базові пози + окремий кадр атаки під кожну зброю (art.mjs, HERO_ATK)
 const HERO_POSES = ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk',
                     'hurt', 'land', 'idle2a', 'idle2b', ...HERO_ATK];
@@ -251,28 +251,30 @@ makeS('b_arch_head', 60, 52, BS, b => {
   for (let i = 0; i < 6; i++) b.rect(8 + i * 8, 40, 5, 10, '#c7d3e0');
 });
 
-/* ---------------------------------------------------------------- ТАЙЛИ */
+/* ---------------------------------------------------------------- ТАЙЛИ
+   Тайл росте тим самим SCALE, що й фізика: 16 -> 24 px. makeS множить
+   і саму сітку, і кожен примітив усередині, тож малюнок не «пливе». */
 for (const [key, th] of Object.entries(THEME)) {
-  make(`t_${key}_solid`, 16, 16, b => {
+  makeS(`t_${key}_solid`, 16, 16, SCALE, b => {
     b.rect(0, 0, 16, 16, th.tile);
     b.rect(0, 13, 16, 3, '#00000038'); b.rect(13, 0, 3, 16, '#00000030');
     b.rect(5, 6, 3, 3, th.glow + '44');
   });
-  make(`t_${key}_top`, 16, 16, b => {
+  makeS(`t_${key}_top`, 16, 16, SCALE, b => {
     b.rect(0, 0, 16, 16, th.tile);
     b.rect(0, 13, 16, 3, '#00000038'); b.rect(13, 0, 3, 16, '#00000030');
     b.rect(0, 0, 16, 2, th.edge); b.rect(0, 2, 16, 2, th.edge + '30');
   });
-  make(`t_${key}_plat`, 16, 6, b => {
+  makeS(`t_${key}_plat`, 16, 6, SCALE, b => {
     b.rect(0, 0, 16, 5, th.tile); b.rect(0, 0, 16, 2, th.edge);
     b.rect(0, 5, 16, 1, th.glow + '40');
   });
-  make(`t_${key}_conv`, 16, 16, b => {
+  makeS(`t_${key}_conv`, 16, 16, SCALE, b => {
     b.rect(0, 0, 16, 16, '#2a2a3a'); b.rect(0, 0, 16, 2, th.edge);
     b.rect(0, 5, 4, 2, th.glow); b.rect(8, 5, 4, 2, th.glow);
   });
 }
-make('t_spike', 16, 16, b => {
+makeS('t_spike', 16, 16, SCALE, b => {
   for (let i = 0; i < 4; i++) {
     const x = i * 4;
     b.rect(x + 1, 12, 2, 4, '#c7d3e0'); b.rect(x + 1, 8, 2, 4, '#e6eef7');

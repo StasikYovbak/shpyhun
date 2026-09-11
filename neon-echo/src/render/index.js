@@ -16,7 +16,7 @@ import { THEME } from '../themes.js';
 import { Store } from '../store.js';
 import * as G from '../core.js';
 
-const MAXVW = 528;                       // максимальна ширина кадру на витягнутих екранах
+const MAXVW = 640;                       // максимальна ширина кадру на витягнутих екранах
 let app = null, sheet = null, T = {};
 let camX = 0, camY = 0;
 let vw = VW, scale = 1, dpr = 1;
@@ -28,6 +28,7 @@ let cutC, cutP;                                    // катсцени малю�
 let hudTexts = {};
 let paletteF, bloomF, crtF, rgbF, dispF, dispSpr;
 let quality = 'auto', fpsAvg = 60, autoLevel = 2;   // 0 perf, 1 bal, 2 max
+let fillDiv = 1;                                    // дільник буфера кадру (остання сходинка)
 const lights = [];                                  // збираються за кадр, малюються разом
 
 /* ------------------------------------------------------------ утиліти */
@@ -112,17 +113,24 @@ export const Gfx = {
     dispF = new DisplacementFilter({ sprite: dispSpr, scale: 0 });
 
     this.applyQuality();
+    this.canvasEl = canvas;
     this.layout(canvas);
     return app;
   },
 
-  /** Цілий масштаб у ФІЗИЧНИХ пікселях + розширення кадру до 528 px. */
+  /** Цілий масштаб у ФІЗИЧНИХ пікселях + розширення кадру до 640 px. */
   layout(canvas) {
     dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     const Wd = Math.max(320, window.innerWidth) * dpr;
     const Hd = Math.max(200, window.innerHeight) * dpr;
     let s = Math.max(1, Math.floor(Hd / VH));
     if (VW * s > Wd) s = Math.max(1, Math.floor(Wd / VW));
+    // Остання сходинка авто-якості: ділимо сам буфер кадру. Кадр 640x360
+    // виріс на 47 % площі проти 528x297, і на слабкому GPU впирається саме
+    // в заповнення екрана. Для nearest-neighbour піксель-арту множник 2
+    // не додає жодної деталі — лише рівніші краї на дробовому CSS-масштабі,
+    // тож зняти його дешевше, ніж різати ефекти або відкочувати розмір.
+    s = Math.max(1, Math.floor(s / fillDiv));
     let w = Math.floor(Wd / s);
     w = Math.max(VW, Math.min(MAXVW, w - (w % 2)));
     vw = w; scale = s;
@@ -138,6 +146,11 @@ export const Gfx = {
 
   applyQuality() {
     quality = Store.data.gfx || 'auto';
+    // Дільник буфера — сходинка АВТО-режиму. Обрав якість руками —
+    // повертаємо повний кадр: далі вирішує гравець, а не евристика.
+    if (quality !== 'auto' && fillDiv !== 1) {
+      fillDiv = 1; if (this.canvasEl) this.layout(this.canvasEl);
+    }
     const lvl = quality === 'perf' ? 0 : quality === 'bal' ? 1 : quality === 'max' ? 2 : autoLevel;
     const D = Store.data;
     const bloom = (D.bloom === undefined ? 35 : D.bloom) / 100;
@@ -176,8 +189,15 @@ export const Gfx = {
     fpsAvg = fpsAvg * 0.92 + f * 0.08;
     if ((Store.data.gfx || 'auto') !== 'auto') return;
     if (fpsAvg < 50 && autoLevel > 0) { autoLevel--; this.applyQuality(); }
+    // Ефекти вже зняті, а 45 FPS так і нема — значить упираємось не в них,
+    // а в заповнення екрана. Ділимо буфер кадру навпіл: це -75 % пікселів.
+    else if (fpsAvg < 45 && autoLevel === 0 && fillDiv < 2 && this.canvasEl) {
+      fillDiv = 2; fpsAvg = 60; this.layout(this.canvasEl);
+    }
     else if (fpsAvg > 58.5 && autoLevel < 2 && Math.random() < 0.002) { autoLevel++; this.applyQuality(); }
   },
+  /** Поточний дільник буфера — щоб було видно в діагностиці й тестах. */
+  get fillDiv() { return fillDiv; },
 
   /* ==================================================================
      ГОЛОВНИЙ КАДР

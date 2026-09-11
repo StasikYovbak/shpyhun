@@ -1,13 +1,14 @@
 /**
  * Геометрична перевірка прохідності: кожен розрив між поверхнями проти
- * довжини (85 px) і висоти (66 px) стрибка. Подвійний стрибок не враховано.
- * Працює просто з модулів гри — без браузера.
+ * довжини і висоти стрибка. Подвійний стрибок не враховано.
+ * Тайл і планки беруться З ГРИ й множаться на SCALE — інакше після
+ * масштабування тест міряв би новий світ старою лінійкою.
  *   node tests/gaps.mjs
  */
-import { CONFIG } from '../src/config.js';
+import { CONFIG, TS, S } from '../src/config.js';
 import { LEVELS } from '../src/levels.js';
 
-const TS = 16, LIMIT_X = 85, LIMIT_Y = 66;
+const LIMIT_X = S(85), LIMIT_Y = S(66);
 function jumpGeometry(v0) {
   const g = CONFIG.GRAV, av = CONFIG.APEX_V;
   const h1 = (v0 * v0 - av * av) / (2 * g), h2 = (av * av) / (2 * g * CONFIG.APEX);

@@ -7,7 +7,7 @@ import '@fontsource/handjet/cyrillic-500.css';
 import '@fontsource/handjet/latin-500.css';
 import './style.css';
 
-import { DT, MAXDT, PH, BL, RG, CONFIG } from './config.js';
+import { DT, MAXDT, PH, BL, RG, CONFIG, TS, SCALE, VW, VH } from './config.js';
 import { Store } from './store.js';
 import { initAudio, resumeAudio, applyVolume, Sfx, Music, setHaptics } from './audio.js';
 import { TRACKS } from './music.js';
@@ -172,7 +172,7 @@ async function boot() {
     WFX: G.WFX, wfxKinds: () => G.WFX.map(f => f.k), getSlow: G.getSlow, getDesat: G.getDesat,
     Cut: G.Cut, SCRIPTS: CUT_SCRIPTS,
     equip: (m, r) => { if (m) Store.data.melee = m; if (r) Store.data.ranged = r; G.refreshEquip(); },
-    solidAtPx: G.solidAtPx, moveX: G.moveX, moveY: G.moveY, tAt: G.tAt, PH, BL, RG, CONFIG, damageEnemy: G.damageEnemy,
+    solidAtPx: G.solidAtPx, moveX: G.moveX, moveY: G.moveY, tAt: G.tAt, PH, BL, RG, CONFIG, TS, SCALE, VW, VH, damageEnemy: G.damageEnemy,
     levelInfo: i => ({ n: G.LEVELS[i].n, boss: G.LEVELS[i].boss }),
     counts: () => ({ bull: G.BULL.length, enem: G.ENEM.length, part: G.PARTS.length, ring: G.RINGS.length,
                      tele: G.TELE.length, zone: G.ZONES.length, pick: G.PICKS.length, beam: G.BEAMS.length,

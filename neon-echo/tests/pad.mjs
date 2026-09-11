@@ -82,7 +82,7 @@ const cr = await page.evaluate(() => {
   const D = window.__DEV;
   D.Game.startLevel(0, false);
   const h0 = D.P.h;
-  D.P.x = 60; D.P.y = 208 - h0;
+  D.P.x = 60; D.P.y = 13 * D.TS - h0;
   for (let i = 0; i < 40; i++) { D.kb.a = i % 8 < 3 ? 1 : 0; D.step(); }
   D.kb.a = 0;
   return { field: 'crouch' in D.P, down: 'down' in D.S, kbd: 'd' in D.kb,

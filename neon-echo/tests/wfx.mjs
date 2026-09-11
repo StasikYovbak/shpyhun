@@ -41,7 +41,7 @@ for (const c of CASES) {
     D.Game.startLevel(0, false); D.god(true);
     D.equip(c.melee ? c.id : 'arc', c.melee ? 'rail' : c.id);
     for (let i = 0; i < 3; i++) D.step();
-    P.x = 60; P.y = 194; P.vy = 0; P.face = c.face || 1; P.cores = 3; P.shells = 6;
+    P.x = 60; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = c.face || 1; P.cores = 3; P.shells = 6;
     P.heat = 0; P.fireCd = 0; P.chronoCd = 0; P.droneCd = 0;
     D.kb.l = D.kb.r = D.kb.a = D.kb.b = D.kb.c = 0;
     let foe = null;
@@ -89,10 +89,10 @@ const chr = await page.evaluate(() => {
   D.Game.startLevel(0, false); D.god(true);
   D.equip('chrono', 'rail');
   for (let i = 0; i < 3; i++) D.step();
-  P.x = 60; P.y = 194; P.vy = 0; P.face = 1;
+  P.x = 60; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1;
   let desat = 0, slow = 0;
   for (let k = 0; k < 6; k++) {
-    const e = D.spawnEnemy('thug', P.x + 26, 192, false);
+    const e = D.spawnEnemy('thug', P.x + D.TS * 1.6, 13 * D.TS - 20, false);
     if (e) { e.blind = 1; e.sp = 0; e.hp = e.maxHp = 1e6; }
     P.chronoCd = 0;
     D.kb.b = 1; D.step(); D.kb.b = 0;
