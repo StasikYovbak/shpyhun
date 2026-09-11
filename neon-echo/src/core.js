@@ -3395,7 +3395,7 @@ function bossChrono(dt) {
             GHOSTS.push({ x: g.x, y: g.y, vx: g.vx, t: 0.30, delay: 1.0 + i * 0.45, hit: false });
           }
         } else {
-          BOSS.st = 'tp'; BOSS.tm = TEL(1.07);
+          BOSS.st = 'tp'; BOSS.tm = TEL(0.9);
           const side = (P.x < BOSS.cx) ? 1 : -1;
           BOSS.tx = clamp(P.x + side * 54, BOSS.a0 + 12, BOSS.a1 - BOSS.w - 12);
           BOSS.ty = gy;
