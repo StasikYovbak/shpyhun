@@ -689,14 +689,74 @@ function drawBoss() {
       break;
     }
     case 'glitch': {
-      const reb = B.st === 'reboot';
-      for (let i = 0; i < 3; i++) {
-        const o = reb ? 0 : Math.round(Math.sin(t * 13 + i * 2) * 4);
-        entP.rect(px(), sx + o, sy + i * (B.h / 3), B.w, B.h / 3,
-                  i === 1 ? COL.pink : (reb ? 0xffffff : 0x00ffcc), reb ? 0.9 : 0.55);
+      // Вузли даних: збий усі три — ядро йде на перезавантаження достроково.
+      for (let i = 0; i < B.parts.length; i++) {
+        const nd = B.parts[i];
+        if (!nd.alive) continue;
+        const nx = nd.x - camX, ny = nd.y - camY;
+        const pulse = 0.55 + 0.45 * Math.sin(t * 6 + nd.ph);
+        entP.rect(px(), nx, ny, nd.w, nd.h, 0x0a2a28, 1);
+        entP.rect(px(), nx + 1, ny + 1, nd.w - 2, nd.h - 2, nd.flash > 0 ? 0xffffff : 0x00ffcc, 0.85);
+        entAddP.rect(px(), nx - 2, ny - 2, nd.w + 4, nd.h + 4, 0x00ffcc, 0.18 + 0.2 * pulse);
+        // біжучі «біти» по краю — видно, що це дані, а не просто куб
+        for (let k = 0; k < 4; k++) {
+          const u = ((t * 1.6 + k / 4 + i * 0.2) % 1) * 4;
+          const px2 = u < 1 ? nx + u * nd.w : u < 2 ? nx + nd.w : u < 3 ? nx + (3 - u) * nd.w : nx;
+          const py2 = u < 1 ? ny : u < 2 ? ny + (u - 1) * nd.h : u < 3 ? ny + nd.h : ny + (4 - u) * nd.h;
+          entAddP.rect(px(), px2 - 1, py2 - 1, 2, 2, 0xffffff, 0.8);
+        }
+        entP.rect(px(), nx, ny - 3, Math.round(nd.w * clamp(nd.hp / nd.maxHp, 0, 1)), 1, COL.pink, 1);
+        pushLight(nd.x + nd.w / 2, nd.y + nd.h / 2, 22, 0x00ffcc, 0.3 + 0.2 * pulse);
       }
-      entP.rect(px(), sx + 8, sy + 8, B.w - 16, B.h - 16, reb ? COL.yellow : 0x0a0a28, 1);
-      pushLight(B.x + B.w / 2, B.y + B.h / 2, reb ? 110 : 70, reb ? 0xffffff : 0x00ffcc, reb ? 0.8 : 0.45);
+
+      const docked = B.st === 'dock';
+      const warn = B.st === 'warn';
+      const inv = G.world.grav < 0;
+
+      // Підсвічена точка кріплення + кабель-промінь: видно наперед, куди летіти.
+      if (warn || docked) {
+        const d = G.glitchDockPos(B.dockI);
+        const ax = d.x + B.w / 2 - camX, ay = d.base - camY;
+        const k = warn ? 0.4 + 0.6 * Math.abs(Math.sin(t * 16)) : 0.8;
+        entAddP.rect(px(), ax - 16, ay - (inv ? 3 : 3), 32, 3, COL.yellow, k);
+        for (let r = 0; r < 3; r++)                  // «лапи» кріплення
+          entAddP.rect(px(), ax - 14 + r * 12, ay - (inv ? -2 : 8), 3, 6, COL.yellow, k * 0.8);
+        pushLight(d.x + B.w / 2, d.base, 54, COL.yellow, k * 0.7);
+        if (warn) {
+          line(entAddP, sx + B.w / 2, sy + B.h / 2, ax, ay, COL.yellow, 0.35 + 0.35 * k, 1);
+          line(entAddP, sx + B.w / 2, sy + B.h / 2, ax, ay, 0xffffff, 0.25 * k, 1);
+        }
+      }
+
+      if (docked) {
+        // Оболонка розкрита пелюстками, всередині — пульсуюче ядро.
+        const fold = B.foldT ? 1 : 0;                // телеграф відриву: складається
+        const open = fold ? 0.45 : 1;
+        const h = B.h, midY = sy + h / 2;
+        for (let side = -1; side <= 1; side += 2) {
+          for (let r = 0; r < 3; r++) {
+            const spread = (6 + r * 5) * open;
+            const py2 = midY - h / 2 + 4 + r * (h / 3);
+            entP.rect(px(), sx + B.w / 2 + side * spread - 3, py2, 6, h / 3 - 3, 0x0a2a28, 1);
+            entAddP.rect(px(), sx + B.w / 2 + side * spread - 3, py2, 6, h / 3 - 3,
+                         fold ? COL.pink : 0x00ffcc, 0.55 + 0.25 * Math.sin(t * 9 + r));
+          }
+        }
+        const cp = 0.6 + 0.4 * Math.sin(t * 14);     // саме ядро — велике й помітне
+        entP.rect(px(), sx + B.w / 2 - 7, midY - 10, 14, 20, 0x120a26, 1);
+        entP.rect(px(), sx + B.w / 2 - 5, midY - 8, 10, 16, fold ? COL.pink : COL.yellow, 1);
+        entAddP.rect(px(), sx + B.w / 2 - 9, midY - 12, 18, 24, 0xffffff, 0.25 + 0.35 * cp);
+        pushLight(B.x + B.w / 2, B.y + h / 2, 90 + 30 * cp, fold ? COL.pink : 0xffffff, 0.75);
+      } else {
+        // У польоті — три збійні смуги, що розтікаються по горизонталі.
+        for (let i = 0; i < 3; i++) {
+          const o = Math.round(Math.sin(t * 13 + i * 2) * 4);
+          entP.rect(px(), sx + o, sy + i * (B.h / 3), B.w, B.h / 3,
+                    i === 1 ? COL.pink : 0x00ffcc, warn ? 0.8 : 0.55);
+        }
+        entP.rect(px(), sx + 8, sy + 8, B.w - 16, B.h - 16, 0x0a0a28, 1);
+        pushLight(B.x + B.w / 2, B.y + B.h / 2, warn ? 90 : 70, 0x00ffcc, warn ? 0.7 : 0.45);
+      }
       break;
     }
     case 'architect': {
@@ -1420,12 +1480,36 @@ function drawHud() {
     hudP.rect(px(), x + 1, 26, Math.round((w - 2) * clamp(B.hp / B.maxHp, 0, 1)), 4,
       G.bossInvulnerable() ? 0x8f7fb0 : COL.pink, 1);
     if (B.phase > 1) txt('bphase', 'ФАЗА ' + B.phase, x + w + 4, 24, 9, COL.yellow); else hideTxt('bphase');
+
+    // Гліч-Ядро: смужка «До перезавантаження» — щоб зайняти позицію заздалегідь
+    let hintY = 33;
+    if (B.type === 'glitch' && B.st) {
+      const T0 = B.st === 'fly' ? G.GLITCH.FLY
+               : B.st === 'warn' ? G.GLITCH.WARN
+               : B.st === 'dock' ? G.GLITCH.WIN[Math.min(2, B.phase - 1)] : G.GLITCH.DETACH;
+      const k = clamp(B.tm / Math.max(0.01, T0), 0, 1);
+      const lab = B.st === 'fly' ? 'ДО ПЕРЕЗАВАНТАЖЕННЯ'
+                : B.st === 'warn' ? 'ЗАХОДИТЬ НА ПОСАДКУ'
+                : B.st === 'dock' ? (B.foldT ? 'ЗАРАЗ ЗІРВЕТЬСЯ' : 'ВІКНО ШКОДИ') : '';
+      const col = B.st === 'dock' ? (B.foldT ? COL.orange : COL.green) : COL.cyan;
+      hudP.rect(px(), x, 34, w, 4, 0x241a3a, 1);
+      hudP.rect(px(), x + 1, 35, Math.round((w - 2) * (B.st === 'fly' ? 1 - k : k)), 2, col, 1);
+      txt('bload', lab, vw / 2, 39, 8, col, 'center');
+      // скільки вузлів лишилось збити, щоб прискорити цикл
+      const left = G.GLITCH.nodesLeft();
+      if (B.st === 'fly' && left > 0)
+        txt('bnode', 'ВУЗЛИ ДАНИХ: ' + left + ' / 3', x + w + 4, 34, 8, 0x00ffcc);
+      else hideTxt('bnode');
+      hintY = 49;
+    } else { hideTxt('bload'); hideTxt('bnode'); }
+
     if (G.bossInvulnerable()) {
       txt('bhint', B.type === 'queen' ? 'ЗБИЙ ГЕНЕРАТОРИ'
         : B.type === 'chrono' ? 'ПАРИРУЙ ВИПАД (B)'
-        : B.type === 'glitch' ? 'ЧЕКАЙ ПЕРЕЗАВАНТАЖЕННЯ' : 'БИЙ ЯДРА', vw / 2, 33, 9, COL.yellow, 'center');
+        : B.type === 'glitch' ? 'ЗБИЙ ВУЗЛИ — ЯДРО СЯДЕ ШВИДШЕ' : 'БИЙ ЯДРА',
+        vw / 2, hintY, 9, COL.yellow, 'center');
     } else hideTxt('bhint');
-  } else { hideTxt('bname'); hideTxt('bphase'); hideTxt('bhint'); }
+  } else { hideTxt('bname'); hideTxt('bphase'); hideTxt('bhint'); hideTxt('bload'); hideTxt('bnode'); }
 
   if (B.on && B.nameT > 0 && B.intro > 0) {
     const a = clamp(B.nameT / 1.2, 0, 1);
