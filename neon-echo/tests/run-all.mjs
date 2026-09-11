@@ -48,6 +48,8 @@ ok = run('balance.mjs') && ok;
 ok = run('weapons.mjs') && ok;
 ok = run('wfx.mjs') && ok;
 ok = run('boss2.mjs') && ok;
+ok = run('glitch.mjs') && ok;
+ok = run('melee-audit.mjs') && ok;
 ok = run('cut.mjs') && ok;
 ok = run('flow.mjs') && ok;
 try { process.kill(-srv.pid); } catch (e) { }
