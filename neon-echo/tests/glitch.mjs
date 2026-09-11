@@ -242,7 +242,8 @@ const fight = await page.evaluate(async () => {
       else if (B.st === 'dock') {                     // по ядру — заряджений
         hold++;
         if (hold * (1 / 60) >= 0.86) { D.kb.c = 0; hold = 0; } else D.kb.c = 1;
-      } else { D.kb.c = (f % 2) ? 1 : 0; hold = 0; }  // по вузлах — дешеві тапи
+      } else if (tx !== null) { D.kb.c = (f % 2) ? 1 : 0; hold = 0; }  // вузли — дешеві тапи
+      else { D.kb.c = 0; hold = 0; }                  // стріляти нема в що — даємо стволу охолонути
       D.step(); f++;
     }
     D.kb.b = D.kb.c = 0;

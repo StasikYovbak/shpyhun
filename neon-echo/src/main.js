@@ -26,7 +26,7 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import { App } from '@capacitor/app';
 
 const canvas = document.getElementById('game');
-let last = 0, acc = 0, audioReady = false;
+let last = 0, acc = 0, audioReady = false, lastFight = null;
 
 /* ------------------------------------------------------- нативний шар */
 async function setupNative() {
@@ -89,6 +89,12 @@ function frame(now) {
     }
     if (acc > DT * cap) acc = 0;
   } else acc = 0;
+  // клас бою на шар керування — CSS робить решту
+  const fight = G.Game.state === 'play' && G.Game.combat && Store.data.dimFight;
+  if (fight !== lastFight) {
+    lastFight = fight;
+    document.getElementById('touch').classList.toggle('fight', !!fight);
+  }
   // Червона рамка GOD MODE, поки активний хоч один чит: без неї легко
   // протестувати баланс безсмертним і зробити хибні висновки.
   if (DEV_MODE && dbg) dbg.frame(cheating());
@@ -176,6 +182,7 @@ async function boot() {
     shoot: G.shoot, spawnEnemy: G.spawnEnemy, BULL: G.BULL, ENEM: G.ENEM, EQ: G.EQ, DRONES: G.DRONES,
     TELE: G.TELE, ZONES: G.ZONES, BEAMS: G.BEAMS, WEAPONS: G.WEAPONS,
     GLITCH: G.GLITCH, glitchDockPos: G.glitchDockPos,
+    pickTarget: G.pickTarget, targets: G.targets,
     Music, Tone: null,
     audioState: () => Music.ctxState(),
     transportState: () => Music.transportState(),

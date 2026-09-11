@@ -81,12 +81,17 @@ console.log('\nПРИСІДАННЯ ПРИБРАНО');
 const cr = await page.evaluate(() => {
   const D = window.__DEV;
   D.Game.startLevel(0, false);
-  return { field: 'crouch' in D.P, down: 'down' in D.S, kbd: 'd' in D.kb, h: D.P.h };
+  const h0 = D.P.h;
+  D.P.x = 60; D.P.y = 208 - h0;
+  for (let i = 0; i < 40; i++) { D.kb.a = i % 8 < 3 ? 1 : 0; D.step(); }
+  D.kb.a = 0;
+  return { field: 'crouch' in D.P, down: 'down' in D.S, kbd: 'd' in D.kb,
+           h: D.P.h, same: D.P.h === h0 };
 });
 ok(!cr.field, 'у гравця немає поля crouch');
 ok(!cr.down, 'у вводі немає стану «вниз»');
 ok(!cr.kbd, 'клавіша ↓ більше нічого не тримає');
-ok(cr.h === 14, 'висота хітбокса героїні постійна 14 px', cr.h + ' px');
+ok(cr.same, 'висота хітбокса героїні не міняється ні від чого', cr.h + ' px постійно');
 
 console.log('\nСПУСК КРІЗЬ ТОНКУ ПЛАТФОРМУ — УТРИМАННЯ A');
 const drop = await page.evaluate(() => {

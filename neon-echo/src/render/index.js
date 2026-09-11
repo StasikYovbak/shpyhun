@@ -1010,6 +1010,20 @@ function drawWfx(t) {
       case 'grid':                                   // геометрична сітка, що згасає
         line(entAddP, x, y, f.x2 - camX, f.y2 - camY, 0x8fdcff, k * 0.45, 1);
         break;
+      /* --- БРОНЯ: влучання не зарахувалось --- */
+      case 'armor': {
+        const r = 10 + (1 - k) * 6;
+        for (let n = 0; n < 3; n++) {                // три шеврони щита
+          const o = n * 3;
+          entAddP.rect(px(), x - r + o, y - 1, 3, 2, 0x8fa8d0, k * 0.9);
+          entAddP.rect(px(), x + r - o - 3, y - 1, 3, 2, 0x8fa8d0, k * 0.9);
+        }
+        entP.rect(px(), x - 5, y - 5, 10, 10, 0x1a2440, k * 0.8);
+        entAddP.rect(px(), x - 4, y - 4, 8, 8, 0x8fa8d0, k);
+        entAddP.rect(px(), x - 2, y - 6, 4, 12, 0xd8e6f2, k * 0.7);
+        pushLight(f.x, f.y, 30, 0x8fa8d0, k * 0.5);
+        break;
+      }
       /* --- РІЙ --- */
       case 'dbeam':
         line(entAddP, x, y, f.x2 - camX, f.y2 - camY, f.col, k, 1);
@@ -1044,7 +1058,8 @@ function drawDrones() {
     pushLight(d.x, d.y, empty ? 12 : (hot ? 44 : 26), hot ? COL.yellow : d.col,
               empty ? 0.12 : (hot ? 0.6 : 0.32));
   }
-  const m = G.P.mark;
+  const mk = G.P.mark;
+  const m = mk ? (mk.e || mk.part || (mk.boss ? G.BOSS : null)) : null;
   if (m && !m.dead) {                                // мітка цілі — чотири кутики
     const mx = m.x - camX, my = m.y - camY, k = 0.6 + 0.4 * Math.sin(t * 10);
     for (const [ox, oy, dx, dy] of [[0, 0, 1, 1], [m.w, 0, -1, 1], [0, m.h, 1, -1], [m.w, m.h, -1, -1]]) {
@@ -1057,13 +1072,15 @@ function drawDrones() {
 /* «Оса»: сканер на стволі клацає на цілі за мить до пострілу. */
 function drawScan(t) {
   const P = G.P, e = P.scan;
-  if (!e || e.dead || G.EQ.r.id !== 'osa') return;
+  if (!e || G.EQ.r.id !== 'osa') return;
   const mx = P.x + P.w / 2 + P.face * 8, my = P.y + 6;
   const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
-  line(entAddP, mx - camX, my - camY, ex - camX, ey - camY, COL.yellow, 0.16, 1);
+  // під бронею сканер червоніє: видно наперед, що влучання не зарахується
+  const col = e.kind === 'armor' ? 0xff6b7f : COL.yellow;
+  line(entAddP, mx - camX, my - camY, ex - camX, ey - camY, col, 0.16, 1);
   const k = 0.5 + 0.5 * Math.sin(t * 18);
   for (const [ox, oy] of [[0, 0], [e.w, 0], [0, e.h], [e.w, e.h]])
-    entAddP.rect(px(), e.x + ox - 1 - camX, e.y + oy - 1 - camY, 2, 2, COL.yellow, 0.35 + 0.4 * k);
+    entAddP.rect(px(), e.x + ox - 1 - camX, e.y + oy - 1 - camY, 2, 2, col, 0.35 + 0.4 * k);
 }
 
 function drawPlayer(th) {

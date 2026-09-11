@@ -4,7 +4,7 @@
  * який тепер живе в src/render/. Тут немає жодного звертання до canvas.
  */
 import { DEV_MODE,
-  VW, VH, TS, DT, MAXDT, CONFIG, PH, BL, RG,
+  VW, VH, TS, DT, MAXDT, CONFIG, PH, BL, RG, SPR, BSPR, px as SC,
   clamp, lerp, sign, rnd, rndi, aabb, boxHit, dist2, mulberry
 } from './config.js';
 import { Store } from './store.js';
@@ -97,7 +97,10 @@ const cam = {
   hit(mag) { this.shake = Math.max(this.shake, mag); this.shakeT = 0.28; },
   update(dt, tx, ty) {
     let minX = 0, maxX = Math.max(0, world.pw - view.w);
-    if (this.lockX0 >= 0) {
+    // На аренах босів камеру раніше прибивало до меж арени — через це
+    // героїня з'їжджала з центра «щоб показати боса». У режимі «по центру»
+    // цього винятку немає: межі лишаються тільки в світу.
+    if (this.lockX0 >= 0 && Store.data.cam === 1) {
       const span = this.lockX1 - this.lockX0;
       if (span <= view.w) {
         // кадр ширший за арену — центруємо арену, а не показуємо порожнечу за нею
@@ -105,10 +108,17 @@ const cam = {
         minX = maxX = c;
       } else { minX = this.lockX0; maxX = this.lockX1 - view.w; }
     }
+    // «По центру» (за замовчуванням): героїня жорстко в центрі кадру —
+    // ні мертвої зони, ні випередження, ні зсуву вниз. Це прямо проти
+    // того, щоб палець ховав її за собою. «Класична» лишає старий
+    // варіант зі згладжуванням і зсувом на 5 % вниз.
+    const classic = Store.data.cam === 1;
     const gx = clamp(tx - view.w / 2, minX, maxX);
-    const gy = clamp(ty - view.h * 0.55, 0, Math.max(0, world.ph - view.h));
-    this.x = lerp(this.x, gx, clamp(dt * 9, 0, 1));
-    this.y = lerp(this.y, gy, clamp(dt * 7, 0, 1));
+    const gy = clamp(ty - view.h * (classic ? 0.55 : 0.5), 0, Math.max(0, world.ph - view.h));
+    this.x = classic ? lerp(this.x, gx, clamp(dt * 9, 0, 1)) : gx;
+    // по вертикалі згладжування лишається завжди — інакше кадр сіпається
+    // на кожному стрибку — але цілиться рівно в центр
+    this.y = lerp(this.y, gy, clamp(dt * (classic ? 7 : 11), 0, 1));
     if (this.shakeT > 0) {
       this.shakeT -= dt;
       if (this.shakeT <= 0) this.shake = 0; else this.shake *= 0.90;
@@ -356,13 +366,16 @@ function rayLen(x, y, dir, maxLen) {
    10. ГЕРОЙ «ЕХО»
    ================================================================ */
 const P = {
-  x: 0, y: 0, w: 10, h: 14, vx: 0, vy: 0, face: 1,
+  // 10x14 -> 13x19: хітбокс росте разом зі спрайтом, інакше «картинка
+  // більша, а б'є по-старому». Найвужчий прохід у рівнях — 2 тайли (32 px).
+  x: 0, y: 0, w: 13, h: 19, vx: 0, vy: 0, face: 1,
   onGround: false, coyote: 0, jbuf: 0, jumpHeld: false, ride: null,
   jumps: 0, flipT: 0, dropHold: 0, wallRestored: false,
   hp: 5, maxHp: 5, inv: 0, hurtT: 0, dead: false, deadT: 0,
   dashT: 0, dashCd: 0, dashDir: 1,
   dropT: 0,
-  atkT: 0, atkIdx: 0, atkAct: false, comboT: 0, hitSet: [],
+  atkT: 0, atkIdx: 0, atkAct: false, comboT: 0, hitSet: [], clawSide: 0,
+  shootT: 0, shootDur: 0, shootW: '', tpPose: 0,
   parryT: 0, bHold: 0, q: 0, dischT: 0,
   heat: 0, lock: false, lockT: 0, arA: 0.4, arB: 0.55, arUsed: false, arMark: 0,
   cHold: 0, fireCd: 0, chargeReady: false, recoil: 0,
@@ -377,8 +390,9 @@ function playerReset(full) {
   P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.coyote = 0; P.jbuf = 0;
   P.jumps = 0; P.flipT = 0; P.dropHold = 0; P.wallRestored = false;
   P.ride = null; P.inv = 1.0; P.hurtT = 0; P.dead = false; P.deadT = 0;
-  P.dashT = 0; P.dashCd = 0; P.dropT = 0; P.h = 14;
+  P.dashT = 0; P.dashCd = 0; P.dropT = 0; P.h = 19;
   P.atkT = 0; P.atkIdx = 0; P.atkAct = false; P.comboT = 0; P.hitSet.length = 0;
+  P.clawSide = 0; P.shootT = 0; P.shootDur = 0; P.shootW = ''; P.tpPose = 0;
   P.parryT = 0; P.bHold = 0; P.dischT = 0;
   P.heat = 0; P.lock = false; P.lockT = 0; P.arUsed = false; P.arMark = 0;
   P.cHold = 0; P.fireCd = 0; P.chargeReady = false; P.recoil = 0;
@@ -431,15 +445,19 @@ function playerDie() {
 }
 
 /* ---------------- зброя 1: «Арк-тесак» ---------------- */
+/**
+ * Коробка ближнього удару. Усі числа перераховані під новий розмір
+ * героїні (x1.35): дуга не має «відставати» від того, що видно.
+ */
 function bladeBox() {
   const w = EQ.m, idx = P.atkIdx;
   const cx = P.x + P.w / 2, cy = P.y + P.h / 2;
   if (w.id === 'arc') {
-    if (idx === 2) return { x: P.face > 0 ? cx : cx - 26, y: cy - 10, w: 26, h: 20 };
-    return { x: P.face > 0 ? cx : cx - 19, y: cy - 7, w: 19, h: 14 };
+    if (idx === 2) return { x: P.face > 0 ? cx : cx - 35, y: cy - 14, w: 35, h: 27 };
+    return { x: P.face > 0 ? cx : cx - 26, y: cy - 9, w: 26, h: 19 };
   }
-  const r = w.id === 'chrono' ? 20 : w.reach;      // 44 px хронорізу — радіус телепорту
-  const h = w.id === 'whip' ? 26 : (w.id === 'brand' ? 20 : 12);
+  const r = w.id === 'chrono' ? 27 : w.reach;      // радіус телепорту хронорізу
+  const h = w.id === 'whip' ? 35 : (w.id === 'brand' ? 27 : 16);
   return { x: P.face > 0 ? cx : cx - r, y: cy - h / 2, w: r, h: h };
 }
 function bladeStart() {
@@ -550,7 +568,7 @@ function railShoot() {
   railCase(mx, y);
   P.heat = Math.min(120, P.heat + RG.SHOT);
   if (DEV_MODE && CH.res) P.heat = 0;                   // чит: тепло не росте
-  P.fireCd = RG.CD; P.recoil = 0.12;
+  P.fireCd = RG.CD; P.recoil = 0.12; shootAnim(RG.CD);
   P.noise = 0.7;
   P.vx -= P.face * (P.onGround ? RG.RECOIL * 0.35 : RG.RECOIL);
   Sfx.wRail();
@@ -579,7 +597,7 @@ function railBeam() {
   railCase(sx, y);
   P.heat = Math.min(130, P.heat + RG.BEAM);
   if (DEV_MODE && CH.res) P.heat = 0;
-  P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0;
+  P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0; shootAnim(0.25);
   P.vx -= P.face * (P.onGround ? 60 : 130);
   Sfx.wRail(); Sfx.beam(); buzz(22); cam.hit(3.5);
   for (let i = 0; i < 14; i++)
@@ -624,7 +642,7 @@ function syncDrones() {
   if (EQ.r.id !== 'swarm') { DRONES.length = 0; P.mark = null; return; }
   while (DRONES.length < 3)
     DRONES.push({ i: DRONES.length, x: P.x, y: P.y, vx: 0, vy: 0,
-                  st: 'orbit', t: 0, cd: 0, hitT: 0, target: null,
+                  st: 'orbit', t: 0, cd: 0, hitT: 0, tgt: null,
                   col: DRONE_COL[DRONES.length], tr: [] });
   DRONES.length = 3;
 }
@@ -758,7 +776,7 @@ function meleeStart() {
       wfx({ k: 'plates', x: P.x + P.w / 2, y: P.y + 7, face: P.face, t: w.swing[0] });
       break;
     case 'claws':
-      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.wClaws();
+      P.atkIdx = 0; P.atkT = w.swing[0]; P.clawSide ^= 1; Sfx.wClaws();
       wfx({ k: 'cut', x: P.x + P.w / 2, y: P.y + 7, face: P.face, t: 0.15 });
       break;
     case 'chrono':
@@ -905,6 +923,7 @@ function chronoStrike() {
     P.x = tx;
     burst(P.x + P.w / 2, P.y + 7, 10, '#8f6fff', 130, 0.3, 0, 1);
   }
+  P.tpPose = 0.22;                                 // з'являється вже в іншій позі — спиною до камери
   damageEnemy(best, EQ.m.dmg[0] * 2, -P.face * 90, { melee: true, pierce: true, back: true });
   // удар зі спини — вертикальний розріз-спалах на ворозі
   wfx({ k: 'rip', x: best.x + best.w / 2, y: best.y + best.h / 2, h: best.h + 8, t: 0.18 });
@@ -1046,7 +1065,7 @@ function clawStack(e) {
    ================================================================ */
 const AST = {                                     // значення = пріоритет
   IDLE: 10, RUN: 20, LAND: 30, FALL: 45, JUMP: 50,
-  DASH: 60, ATTACK: 70, HURT: 80, DEAD: 90
+  DASH: 60, SHOOT: 65, ATTACK: 70, HURT: 80, DEAD: 90
 };
 const ANIM = {
   VXDEAD: 5,        // нижче цього без вводу швидкість вважається нулем
@@ -1056,6 +1075,61 @@ const ANIM = {
   LONGIDLE: 5.0,    // через стільки секунд простою — довга анімація
   LONGDUR: 1.6      // її тривалість
 };
+/**
+ * Кадр атаки ближньої зброї. k — частка ПРОЙДЕНОГО удару (0..1), тому
+ * анімація прив'язана до реального часу зброї: кігті встигають три
+ * кадри за 0,10 с, Тавро розтягує свої три на 0,45 с — і жодна не
+ * «наздоганяє» дію. Межа кадру удару збігається з початком вікна
+ * шкоди (k = 0,20), тож замах закінчується рівно тоді, коли зброя
+ * починає ранити.
+ */
+function meleePose(id, k, idx, side) {
+  switch (id) {
+    case 'arc':                                   // рубальний замах через плече
+      if (k < 0.20) return idx === 1 ? 'a_arcW2' : 'a_arcW';
+      if (k < 0.72) return ['a_arc1', 'a_arc2', 'a_arc3'][idx] || 'a_arc1';
+      return idx === 2 ? 'a_arcT' : 'a_arcR';     // третій удар — з розворотом корпусу
+    case 'whip':                                  // межі = реальні фази хлиста
+      if (k < 0.14) return 'a_whip1';             // 0,12 с: рука відводиться назад
+      if (k < 0.27) return 'a_whip2';             // корпус іде в розворот
+      if (k < 0.67) return 'a_whip3';             // 0,18 с: широкий викид з нахилом
+      return 'a_whip2';                           // 0,15 с: повернення через розворот
+    case 'brand':
+      if (k < 0.20) return 'a_brand1';            // присідання з підготовкою
+      if (k < 0.62) return 'a_brand2';            // удар униз усією вагою
+      return 'a_brand3';                          // віддача в плече
+    case 'chrono':
+      if (k < 0.20) return 'a_chron1';            // низька стійка
+      if (k < 0.70) return 'a_chron2';            // різкий випад уперед
+      return 'a_chron4';                          // проводка
+    case 'claws':                                 // по черзі лівою й правою
+      if (k < 0.20) return side ? 'a_claw2' : 'a_claw1';
+      if (k < 0.80) return side ? 'a_claw1' : 'a_claw2';
+      return 'a_claw3';
+  }
+  return 'atk';
+}
+/** Те саме для дальньої: k міряється від реального часу між пострілами. */
+function rangedPose(id, k) {
+  switch (id) {
+    case 'rail':                                  // упор ногою, приклад до плеча
+      return k < 0.30 ? 'a_rail2' : k < 0.70 ? 'a_rail3' : 'a_rail1';
+    case 'osa':                                   // легка стійка, ствол трохи гуляє
+      return k < 0.35 ? 'a_osa2' : k < 0.70 ? 'a_osa1' : 'a_osa3';
+    case 'shot':                                  // дві руки й важкий відкид корпусу
+      return k < 0.25 ? 'a_shot1' : k < 0.60 ? 'a_shot2' : 'a_shot3';
+    case 'swarm':                                 // не стріляє, а вказує рукою
+      return k < 0.30 ? 'a_swrm1' : k < 0.75 ? 'a_swrm2' : 'a_swrm3';
+    case 'glitch':                                // рука-протез розкривається
+      return k < 0.30 ? 'a_gl1' : k < 0.70 ? 'a_gl2' : 'a_gl3';
+    case 'prism':
+      return k < 0.30 ? 'a_pr1' : k < 0.70 ? 'a_pr2' : 'a_pr3';
+  }
+  return 'atk';
+}
+/** Пускає кадри пострілу рівно на стільки, скільки триває сам постріл. */
+function shootAnim(dur) { P.shootT = dur; P.shootDur = dur; P.shootW = EQ.r.id; }
+
 function setAnim(st) {
   if (P.aState === st) return;
   P.aState = st;
@@ -1067,7 +1141,12 @@ function setAnim(st) {
 function resolveAnim(g) {
   if (P.dead) return AST.DEAD;
   if (P.hurtT > 0) return AST.HURT;
-  if (P.atkT > 0) return AST.ATTACK;
+  if (P.atkT > 0 || P.tpPose > 0) return AST.ATTACK;
+  if (P.shootT > 0) return AST.SHOOT;
+  // дробовик перезаряджається довго, і це видно: окремий кадр із цівкою
+  if (EQ.r.id === 'shot' && P.reloadT > 0) return AST.SHOOT;
+  // рейкострил на утриманні стоїть в упорі — це його готова стійка
+  if (EQ.r.id === 'rail' && P.cHold > 0) return AST.SHOOT;
   if (P.dashT > 0) return AST.DASH;
   if (!P.onGround) return (P.vy * g < 0) ? AST.JUMP : AST.FALL;
   if (P.landT > 0) return AST.LAND;
@@ -1079,6 +1158,8 @@ function stepAnim(dt, g) {
   if (P.onGround && !P.wasGround && P.dashT <= 0 && P.atkT <= 0) P.landT = ANIM.LAND;
   P.wasGround = P.onGround;
   if (P.landT > 0) P.landT -= dt;
+  if (P.shootT > 0) P.shootT -= dt;
+  if (P.tpPose > 0) P.tpPose -= dt;
 
   setAnim(resolveAnim(g));
   P.aT += dt;
@@ -1110,7 +1191,31 @@ function stepAnim(dt, g) {
     case AST.JUMP:   P.anim = 'jump'; break;
     case AST.FALL:   P.anim = 'fall'; break;
     case AST.DASH:   P.anim = 'jump'; break;
-    case AST.ATTACK: P.anim = 'atk'; break;
+    case AST.ATTACK: {
+      if (P.tpPose > 0) {
+        // телепорт крізь ворога: випад — поява спиною до камери — стійка
+        const t = 1 - P.tpPose / 0.22;
+        P.anim = t < 0.25 ? 'a_chron2' : t < 0.78 ? 'a_chron3' : 'a_chron1';
+        break;
+      }
+      const w = EQ.m;
+      const total = w.id === 'arc' ? BL.DUR[P.atkIdx] : w.swing[0];
+      P.anim = meleePose(w.id, clamp(1 - P.atkT / Math.max(total, 0.001), 0, 1),
+                         P.atkIdx, P.clawSide);
+      break;
+    }
+    case AST.SHOOT: {
+      const id = EQ.r.id;
+      if (id === 'shot' && P.reloadT > 0 && P.shootT <= 0) {
+        // цівка ходить туди-сюди, поки триває перезаряджання
+        P.anim = (Math.floor(P.reloadT * 4) % 2) ? 'a_shotR' : 'a_shot1';
+      } else if (P.shootT <= 0) {
+        P.anim = 'a_rail1';                               // упор під час заряду
+      } else {
+        P.anim = rangedPose(id, clamp(1 - P.shootT / Math.max(P.shootDur, 0.001), 0, 1));
+      }
+      break;
+    }
     case AST.HURT:   P.anim = 'hurt'; break;
     case AST.DEAD:   P.anim = 'hurt'; break;
   }
@@ -1159,7 +1264,7 @@ function prismFire() {
     { own: 'p', dmg: EQ.r.dmg, w: 5, h: 5, col: '#8fdcff', life: 2.4, kind: 6 });
   b.bounce = 5;
   b.gx = P.x + P.w / 2 + P.face * 8; b.gy = y;      // початок геометричної сітки
-  P.fireCd = 0.34; P.noise = 0.8;
+  P.fireCd = 0.34; P.noise = 0.8; shootAnim(0.34);
   Sfx.wPrism(); buzz(12);
   ring(P.x + P.w / 2 + P.face * 8, y, 2, 16, 0.25, '#8fdcff', 2);
 }
@@ -1192,40 +1297,36 @@ function osaShoot() {
     { own: 'p', dmg: EQ.r.dmg, w: 5, h: 3, col: '#ffd23f', life: 1.1, kind: 1 });
   b.home = 1;
   b.tr = [];                                       // трасер: саме по ньому видно доводку
-  P.fireCd = 0.115;
+  P.fireCd = 0.115; shootAnim(0.115);
   P.noise = 0.4;
   Sfx.wOsa();
   part(P.x + P.w / 2 + P.face * 10, y, P.face * 60, 0, 0.12, '#ffd23f', 1, 0, 1);
 }
 /** Сканер на стволі: «клацає» на цілі за мить до пострілу. */
 function osaScan() {
-  const cx = P.x + P.w / 2, cy = P.y + 6;
-  let best = null, bd = 1e9;
-  for (let i = 0; i < ENEM.length; i++) {
-    const e = ENEM[i];
-    if (e.dead || e.charm > 0) continue;
-    const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
-    if (dx * P.face < 0) continue;
-    const d = Math.hypot(dx, dy);
-    if (d > 160) continue;
-    if (Math.abs(Math.atan2(dy, Math.abs(dx))) > 0.35) continue;   // конус 40°
-    if (d < bd) { bd = d; best = e; }
-  }
-  P.scan = best;
+  const t = pickTarget(P.x + P.w / 2, P.y + 6, P.face, 0, 160, 0.35);
+  // сканер підсвічує рівно ту коробку, в яку піде куля — разом із босом
+  P.scan = t ? { x: t.x, y: t.y, w: t.w, h: t.h, kind: t.kind } : null;
 }
 /** Дробовик: конус із шести дробин, сильна віддача. */
 function shotFire() {
   const y = P.y + 6;
   P.shells--;
   if (DEV_MODE && CH.res) { P.shells = 6; P.reloadT = 0; }
+  // Конус РОЗКРИВАЄТЬСЯ З ВІДСТАННЮ, а не одразу від ствола. Раніше
+  // дробини розліталися на 45° просто з дула, тож упритул у ворога
+  // потрапляли одна-дві з шести — і дробовик бив слабше за пістолет.
+  // Тепер бічна швидкість наростає лінійно до SH.OPEN: до 30 px розліт
+  // ~3 px (влучають усі шість), на 100 px конус виходить на свої 45°.
   for (let i = 0; i < 6; i++) {
     const a = (i - 2.5) / 5 * (45 * Math.PI / 180);
     const sp = 420 + rnd(-30, 30);
-    const b = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * Math.cos(a) * sp, Math.sin(a) * sp,
+    const b = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * sp, 0,
       { own: 'p', dmg: EQ.r.dmg, w: 4, h: 3, col: '#ffb03f', life: 0.26, kind: 1 });
     b.falloff = 1;
+    b.spreadV = Math.tan(a) * sp * 2;               // куди дробина розійдеться
   }
-  P.fireCd = 0.42;
+  P.fireCd = 0.42; shootAnim(0.42);
   P.noise = 1.0;
   P.vx -= P.face * (P.onGround ? 110 : 285);       // віддача: у повітрі — як другий стрибок
   if (!P.onGround && P.vy > -60) P.vy -= 70;
@@ -1240,21 +1341,16 @@ function shotFire() {
          rnd(0.4, 0.8), '#8a7fa0', 2, -12, 1);
   if (P.shells <= 0) P.reloadT = 1.8;
 }
-/** «Рій»: тап позначає ціль, вільний дрон відривається від строю. */
+/** «Рій»: тап позначає ціль, вільний дрон відривається від строю.
+    Ціль шукається в єдиному списку, тож дрони вміють брати й боса. */
 function launchDrone() {
-  let best = null, bd = 1e9;
-  const cx = P.x + P.w / 2;
-  for (let i = 0; i < ENEM.length; i++) {
-    const e = ENEM[i];
-    if (e.dead || e.charm > 0) continue;
-    const d = dist2(cx, P.y + 7, e.x + e.w / 2, e.y + e.h / 2);
-    if (d < bd && d < 220 * 220) { bd = d; best = e; }
-  }
-  P.mark = best;
+  const best = pickTarget(P.x + P.w / 2, P.y + 7, P.face, 0, 220, 0);
+  P.mark = best || null;
   const d = DRONES.find(q => q.st === 'orbit' && q.cd <= 0);
   if (!d) { Sfx.blocked(); return; }
-  d.st = 'strike'; d.t = DRONE_LIFE; d.target = best; d.tr.length = 0;
+  d.st = 'strike'; d.t = DRONE_LIFE; d.tgt = best; d.tr.length = 0;
   P.droneCd = (DEV_MODE && CH.res) ? 0 : 3;               // чит: дрони без перезарядки
+  shootAnim(0.45);
   Sfx.wSwarm();
 }
 const DRONE_LIFE = 7;                               // скільки дрон працює по цілі
@@ -1277,47 +1373,36 @@ function updateDrones(dt) {
 
     if (d.st === 'strike') {
       d.t -= dt;
-      let tg = d.target;
-      if (!tg || tg.dead) {                         // ціль впала — шукаємо наступну
-        tg = null;
-        let bd = 1e9;
-        for (let j = 0; j < ENEM.length; j++) {
-          const e = ENEM[j];
-          if (e.dead || e.charm > 0) continue;
-          const q = dist2(d.x, d.y, e.x + e.w / 2, e.y + e.h / 2);
-          if (q < bd) { bd = q; tg = e; }
-        }
-        d.target = tg;
+      let tg = d.tgt;
+      if (!tg || !tgtAlive(tg)) {                   // ціль впала — шукаємо наступну
+        tg = pickTarget(d.x, d.y, P.face, 0, 400, 0);
+        d.tgt = tg;
       }
-      if (!tg && !BOSS.on) d.t = Math.min(d.t, 0.3);
-      const tx = tg ? tg.x + tg.w / 2 : P.x + P.w / 2;
-      const ty = tg ? tg.y + tg.h / 2 : P.y - 12;
+      const box = tg ? tgtBox(tg) : null;
+      if (!tg) d.t = Math.min(d.t, 0.3);
+      const tx = box ? box.x + box.w / 2 : P.x + P.w / 2;
+      const ty = box ? box.y + box.h / 2 : P.y - 12;
       const dx = tx - d.x, dy = ty - d.y, L = Math.max(1, Math.hypot(dx, dy));
       d.vx = lerp(d.vx, dx / L * 190, dt * 4);
       d.vy = lerp(d.vy, dy / L * 190, dt * 4);
       d.x += d.vx * dt; d.y += d.vy * dt;
       d.tr.push(d.x, d.y); if (d.tr.length > 30) { d.tr.shift(); d.tr.shift(); }
-      if (tg && d.hitT <= 0 && boxHit(d.x - 3, d.y - 3, 6, 6, tg.x, tg.y, tg.w, tg.h)) {
-        damageEnemy(tg, EQ.r.dmg, sign(d.vx) * 30, {});
+      if (tg && box && d.hitT <= 0 &&
+          boxHit(d.x - 3, d.y - 3, 6, 6, box.x, box.y, box.w, box.h)) {
+        // одна точка удару на всі типи цілей: ворог, частина боса, сам бос
+        if (tg.e) damageEnemy(tg.e, EQ.r.dmg, sign(d.vx) * 30, {});
+        else bossDamage(tg.hb || { x: box.x, y: box.y, w: box.w, h: box.h, part: tg.part || null },
+                        EQ.r.dmg, {});
         d.hitT = 0.5;
         // короткий промінь від дрона до цілі — видно, хто саме вдарив
-        wfx({ k: 'dbeam', x: d.x, y: d.y, x2: tg.x + tg.w / 2, y2: tg.y + tg.h / 2,
+        wfx({ k: 'dbeam', x: d.x, y: d.y, x2: box.x + box.w / 2, y2: box.y + box.h / 2,
               col: d.col, t: 0.12 });
         burst(d.x, d.y, 4, '#22e0ff', 90, 0.2, 0, 1);
       }
-      if (BOSS.on && d.hitT <= 0) {
-        const hbs = bossHitBoxes();
-        for (let j = 0; j < hbs.length; j++) {
-          const hb = hbs[j];
-          if (boxHit(d.x - 3, d.y - 3, 6, 6, hb.x, hb.y, hb.w, hb.h)) {
-            bossDamage(hb, EQ.r.dmg, {}); d.hitT = 0.5;
-            wfx({ k: 'dbeam', x: d.x, y: d.y, x2: hb.x + hb.w / 2, y2: hb.y + hb.h / 2,
-                  col: d.col, t: 0.12 });
-            break;
-          }
-        }
+      if (d.t <= 0) {
+        d.st = 'back'; d.tgt = null;
+        d.cd = (DEV_MODE && CH.res) ? 0 : DRONE_RECHARGE;   // чит: дрони без перезарядки
       }
-      if (d.t <= 0) { d.st = 'back'; d.cd = (DEV_MODE && CH.res) ? 0 : DRONE_RECHARGE; d.target = null; }
       continue;
     }
 
@@ -1328,7 +1413,7 @@ function updateDrones(dt) {
     d.vy = lerp(d.vy, dy * 7, dt * 8);
     d.x += d.vx * dt; d.y += d.vy * dt;
     if (d.tr.length) { d.tr.shift(); d.tr.shift(); }
-    if (d.st === 'back' && Math.hypot(dx, dy) < 4) d.st = 'orbit';
+    if (d.st === 'back' && Math.hypot(dx, dy) < 4) { d.st = 'orbit'; d.tgt = null; }
   }
 }
 /** Гліч-Код: перехоплює ворога або глушить боса. */
@@ -1341,7 +1426,7 @@ function glitchFire() {
     { own: 'p', dmg: 0, w: 7, h: 7, col: '#00ffcc', life: 2, kind: 5 });
   g.pix = [];                                       // постріл летить як розсип пікселів
   for (let i = 0; i < 7; i++) g.pix.push({ ox: rnd(-5, 5), oy: rnd(-5, 5), sp: rnd(0.6, 1.8) });
-  P.fireCd = 0.3;
+  P.fireCd = 0.3; shootAnim(0.3);
   Sfx.wGlitch();
 }
 export function glitchHit(e) {
@@ -1676,26 +1761,27 @@ function updatePlayer(dt) {
         Велика літера в карті = елітна версія (міцніша, швидша,
         з додатковим прийомом).
    ================================================================ */
+// Розміри ворогів збільшено рівно на SPR (x1.35) разом зі спрайтами.
 const ETYPE = {
-  skreb:  { w: 12, h: 9,  hp: 2, sp: 30,  dmg: 1, fly: false },
-  thug:   { w: 12, h: 15, hp: 4, sp: 52,  dmg: 1, fly: false },
-  turret: { w: 14, h: 14, hp: 5, sp: 0,   dmg: 1, fly: false },
-  wasp:   { w: 12, h: 10, hp: 3, sp: 46,  dmg: 1, fly: true },
-  kami:   { w: 11, h: 11, hp: 2, sp: 96,  dmg: 2, fly: true },
-  shield: { w: 14, h: 16, hp: 8, sp: 32,  dmg: 1, fly: false },
-  adept:  { w: 12, h: 15, hp: 6, sp: 60,  dmg: 1, fly: false },
-  phantom:{ w: 12, h: 15, hp: 5, sp: 90,  dmg: 1, fly: true },
-  spider: { w: 12, h: 10, hp: 3, sp: 40,  dmg: 1, fly: false },
+  skreb:  { w: 16, h: 12,  hp: 2, sp: 30,  dmg: 1, fly: false },
+  thug:   { w: 16, h: 20, hp: 4, sp: 52,  dmg: 1, fly: false },
+  turret: { w: 19, h: 19, hp: 5, sp: 0,   dmg: 1, fly: false },
+  wasp:   { w: 16, h: 14, hp: 3, sp: 46,  dmg: 1, fly: true },
+  kami:   { w: 15, h: 15, hp: 2, sp: 96,  dmg: 2, fly: true },
+  shield: { w: 19, h: 22, hp: 8, sp: 32,  dmg: 1, fly: false },
+  adept:  { w: 16, h: 20, hp: 6, sp: 60,  dmg: 1, fly: false },
+  phantom:{ w: 16, h: 20, hp: 5, sp: 90,  dmg: 1, fly: true },
+  spider: { w: 16, h: 14, hp: 3, sp: 40,  dmg: 1, fly: false },
   // --- моби-передвісники босів ---
-  rammer:  { w: 14, h: 12, hp: 4,  sp: 40, dmg: 1, fly: false },
-  anvil:   { w: 16, h: 16, hp: 6,  sp: 26, dmg: 1, fly: false },
-  carrier: { w: 18, h: 14, hp: 6,  sp: 34, dmg: 1, fly: true },
-  pylon:   { w: 12, h: 20, hp: 8,  sp: 0,  dmg: 1, fly: false },
-  blinker: { w: 12, h: 10, hp: 3,  sp: 70, dmg: 1, fly: false },
-  worm:    { w: 14, h: 10, hp: 5,  sp: 32, dmg: 1, fly: false },
-  arch1:   { w: 16, h: 20, hp: 8,  sp: 52, dmg: 1, fly: false },
-  arch2:   { w: 16, h: 20, hp: 9,  sp: 40, dmg: 1, fly: false },
-  arch3:   { w: 16, h: 20, hp: 10, sp: 60, dmg: 1, fly: false }
+  rammer:  { w: 19, h: 16, hp: 4,  sp: 40, dmg: 1, fly: false },
+  anvil:   { w: 22, h: 22, hp: 6,  sp: 26, dmg: 1, fly: false },
+  carrier: { w: 24, h: 19, hp: 6,  sp: 34, dmg: 1, fly: true },
+  pylon:   { w: 16, h: 27, hp: 8,  sp: 0,  dmg: 1, fly: false },
+  blinker: { w: 16, h: 14, hp: 3,  sp: 70, dmg: 1, fly: false },
+  worm:    { w: 19, h: 14, hp: 5,  sp: 32, dmg: 1, fly: false },
+  arch1:   { w: 22, h: 27, hp: 8,  sp: 52, dmg: 1, fly: false },
+  arch2:   { w: 22, h: 27, hp: 9,  sp: 40, dmg: 1, fly: false },
+  arch3:   { w: 22, h: 27, hp: 10, sp: 60, dmg: 1, fly: false }
 };
 
 /* ================================================================
@@ -1705,6 +1791,9 @@ const AI_DIR = { tokens: [], eBullets: 0 };
 const REACT = 0.25;                                 // час реакції ворога, с
 const SEP = 14;                                     // мінімальна дистанція між ворогами
 const MAX_ATTACKERS = 2;                            // одночасно атакують максимум двоє
+/* Дробовик «Картеч»: на якій відстані конус виходить на повні 45°
+   і де шкода вже майже нульова. */
+const SH = { OPEN: 100, RANGE: 110 };
 const MAX_E_BULLETS = 6;                            // не більше шести ворожих куль у польоті
 
 /** Скільки ворожих куль зараз у польоті. */
@@ -2606,7 +2695,11 @@ function updateBullets(dt) {
     b.life -= dt;
     if (b.grav) b.vy += b.grav * dt;
     if (b.home) homeBullet(b, dt);
-    if (b.falloff) { b.dist = (b.dist || 0) + Math.hypot(b.vx, b.vy) * dt; }
+    if (b.falloff) {
+      b.dist = (b.dist || 0) + Math.hypot(b.vx, b.vy) * dt;
+      // розкриття конуса: біля ствола дробини йдуть купно, далі розходяться
+      if (b.spreadV !== undefined) b.vy = b.spreadV * clamp(b.dist / SH.OPEN, 0, 1);
+    }
     b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.tr) { b.tr.push(b.x, b.y); if (b.tr.length > 24) { b.tr.shift(); b.tr.shift(); } }
     let kill = b.life <= 0;
@@ -2630,7 +2723,7 @@ function updateBullets(dt) {
         if (!boxHit(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, e.x, e.y, e.w, e.h)) continue;
         if (b.kind === 5) { glitchHit(e); kill = true; break; }
         let dm = b.dmg;
-        if (b.falloff) dm *= clamp(1 - (b.dist || 0) / 110, 0.05, 1);
+        if (b.falloff) dm *= clamp(1 - (b.dist || 0) / SH.RANGE, 0.05, 1);
         if (b.home && e.elite) dm *= 0.5;              // «Оса» слабка проти броні
         damageEnemy(e, dm, sign(b.vx) * 40, { srcX: b.x - b.vx * 0.05 });
         kill = true;
@@ -2642,7 +2735,7 @@ function updateBullets(dt) {
           if (!boxHit(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, hb.x, hb.y, hb.w, hb.h)) continue;
           if (b.kind === 5) { BOSS.silence = 1.5; Sfx.parry(); ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 50, 0.5, '#00ffcc', 2); kill = true; break; }
           let dm = b.dmg;
-          if (b.falloff) dm *= clamp(1 - (b.dist || 0) / 110, 0.05, 1);
+          if (b.falloff) dm *= clamp(1 - (b.dist || 0) / SH.RANGE, 0.05, 1);
           bossDamage(hb, dm, { srcX: b.x, parried: b.parried });
           kill = true;
         }
@@ -2652,21 +2745,95 @@ function updateBullets(dt) {
   }
 }
 /** Самонаведення «Оси»: доводить кулю до цілі в конусі 40°. */
-function homeBullet(b, dt) {
-  let best = null, bd = 160 * 160;
-  const dir = Math.atan2(b.vy, b.vx);
+/* ================================================================
+   ЄДИНИЙ СПИСОК ЦІЛЕЙ
+
+   Наведення («Оса», дрони «Рою», сканер) раніше ходило тільки по ENEM.
+   Боси живуть в окремому BOSS зі своїми хітбоксами, тож автоприціл їх
+   просто НЕ БАЧИВ — саме там, де він потрібен найбільше.
+
+   Тепер усе, у що можна цілитись, описується однаково, і пошук іде по
+   одному списку. Ціль — це не «ворог», а коробка з пріоритетом:
+
+     weak   5  відкрита вразлива зона боса (розкрита оболонка, ядро)
+     boss   4  сам бос, коли він вразливий
+     enemy  3  звичайний ворог
+     node   2  генератор Матки / вузол даних Гліч-Ядра
+     armor  1  бос під бронею
+
+   Порядок — з ТЗ, з однією поправкою: невразливий бос опускається НИЖЧЕ
+   вузлів і ворогів. Інакше «Оса» всаджувала б усю обойму в броню, поки
+   поруч стоїть генератор, який і треба збити. Наводитись на нього вона
+   все одно вміє — просто в останню чергу, і тоді гравець бачить
+   індикатор «броня» й чує глухий звук замість влучання.
+   ================================================================ */
+const TGT = [];                                     // буфер: нуль алокацій щокадру
+function targets() {
+  TGT.length = 0;
+  if (BOSS.on && BOSS.st !== 'die' && BOSS.intro <= 0) {
+    const inv = bossInvulnerable() || BOSS.inv > 0;
+    const hbs = bossHitBoxes();
+    for (let i = 0; i < hbs.length; i++) {
+      const hb = hbs[i];
+      if (hb.part) {
+        TGT.push({ x: hb.x, y: hb.y, w: hb.w, h: hb.h, kind: 'node', prio: 2,
+                   part: hb.part, hb: hb });
+      } else {
+        // «розкрита оболонка» — це той самий бокс, але бос у ньому вразливий
+        const weak = !inv && (BOSS.type === 'glitch' || BOSS.type === 'chrono');
+        TGT.push({ x: hb.x, y: hb.y, w: hb.w, h: hb.h,
+                   kind: inv ? 'armor' : (weak ? 'weak' : 'boss'),
+                   prio: inv ? 1 : (weak ? 5 : 4), boss: true, hb: hb });
+      }
+    }
+  }
   for (let i = 0; i < ENEM.length; i++) {
     const e = ENEM[i];
     if (e.dead || e.charm > 0) continue;
-    const dx = e.x + e.w / 2 - b.x, dy = e.y + e.h / 2 - b.y;
-    const d = dx * dx + dy * dy;
-    if (d > bd) continue;
-    let a = Math.atan2(dy, dx) - dir;
-    while (a > Math.PI) a -= Math.PI * 2;
-    while (a < -Math.PI) a += Math.PI * 2;
-    if (Math.abs(a) > 0.35) continue;               // конус 40°
-    bd = d; best = e;
+    TGT.push({ x: e.x, y: e.y, w: e.w, h: e.h, kind: 'enemy', prio: 3, e: e });
   }
+  return TGT;
+}
+/** Жива коробка цілі: бос і його частини рухаються, тож читаємо щокадру. */
+function tgtBox(t) {
+  if (t.e) return t.e;
+  if (t.part) return t.part;
+  return BOSS;
+}
+function tgtAlive(t) {
+  if (t.e) return !t.e.dead && t.e.charm <= 0;
+  if (t.part) return !!t.part.alive;
+  return BOSS.on && BOSS.st !== 'die';
+}
+/**
+ * Найкраща ціль у конусі. Спершу за пріоритетом, а вже потім за
+ * відстанню — тому відкрита вразлива зона завжди виграє в ворога,
+ * що стоїть ближче.
+ */
+function pickTarget(cx, cy, dirX, dirY, maxD, cone) {
+  const list = targets();
+  let best = null, bestPrio = -1, bestD = 0;
+  const dir = Math.atan2(dirY, dirX);
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    const dx = t.x + t.w / 2 - cx, dy = t.y + t.h / 2 - cy;
+    const d = Math.hypot(dx, dy);
+    if (d > maxD) continue;
+    if (cone > 0) {
+      let a = Math.atan2(dy, dx) - dir;
+      while (a > Math.PI) a -= Math.PI * 2;
+      while (a < -Math.PI) a += Math.PI * 2;
+      if (Math.abs(a) > cone) continue;
+    }
+    if (t.prio > bestPrio || (t.prio === bestPrio && d < bestD)) {
+      best = t; bestPrio = t.prio; bestD = d;
+    }
+  }
+  return best;
+}
+
+function homeBullet(b, dt) {
+  const best = pickTarget(b.x, b.y, b.vx, b.vy, 160, 0.35);   // конус 40°
   if (!best) return;
   const dx = best.x + best.w / 2 - b.x, dy = best.y + best.h / 2 - b.y;
   const L = Math.max(1, Math.hypot(dx, dy)), sp = Math.hypot(b.vx, b.vy);
@@ -2715,14 +2882,16 @@ function updateTele(dt) {
 /* ================================================================
    13. БОСИ — 5 штук, у кожного 2-3 фази й читані телеграфи атак
    ================================================================ */
+// Боси збільшено на BSPR (x1.5) разом зі спрайтами.
 const BOSSDEF = {
-  servotaur: { name: 'СЕРВОТАВР',   hp: 55,  w: 40, h: 30, sub: 'МЕХ-БИК ДОКІВ',       tel: 0.70, phases: 2 },
-  queen:     { name: 'МАТКА-РІЙ',   hp: 75,  w: 36, h: 24, sub: 'ІНКУБАТОР ФАБРИКИ',   tel: 0.65, phases: 2 },
-  chrono:    { name: 'ХРОНОКЛИНОК', hp: 95,  w: 14, h: 22, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.60, phases: 2 },
+  servotaur: { name: 'СЕРВОТАВР',   hp: 55,  w: 60, h: 45, sub: 'МЕХ-БИК ДОКІВ',       tel: 0.70, phases: 2 },
+  queen:     { name: 'МАТКА-РІЙ',   hp: 75,  w: 54, h: 36, sub: 'ІНКУБАТОР ФАБРИКИ',   tel: 0.65, phases: 2 },
+  // HP -20 % (95 -> 76): складність перенесено з тривалості в патерни
+  chrono:    { name: 'ХРОНОКЛИНОК', hp: 76,  w: 21, h: 33, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.60, phases: 3 },
   // HP 95 -> 60: бій тепер гейтований вікнами, і саме дальня зброя
   // впирається в стелю «не більше 6 вікон» (див. tests/glitch.mjs)
-  glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 60,  w: 26, h: 26, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.55, phases: 3 },
-  architect: { name: 'АРХІТЕКТОР',  hp: 150, w: 22, h: 30, sub: 'ЯДРО КАЙЗЕН-ВОЛЬТ',   tel: 0.50, phases: 3 }
+  glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 60,  w: 39, h: 39, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.55, phases: 3 },
+  architect: { name: 'АРХІТЕКТОР',  hp: 150, w: 33, h: 45, sub: 'ЯДРО КАЙЗЕН-ВОЛЬТ',   tel: 0.50, phases: 3 }
 };
 /** Телеграф атаки: у полегшеному режимі на чверть довший. */
 function TEL(k) {
@@ -2753,7 +2922,8 @@ const BOSS = {
   parts: [], intro: 0, nameT: 0, dieT: 0, spawned: 0, inv: 0,
   a0: 0, a1: 0, cx: 0, gravT: 0, offT: 0, dupT: 0, shadow: null, ground: 208,
   silence: 0, rage: 0, fightT: 0, lowT: 0, nodesLeft: undefined,
-  dockI: -1, foldT: 0, nodesDone: false, colX: 0, dockBack: 0, lowCd: 0
+  dockI: -1, foldT: 0, nodesDone: false, colX: 0, dockBack: 0, lowCd: 0,
+  tpCd: 0, tpSpot: -1, punish: 0, trailT: 0, lastSeries: null
 };
 
 function bossReset() {
@@ -2766,6 +2936,7 @@ function bossReset() {
   BOSS.lowT = 0; BOSS.nodesLeft = undefined;
   BOSS.dockI = -1; BOSS.foldT = 0; BOSS.nodesDone = false; BOSS.colX = 0; BOSS.dockBack = 0;
   BOSS.lowCd = 0;
+  BOSS.tpCd = 0; BOSS.tpSpot = -1; BOSS.punish = 0; BOSS.trailT = 0; BOSS.lastSeries = null;
   world.grav = 1; world.off = null;
 }
 /**
@@ -2848,7 +3019,12 @@ function bossInvulnerable() {
     return false;
   }
   if (BOSS.type === 'glitch') return BOSS.st !== 'dock';
-  if (BOSS.type === 'chrono') return BOSS.st !== 'stagger';
+  // Фаза 3: щит падає зовсім — бити можна чим завгодно й коли завгодно.
+  // Поки часова копія доспівує серію, оригінал розсинхронізований і теж
+  // відкритий: «часова копія» стає вибором (гнатись за копією чи бити його),
+  // а не просто паузою, у яку нічого не зробиш.
+  if (BOSS.type === 'chrono')
+    return BOSS.phase < 3 && BOSS.st !== 'stagger' && BOSS.st !== 'echo';
   if (BOSS.type === 'architect') return BOSS.phase === 2;      // б'ються тільки ядра
   return false;
 }
@@ -2868,6 +3044,15 @@ function bossHitBoxes() {
 function bossDamage(hb, dmg, opt) {
   opt = opt || {};
   if (!BOSS.on || BOSS.st === 'die' || BOSS.intro > 0) return false;
+  // Влучив у Хроноклинка в момент появи — подвійна шкода: нагорода
+  // за те, що встиг розвернутись і вдарити, а не просто відскочив.
+  if (BOSS.punish > 0 && BOSS.type === 'chrono' && !hb.part) {
+    dmg *= 2; BOSS.punish = 0;
+    Sfx.parry(); cam.hit(3); hitStop(0.06);
+    ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 3, 40, 0.45, '#ffd23f', 3);
+    wfx({ k: 'rip', x: BOSS.x + BOSS.w / 2, y: BOSS.y + BOSS.h / 2, h: BOSS.h + 10, t: 0.22 });
+  }
+  // Чит лягає ПОВЕРХ уже порахованої шкоди й нічого в ній не переписує.
   if (DEV_MODE) dmg = CH.oneShot ? 1e6 : dmg * CH.dmgK;
   const part = hb.part;
   if (part) {
@@ -2890,6 +3075,9 @@ function bossDamage(hb, dmg, opt) {
     return true;
   }
   if (bossInvulnerable() || BOSS.inv > 0) {
+    // Наведення працює й по броні — саме тому тут потрібен ЯВНИЙ знак,
+    // що шкода не проходить: інакше здається, що зброя зламана.
+    wfx({ k: 'armor', x: hb.x + hb.w / 2, y: hb.y + hb.h / 2, t: 0.30 });
     Sfx.blocked();
     burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, '#22e0ff', 90, 0.22, 0, 1);
     return false;
@@ -2908,7 +3096,9 @@ function bossCheckPhase() {
     else if (BOSS.phase === 2 && f <= 0.33) bossArchPhase3();
     return;
   }
-  if (BOSS.phase === 2 && f <= 0.28 && (BOSS.def.phases || 3) >= 3) {
+  // Хроноклинку третя фаза належить рівно на 1/3 HP, решті — на 28 %
+  const p3 = BOSS.type === 'chrono' ? 0.34 : 0.28;
+  if (BOSS.phase === 2 && f <= p3 && (BOSS.def.phases || 3) >= 3) {
     BOSS.phase = 3; BOSS.inv = 0.9; BOSS.st = 'phase'; BOSS.tm = 0.9;
     Sfx.bossIn(); cam.hit(7);
     ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 6, 90, 0.8, '#ffd23f', 3);
@@ -3040,7 +3230,7 @@ function bossServotaur(dt) {
       BOSS.tm -= dt;
       if (Math.random() < 0.3)
         part(BOSS.x + rnd(0, BOSS.w), BOSS.y, rnd(-20, 20), -30, 0.5, '#22e0ff', 1, -10, 1);
-      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.5; }
+      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.35; }
       break;
     case 'jumpTel':                                 // ТЕЛЕГРАФ стрибка
       BOSS.vx = 0; BOSS.tm -= dt;
@@ -3161,25 +3351,94 @@ function bossQueen(dt) {
 }
 
 /* ---------------- БОС 3: ХРОНОКЛИНОК ---------------- */
+/* ================================================================
+   ХРОНОКЛИНОК: три фази
+
+   Раніше він був важкий лише запасом HP: один патерн (телепорт ->
+   випад), який після пари спроб контриться парируванням, і далі дві
+   хвилини повторення. HP зрізано на 20 % (95 -> 76), а складність
+   перенесено в патерни.
+
+   ФАЗА 1  телепорт збоку -> серія з трьох випадів. Пробити захист
+           можна тільки парируванням (як і було).
+   ФАЗА 2  + два нових патерни:
+           «РИВОК» через усю арену зі слідом, що ранить — перестрибується;
+           «ЧАСОВА КОПІЯ» — повторює його попередню серію із затримкою 1 с.
+   ФАЗА 3  (1/3 HP) щит падає зовсім: бити можна чим завгодно й коли
+           завгодно. Натомість він телепортується ЗА СПИНУ, але за 0,5 с
+           до появи в тій точці стоїть фіолетовий силует і чути звук.
+           Влучив у момент появи — подвійна шкода.
+   ================================================================ */
+const CH_TP_CD = 2.5;        // не частіше ніж раз на 2,5 с
+const CH_TEL = 0.5;          // силует-передвісник
+const CH_PUNISH = 0.45;      // вікно подвійної шкоди за реакцію
+const CH_OPEN = 2.3;         // вікно шкоди за парирування
+const CH_RUSH_OPEN = 1.4;    // вікно шкоди після ривка об стіну
+
+/** Точки появи у фазі 3: за спиною, збоку й далеко збоку. Ніколи двічі поспіль. */
+function chronoBlinkSpot() {
+  const back = P.face > 0 ? -1 : 1;                 // «за спиною» = проти погляду
+  const spots = [
+    P.x + back * 40,                                 // просто за спиною
+    P.x + back * 74,                                 // трохи далі за спиною
+    P.x - back * 62                                  // з іншого боку: щоб не вгадувалось
+  ];
+  let i = Math.floor(rnd(0, 2.999));
+  if (i === BOSS.tpSpot) i = (i + 1) % spots.length;
+  BOSS.tpSpot = i;
+  return clamp(spots[i], BOSS.a0 + 12, BOSS.a1 - BOSS.w - 12);
+}
+/** Слід ривка: низька смуга, яку видно й через яку можна перестрибнути. */
+function chronoTrail(x, gy) {
+  const z = zone(x - 8, gy - 14, 16, 14, 1.5, 1, '#8f6fff', 0);
+  z.vx = 0;
+  for (let i = 0; i < 3; i++)
+    part(x + rnd(-6, 6), gy - rnd(0, 12), rnd(-20, 20), rnd(-30, 0), 0.4, '#8f6fff', 1, -20, 1);
+}
+
 function bossChrono(dt) {
   const gy = BOSS.ground - BOSS.h;
   BOSS.vy += PH.GRAV * dt;
   BOSS.y = Math.min(gy, BOSS.y + BOSS.vy * dt);
   if (BOSS.y >= gy) { BOSS.y = gy; BOSS.vy = 0; }
   BOSS.face = sign((P.x + P.w / 2) - (BOSS.x + BOSS.w / 2)) || BOSS.face;
+  if (BOSS.tpCd > 0) BOSS.tpCd -= dt;
+  if (BOSS.punish > 0) BOSS.punish -= dt;
 
   switch (BOSS.st) {
     case 'phase': BOSS.tm -= dt; if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.4; } break;
+
     case 'idle':
       BOSS.tm -= dt;
       if (BOSS.tm <= 0) {
-        BOSS.st = 'tp'; BOSS.tm = TEL(1.07);
-        const side = (P.x < BOSS.cx) ? 1 : -1;
-        BOSS.tx = clamp(P.x + side * 54, BOSS.a0 + 12, BOSS.a1 - BOSS.w - 12);
-        BOSS.ty = gy;
+        // Фаза 3 живе телепортами за спину; фази 1-2 — випадами,
+        // і з другої фази до них додаються два нові патерни.
+        if (BOSS.phase >= 3 && BOSS.tpCd <= 0) {
+          BOSS.st = 'blinkTel'; BOSS.tm = CH_TEL;
+          BOSS.tx = chronoBlinkSpot(); BOSS.ty = gy;
+          Sfx.wChrono(); cam.hit(1.5);
+        } else if (BOSS.phase >= 2 && Math.random() < 0.30) {
+          BOSS.st = 'rushTel'; BOSS.tm = TEL(1.3);   // НОВЕ: ривок через арену
+          BOSS.tx = BOSS.face > 0 ? BOSS.a1 - BOSS.w - 8 : BOSS.a0 + 8;
+          telegraph(BOSS.a0 + 4, BOSS.ground - 16, BOSS.a1 - BOSS.a0 - 8, 16, TEL(1.3), '#8f6fff', 2);
+          Sfx.charge();
+        } else if (BOSS.phase >= 2 && BOSS.lastSeries && Math.random() < 0.30) {
+          BOSS.st = 'echo'; BOSS.tm = 1.0;           // НОВЕ: часова копія серії
+          Sfx.overheat();
+          for (let i = 0; i < BOSS.lastSeries.length; i++) {
+            const g = BOSS.lastSeries[i];
+            GHOSTS.push({ x: g.x, y: g.y, vx: g.vx, t: 0.30, delay: 1.0 + i * 0.45, hit: false });
+          }
+        } else {
+          BOSS.st = 'tp'; BOSS.tm = TEL(1.07);
+          const side = (P.x < BOSS.cx) ? 1 : -1;
+          BOSS.tx = clamp(P.x + side * 54, BOSS.a0 + 12, BOSS.a1 - BOSS.w - 12);
+          BOSS.ty = gy;
+        }
       }
       break;
-    case 'tp':                                     // ТЕЛЕГРАФ телепорту
+
+    case 'tp':                                       // ТЕЛЕГРАФ телепорту
       BOSS.tm -= dt;
       if (Math.random() < 0.7)
         part(BOSS.tx + rnd(0, BOSS.w), BOSS.ty + rnd(0, BOSS.h), 0, -20, 0.3, '#8f6fff', 1, 0, 1);
@@ -3187,31 +3446,92 @@ function bossChrono(dt) {
         burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 10, '#8f6fff', 120, 0.3, 0, 1);
         BOSS.x = BOSS.tx; BOSS.y = BOSS.ty;
         BOSS.st = 'wind'; BOSS.tm = TEL(1.19); BOSS.tm3 = 0;
+        BOSS.lastSeries = [];                        // почали нову серію — запам'ятовуємо
         burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 10, '#8f6fff', 120, 0.3, 0, 1);
       }
       break;
-    case 'wind':                                    // ТЕЛЕГРАФ випаду
+
+    /* ---- ФАЗА 3: поява за спиною з обов'язковим силуетом ---- */
+    case 'blinkTel':
+      BOSS.tm -= dt;
+      if (Math.random() < 0.8)
+        part(BOSS.tx + rnd(0, BOSS.w), BOSS.ty + rnd(0, BOSS.h), rnd(-10, 10), -24,
+             0.35, '#8f6fff', 1, 0, 1);
+      if (BOSS.tm <= 0) {
+        burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 12, '#8f6fff', 130, 0.3, 0, 1);
+        BOSS.x = BOSS.tx; BOSS.y = BOSS.ty; BOSS.vy = 0;
+        BOSS.tpCd = CH_TP_CD;
+        BOSS.punish = CH_PUNISH;                     // вікно нагороди за реакцію
+        BOSS.st = 'wind'; BOSS.tm = TEL(0.9); BOSS.tm3 = 2;   // одразу в випад
+        BOSS.lastSeries = [];
+        Sfx.parry(); cam.hit(3);
+        ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 3, 30, 0.35, '#8f6fff', 2);
+      }
+      break;
+
+    /* ---- ФАЗА 2: ривок через арену зі слідом ---- */
+    case 'rushTel':
+      BOSS.tm -= dt;
+      if (BOSS.tm <= 0) {
+        BOSS.st = 'rush'; BOSS.tm = 1.4;
+        BOSS.vx = sign(BOSS.tx - BOSS.x) * 330;
+        BOSS.trailT = 0;
+        Sfx.dash(); cam.hit(3);
+      }
+      break;
+    case 'rush': {
+      BOSS.tm -= dt;
+      moveX(BOSS, BOSS.vx * dt);
+      BOSS.x = clamp(BOSS.x, BOSS.a0 + 4, BOSS.a1 - BOSS.w - 4);
+      BOSS.trailT -= dt;
+      if (BOSS.trailT <= 0) { BOSS.trailT = 0.06; chronoTrail(BOSS.x + BOSS.w / 2, BOSS.ground); }
+      const wall = BOSS.x <= BOSS.a0 + 5 || BOSS.x >= BOSS.a1 - BOSS.w - 5;
+      if (wall || BOSS.tm <= 0) {
+        // Врізався в стіну — сам себе й відкрив. Пережив ривок — б'єш безкоштовно,
+        // без парирування: у фазі 2 це єдине вікно, яке дається за витримку.
+        BOSS.vx = -BOSS.face * 60; BOSS.st = 'stagger'; BOSS.tm = CH_RUSH_OPEN;
+        Sfx.explode(); cam.hit(5); hitStop(0.08);
+        ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 40, 0.45, '#8f6fff', 2);
+        burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h - 4, 14, '#8f6fff', 180, 0.5, 120, 2);
+      }
+      break;
+    }
+
+    /* ---- ФАЗА 2: часова копія доспівує серію за нього ---- */
+    case 'echo':
+      BOSS.tm -= dt;
+      if (Math.random() < 0.5)
+        part(BOSS.x + rnd(0, BOSS.w), BOSS.y + rnd(0, BOSS.h), rnd(-15, 15), -20,
+             0.35, '#22e0ff', 1, 0, 1);
+      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.4 * RT(); }
+      break;
+
+    case 'wind':                                     // ТЕЛЕГРАФ випаду
       BOSS.tm -= dt;
       if (BOSS.tm <= 0) {
         BOSS.st = 'lunge'; BOSS.tm = 0.30; BOSS.hitDone = false;
         BOSS.vx = BOSS.face * 250; BOSS.tm3++;
         Sfx.slash(1);
+        if (!BOSS.lastSeries) BOSS.lastSeries = [];
+        if (BOSS.lastSeries.length < 3)
+          BOSS.lastSeries.push({ x: BOSS.x, y: BOSS.y, vx: BOSS.vx });
         if (BOSS.phase >= 2)
           GHOSTS.push({ x: BOSS.x, y: BOSS.y, vx: BOSS.vx, t: 0.30, delay: 1.2, hit: false });
-        if (BOSS.phase >= 3)                        // ФАЗА 3: друга тінь із іншою затримкою
-          GHOSTS.push({ x: BOSS.x, y: BOSS.y, vx: -BOSS.vx, t: 0.30, delay: 1.9, hit: false });
       }
       break;
+
     case 'lunge': {
       BOSS.tm -= dt;
       moveX(BOSS, BOSS.vx * dt);
       BOSS.x = clamp(BOSS.x, BOSS.a0 + 4, BOSS.a1 - BOSS.w - 4);
-      const bx = BOSS.face > 0 ? BOSS.x + BOSS.w - 6 : BOSS.x - 16;
-      const box = { x: bx, y: BOSS.y + 2, w: 22, h: 18 };
+      const bx = BOSS.face > 0 ? BOSS.x + BOSS.w - 6 : BOSS.x - 22;
+      const box = { x: bx, y: BOSS.y + 2, w: 30, h: 24 };
       if (!BOSS.hitDone && boxHit(box.x, box.y, box.w, box.h, P.x - 6, P.y - 4, P.w + 12, P.h + 8)) {
-        if (P.parryT > 0) {                        // ПАРИРУВАННЯ — єдиний спосіб пробити захист
+        // У фазах 1-2 захист пробиває тільки парирування. У фазі 3 щита
+        // немає взагалі, тож парирування лишається бонусом, а не умовою.
+        if (P.parryT > 0) {
           BOSS.hitDone = true;
-          BOSS.st = 'stagger'; BOSS.tm = 1.6; BOSS.vx = -BOSS.face * 90;
+          BOSS.st = 'stagger'; BOSS.tm = CH_OPEN; BOSS.vx = -BOSS.face * 90;
           Sfx.parry(); buzz(20); cam.hit(4); hitStop(0.10);
           ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 34, 0.4, '#ffd23f', 2);
           bladeCharge(2);
@@ -3222,11 +3542,12 @@ function bossChrono(dt) {
       if (BOSS.tm <= 0) {
         BOSS.vx = 0;
         if (BOSS.tm3 < (BOSS.phase >= 3 ? 4 : 3)) { BOSS.st = 'wind'; BOSS.tm = TEL(0.81); }
-        else { BOSS.st = 'idle'; BOSS.tm = 0.9 * RT(); BOSS.tm3 = 0; }
+        else { BOSS.st = 'idle'; BOSS.tm = 0.6 * RT(); BOSS.tm3 = 0; }
       }
       break;
     }
-    case 'stagger':                                 // ВІКНО ШКОДИ
+
+    case 'stagger':                                  // ВІКНО ШКОДИ
       BOSS.tm -= dt; BOSS.vx *= 0.9;
       moveX(BOSS, BOSS.vx * dt);
       if (Math.random() < 0.4)
@@ -3234,7 +3555,7 @@ function bossChrono(dt) {
       if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.5; }
       break;
   }
-  if (BOSS.st !== 'lunge') bossContact(1);
+  if (BOSS.st !== 'lunge' && BOSS.st !== 'rush') bossContact(1);
 }
 
 /* ---------------- БОС 4: ГЛІТЧ-ЯДРО ---------------- */
@@ -3318,7 +3639,7 @@ function glitchArenaFx() {
    виростає з 26 до 48 px) і завмирає. Біля кожної точки є платформа,
    тож бити можна і стоячи, і зі стрибка.
    ================================================================ */
-const GL_OPEN_H = 48;        // висота розкритої оболонки — вразлива зона
+const GL_OPEN_H = 68;        // висота розкритої оболонки (виросла разом із босом)
 const GL_WARN = 1.2;         // попередження перед приземленням
 const GL_FLY = 12;           // фаза польоту
 const GL_WIN = [4.0, 3.5, 3.0];   // вікно шкоди по фазах
@@ -3778,6 +4099,7 @@ const Game = {
   state: 'menu', level: 0, introT: 0, cpTaken: false, cpIndex: 0, backTo: 'menu',
   pickupName: '', pickupT: 0, assembleT: 0, reward: null,
   assist: false, assistAsked: false, bossDeaths: 0, bossDeathLvl: -1, cutT: false,
+  combat: false,
 
   startLevel(idx, useCp) {
     const lvl = clamp(idx, 0, LEVELS.length - 1);
@@ -3958,6 +4280,7 @@ function stepGame(dt) {
       if (Game.pickupT > 0.1 && lv === 0) lv = 0;
     }
     Music.layer(lv);
+    Game.combat = lv >= 2;                          // бій: кнопки трохи тьмяніють
   }
   Music.update(dt);
 }
@@ -3976,7 +4299,7 @@ export {
   stepGame, updateMovingPlatforms, Cut, playCut,
   tAt, solidAtPx, rectSolid, isSolidCode, moveX, moveY, T_EMPTY, T_SOLID, T_PLAT, T_SPIKE, T_CONVR, T_CONVL,
   bossHitBoxes, bossInvulnerable, bossDamage, bossDie, bossCheckPhase,
-  spawnEnemy, damageEnemy, shoot, part, burst, ring, playerHurt, bladeBox,
+  spawnEnemy, damageEnemy, shoot, part, burst, ring, playerHurt, bladeBox, pickTarget, targets,
   startBoss, buildBackground, updateWeather, loadLevel, spawnAllEnemies, playerSpawnAt,
   clearEntities
 };

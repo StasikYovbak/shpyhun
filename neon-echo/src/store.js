@@ -17,6 +17,8 @@ export const Store = {
     bloom: 35, ab: 0, bgDim: 60, outline: 1, dbg: 0,
     // керування
     hand: 0, dpadOp: 55, btnOp: 55, dpadSize: 100, btnSize: 100,
+    // камера: 0 = героїня в центрі, 1 = класична з випередженням
+    cam: 0, dimFight: 1,
     dpadPos: null, btnPos: null, size: 'M', op: 55,
     // арсенал
     owned: ['arc', 'rail'], melee: 'arc', ranged: 'rail', freeSwap: 0,
@@ -50,6 +52,8 @@ export const Store = {
           d.dbg = o.dbg ? 1 : 0;
           d.easy = o.easy ? 1 : 0;
           d.freeSwap = o.freeSwap ? 1 : 0;
+          d.cam = o.cam ? 1 : 0;
+          d.dimFight = o.dimFight === undefined ? 1 : (o.dimFight ? 1 : 0);
           d.dpadOp = clamp(parseInt(o.dpadOp, 10) || 55, 20, 100);
           d.btnOp = clamp(parseInt(o.btnOp, 10) || 55, 20, 100);
           d.dpadSize = clamp(parseInt(o.dpadSize, 10) || 100, 70, 160);

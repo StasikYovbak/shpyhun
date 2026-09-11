@@ -9,7 +9,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { PNG } from 'pngjs';
 import { Bitmap, pack } from './raster.mjs';
-import { HERO, PAL_HERO, PAL_PHANTOM } from './art.mjs';
+import { HERO, HERO_ATK, PAL_HERO, PAL_PHANTOM, upscale } from './art.mjs';
+import { SPR, BSPR } from '../src/config.js';
 import { THEME } from '../src/themes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -20,21 +21,34 @@ fs.mkdirSync(outDir, { recursive: true });
 const items = [];
 const add = (name, bmp) => { items.push({ name, bmp }); return bmp; };
 const make = (name, w, h, fn) => { const b = new Bitmap(w, h); fn(b); return add(name, b); };
+/**
+ * Те саме, але з масштабом персонажів: бітмап одразу більший, а всі
+ * примітиви всередині множаться на k. Один множник — і спрайт, і
+ * хітбокс (у core.js) ростуть однаково.
+ */
+const makeS = (name, w, h, k, fn) => {
+  const b = new Bitmap(Math.round(w * k), Math.round(h * k));
+  b.k = k; fn(b); b.k = 1;
+  return add(name, b);
+};
+const ES = SPR, BS = BSPR;                     // вороги / боси
 
 
 /* ------------------------------------------------------------ ГЕРОЇНЯ
-   12x15, п'ять матеріалів — рівно той дизайн, що був у версії 1.x.
-   Спрайт майже збігається з хітбоксом 10x14: різниця в один піксель
-   іде ВГОРУ (маківка), тому ноги стоять точно на поверхні.
-   Дозволено лише рух того, що вже є: кліпання, приземлення, довгий
-   простій. Жодного нового кольору й жодної нової деталі. */
+   Той самий дизайн версії 1.x і ті самі п'ять матеріалів, але сітку
+   збільшено з 12x15 до 16x20 (рівно 4/3 по обох осях). Хітбокс виріс
+   разом — 10x14 -> 13x19. Спрайт ставиться по низу хітбокса
+   (anchor 0.5/1.0), тож ноги так само стоять точно на поверхні.
+   Жодного нового кольору й жодної нової деталі — саме як домовлялись. */
+const HW = 16, HH = 20;
+// базові пози + окремий кадр атаки під кожну зброю (art.mjs, HERO_ATK)
 const HERO_POSES = ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk',
-                    'hurt', 'land', 'idle2a', 'idle2b'];
+                    'hurt', 'land', 'idle2a', 'idle2b', ...HERO_ATK];
 for (const pose of HERO_POSES)
-  make('hero_' + pose, 12, 15, b => b.art(HERO[pose], PAL_HERO));
+  make('hero_' + pose, HW, HH, b => b.art(upscale(HERO[pose], HW, HH), PAL_HERO));
 // фантом — та сама фігура в примарній палітрі
 for (const pose of ['idle', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'hurt'])
-  make('phantom_' + pose, 12, 15, b => b.art(HERO[pose], PAL_PHANTOM));
+  make('phantom_' + pose, HW, HH, b => b.art(upscale(HERO[pose], HW, HH), PAL_PHANTOM));
 
 /* ---------------------------------------------------------------- ВОРОГИ */
 // Палітри: [основа, світле, акцент]; елітні — золоті вставки.
@@ -54,39 +68,50 @@ function enemySprite(type, elite) {
   const p = EPAL[type];
   const trim = elite ? GOLD : null;
   switch (type) {
-    case 'skreb': return make(`e_skreb_${elite ? 'x' : 'n'}`, 12, 9, b => {
+    case 'skreb': return makeS(`e_skreb_${elite ? 'x' : 'n'}`, 12, 9, ES, b => {
       b.rect(0, 2, 12, 7, p.base); b.rect(1, 0, 10, 3, trim || p.lite);
       b.rect(8, 3, 3, 2, p.eye); b.rect(1, 4, 10, 1, p.dark);
+      // деталі, які видно лише на більшому розмірі
+      b.rect(2, 6, 2, 2, p.dark); b.rect(6, 6, 2, 2, p.dark);   // лапи-шарніри
+      b.rect(3, 1, 2, 1, p.dark); b.rect(7, 1, 1, 1, p.dark);   // вм'ятини на панцирі
+      b.rect(0, 5, 1, 3, p.dark);                               // кабель збоку
     });
-    case 'thug': return make(`e_thug_${elite ? 'x' : 'n'}`, 12, 15, b => {
+    case 'thug': return makeS(`e_thug_${elite ? 'x' : 'n'}`, 12, 15, ES, b => {
       b.rect(1, 4, 10, 11, p.base); b.rect(2, 0, 8, 5, p.skin);
       b.rect(2, 1, 8, 2, trim || p.band);
       b.rect(2, 11, 3, 4, p.boot); b.rect(7, 11, 3, 4, p.boot);
       b.rect(3, 6, 6, 3, '#00000033');
+      b.rect(0, 5, 2, 4, p.boot); b.rect(10, 5, 2, 4, p.boot);  // наплічники
+      b.rect(4, 9, 4, 1, trim || p.band);                        // ремінь
+      b.rect(3, 3, 1, 1, '#00000066'); b.rect(7, 3, 1, 1, '#00000066'); // очі в тіні
+      b.rect(9, 7, 1, 3, '#00000055');                           // шланг
     });
-    case 'turret': return make(`e_turret_${elite ? 'x' : 'n'}`, 14, 14, b => {
+    case 'turret': return makeS(`e_turret_${elite ? 'x' : 'n'}`, 14, 14, ES, b => {
       b.rect(1, 4, 12, 10, p.base); b.rect(2, 2, 10, 4, p.lite);
       b.rect(4, 6, 6, 4, trim || p.lens); b.rect(1, 12, 12, 2, p.dark);
+      b.rect(0, 6, 1, 5, p.dark); b.rect(13, 6, 1, 5, p.dark);   // болти станини
+      b.rect(5, 0, 4, 2, p.dark);                                 // радіатор
+      b.rect(2, 10, 10, 1, '#00000044');                          // стик панелей
     });
-    case 'wasp': return make(`e_wasp_${elite ? 'x' : 'n'}`, 12, 10, b => {
+    case 'wasp': return makeS(`e_wasp_${elite ? 'x' : 'n'}`, 12, 10, ES, b => {
       b.rect(2, 3, 8, 5, trim || p.base); b.rect(3, 4, 6, 2, p.dark);
       b.rect(9, 7, 3, 3, p.eye); b.rect(2, 8, 8, 1, p.dark);
     });
-    case 'kami': return make(`e_kami_${elite ? 'x' : 'n'}`, 11, 11, b => {
+    case 'kami': return makeS(`e_kami_${elite ? 'x' : 'n'}`, 11, 11, ES, b => {
       b.rect(1, 1, 9, 9, p.base); b.rect(3, 3, 5, 5, trim || p.core);
       b.rect(0, 4, 1, 3, p.hot); b.rect(10, 4, 1, 3, p.hot);
     });
-    case 'shield': return make(`e_shield_${elite ? 'x' : 'n'}`, 14, 16, b => {
+    case 'shield': return makeS(`e_shield_${elite ? 'x' : 'n'}`, 14, 16, ES, b => {
       b.rect(2, 3, 10, 13, p.base); b.rect(3, 0, 8, 4, p.skin);
       b.rect(3, 1, 8, 1, trim || '#00000000');
       b.rect(4, 12, 3, 4, '#22203a'); b.rect(8, 12, 3, 4, '#22203a');
     });
-    case 'adept': return make(`e_adept_${elite ? 'x' : 'n'}`, 12, 15, b => {
+    case 'adept': return makeS(`e_adept_${elite ? 'x' : 'n'}`, 12, 15, ES, b => {
       b.rect(2, 4, 8, 11, p.base); b.rect(3, 0, 6, 5, p.skin);
       b.rect(3, 1, 6, 2, trim || p.band); b.rect(3, 11, 2, 4, '#1a1430');
       b.rect(7, 11, 2, 4, '#1a1430');
     });
-    case 'spider': return make(`e_spider_${elite ? 'x' : 'n'}`, 12, 10, b => {
+    case 'spider': return makeS(`e_spider_${elite ? 'x' : 'n'}`, 12, 10, ES, b => {
       b.rect(2, 2, 8, 6, elite ? p.lite : p.base);
       b.rect(4, 4, 2, 2, p.eye); b.rect(7, 4, 2, 2, p.eye);
       b.rect(1, 3, 1, 4, p.base); b.rect(10, 3, 1, 4, p.base);
@@ -156,54 +181,71 @@ const NEWE = {
 for (const [t, d] of Object.entries(NEWE)) for (const el of [false, true]) {
   const pal = { ...d.pal };
   if (el) pal[d.trim] = GOLD;
-  make(`e_${t}_${el ? 'x' : 'n'}`, d.w, d.h, b => b.art(d.rows, pal));
+  // моби-передвісники: та сама сітка, збільшена на SPR разом з усіма
+  const w2 = Math.round(d.w * ES), h2 = Math.round(d.h * ES);
+  make(`e_${t}_${el ? 'x' : 'n'}`, w2, h2, b => b.art(upscale(d.rows, w2, h2), pal));
 }
 // Дрібні супутники нових типів
-make('e_mote', 6, 6, b => { b.rect(1, 0, 4, 6, '#7df9ff'); b.rect(0, 1, 6, 4, '#7df9ff'); b.rect(2, 2, 2, 2, '#ffffff'); });
-make('e_link', 4, 4, b => b.rect(0, 0, 4, 4, '#22e0ffaa'));
+makeS('e_mote', 6, 6, ES, b => { b.rect(1, 0, 4, 6, '#7df9ff'); b.rect(0, 1, 6, 4, '#7df9ff'); b.rect(2, 2, 2, 2, '#ffffff'); });
+makeS('e_link', 4, 4, ES, b => b.rect(0, 0, 4, 4, '#22e0ffaa'));
 // Деталі, що рухаються окремо від тіла
-make('e_pipe', 12, 2, b => b.rect(0, 0, 12, 2, '#c7d3e0'));
-make('e_blade', 16, 2, b => { b.rect(0, 0, 16, 2, '#7df9ff'); b.rect(0, 0, 4, 1, '#ffffff'); });
-make('e_wing', 5, 2, b => b.rect(0, 0, 5, 2, '#bff4ffcc'));
-make('e_plate', 6, 20, b => { b.rect(0, 0, 6, 20, '#22e0ff'); b.rect(1, 2, 4, 16, '#7df9ff'); });
-make('e_leg', 3, 2, b => b.rect(0, 0, 3, 2, '#3a2450'));
+makeS('e_pipe', 12, 2, ES, b => b.rect(0, 0, 12, 2, '#c7d3e0'));
+makeS('e_blade', 16, 2, ES, b => { b.rect(0, 0, 16, 2, '#7df9ff'); b.rect(0, 0, 4, 1, '#ffffff'); });
+makeS('e_wing', 5, 2, ES, b => b.rect(0, 0, 5, 2, '#bff4ffcc'));
+makeS('e_plate', 6, 20, ES, b => { b.rect(0, 0, 6, 20, '#22e0ff'); b.rect(1, 2, 4, 16, '#7df9ff'); });
+makeS('e_leg', 3, 2, ES, b => b.rect(0, 0, 3, 2, '#3a2450'));
 
 /* ----------------------------------------------------------------- БОСИ */
-make('b_taur_body', 40, 24, b => {
+makeS('b_taur_body', 40, 24, BS, b => {
   b.rect(2, 4, 36, 16, '#5a6472'); b.rect(4, 6, 32, 5, '#39414d');
   b.rect(2, 18, 36, 3, '#2b323c');
+  // бронеплити, заклепки й гідравліка — видно тільки на новому розмірі
+  for (let i = 0; i < 5; i++) b.rect(5 + i * 7, 7, 5, 3, '#69788f');
+  for (let i = 0; i < 6; i++) b.rect(4 + i * 6, 19, 1, 1, '#c7d3e0');
+  b.rect(6, 12, 28, 1, '#2b323c'); b.rect(10, 14, 20, 2, '#8a3a1a');
 });
-make('b_taur_head', 12, 12, b => {
+// труба-поршень: гойдається окремо від тіла
+makeS('b_taur_pipe', 6, 10, BS, b => {
+  b.rect(0, 0, 6, 10, '#39414d'); b.rect(1, 1, 4, 4, '#8a8f9e');
+  b.rect(2, 6, 2, 4, '#2b323c');
+});
+makeS('b_taur_head', 12, 12, BS, b => {
   b.rect(0, 0, 12, 12, '#7a8697'); b.rect(8, 4, 4, 3, '#ffd23f'); b.rect(0, 8, 12, 2, '#39414d');
 });
-make('b_taur_horn', 4, 6, b => b.rect(0, 0, 4, 6, '#c7d3e0'));
-make('b_taur_leg', 5, 9, b => b.rect(0, 0, 5, 9, '#39414d'));
-make('b_queen_body', 36, 24, b => {
+makeS('b_taur_horn', 4, 6, BS, b => b.rect(0, 0, 4, 6, '#c7d3e0'));
+makeS('b_taur_leg', 5, 9, BS, b => b.rect(0, 0, 5, 9, '#39414d'));
+makeS('b_queen_body', 36, 24, BS, b => {
   b.rect(4, 4, 28, 18, '#6a4a1a'); b.rect(8, 1, 20, 6, '#c9a227');
   b.rect(8, 8, 4, 3, '#ff3355'); b.rect(24, 8, 4, 3, '#ff3355');
   b.rect(12, 20, 12, 4, '#8a5a2a');
+  for (let i = 0; i < 4; i++) b.rect(10 + i * 4, 13, 3, 5, '#4a3312');   // сегменти черева
+  b.rect(6, 6, 24, 1, '#ffd23f'); b.rect(14, 2, 8, 2, '#8a5a2a');        // хітин і жвала
+  b.rect(2, 10, 2, 6, '#4a3312'); b.rect(32, 10, 2, 6, '#4a3312');       // кріплення кабелів
 });
-make('b_queen_wing', 10, 4, b => b.rect(0, 0, 10, 4, '#bff4ffbb'));
-make('b_node', 14, 14, b => {
+makeS('b_queen_wing', 10, 4, BS, b => b.rect(0, 0, 10, 4, '#bff4ffbb'));
+makeS('b_node', 14, 14, BS, b => {
   b.rect(0, 0, 14, 14, '#3a2a5a'); b.rect(3, 3, 8, 8, '#22e0ff'); b.rect(5, 5, 4, 4, '#bff4ff');
 });
-make('b_chrono_body', 14, 22, b => {
+makeS('b_chrono_body', 14, 22, BS, b => {
   b.rect(1, 5, 12, 17, '#241a44'); b.rect(2, 0, 10, 6, '#e0d0ff'); b.rect(2, 1, 10, 2, '#ff2e88');
+  b.rect(3, 8, 8, 1, '#7df9ff'); b.rect(2, 12, 10, 4, '#33245e');       // пояс і пластина
+  b.rect(4, 17, 2, 5, '#1a1230'); b.rect(8, 17, 2, 5, '#1a1230');       // ноги
+  b.rect(5, 3, 1, 1, '#ff2e88'); b.rect(8, 3, 1, 1, '#ff2e88');         // очі, що стежать
 });
-make('b_chrono_blade', 20, 2, b => { b.rect(0, 0, 20, 2, '#7df9ff'); b.rect(14, 0, 6, 1, '#ffffff'); });
-make('b_glitch_core', 26, 26, b => {
+makeS('b_chrono_blade', 20, 2, BS, b => { b.rect(0, 0, 20, 2, '#7df9ff'); b.rect(14, 0, 6, 1, '#ffffff'); });
+makeS('b_glitch_core', 26, 26, BS, b => {
   b.rect(0, 0, 26, 26, '#0a0a28'); b.rect(2, 2, 22, 22, '#00ffcc');
   b.rect(8, 8, 10, 10, '#0a0a28');
 });
-make('b_arch_body', 22, 30, b => {
+makeS('b_arch_body', 22, 30, BS, b => {
   b.rect(3, 8, 16, 18, '#2e2450'); b.rect(1, 10, 20, 6, '#5b238c');
   b.rect(5, 0, 12, 9, '#d8f0ff'); b.rect(6, 3, 10, 3, '#22e0ff');
   b.rect(5, 26, 4, 4, '#2e2450'); b.rect(13, 26, 4, 4, '#2e2450');
 });
-make('b_arch_core', 16, 16, b => {
+makeS('b_arch_core', 16, 16, BS, b => {
   b.rect(0, 0, 16, 16, '#3a2a6a'); b.rect(3, 3, 10, 10, '#22e0ff'); b.rect(6, 6, 4, 4, '#ffffff');
 });
-make('b_arch_head', 60, 52, b => {
+makeS('b_arch_head', 60, 52, BS, b => {
   b.rect(0, 0, 60, 52, '#2e2450'); b.rect(4, 4, 52, 40, '#443168');
   b.rect(8, 12, 16, 8, '#ff2e88'); b.rect(36, 12, 16, 8, '#ff2e88');
   for (let i = 0; i < 6; i++) b.rect(8 + i * 8, 40, 5, 10, '#c7d3e0');
