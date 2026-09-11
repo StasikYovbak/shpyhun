@@ -2764,7 +2764,8 @@ function updateTele(dt) {
 const BOSSDEF = {
   servotaur: { name: 'СЕРВОТАВР',   hp: 55,  w: 60, h: 45, sub: 'МЕХ-БИК ДОКІВ',       tel: 0.70, phases: 2 },
   queen:     { name: 'МАТКА-РІЙ',   hp: 75,  w: 54, h: 36, sub: 'ІНКУБАТОР ФАБРИКИ',   tel: 0.65, phases: 2 },
-  chrono:    { name: 'ХРОНОКЛИНОК', hp: 95,  w: 21, h: 33, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.60, phases: 2 },
+  // HP -20 % (95 -> 76): складність перенесено з тривалості в патерни
+  chrono:    { name: 'ХРОНОКЛИНОК', hp: 76,  w: 21, h: 33, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.60, phases: 3 },
   // HP 95 -> 60: бій тепер гейтований вікнами, і саме дальня зброя
   // впирається в стелю «не більше 6 вікон» (див. tests/glitch.mjs)
   glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 60,  w: 39, h: 39, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.55, phases: 3 },
@@ -2799,7 +2800,8 @@ const BOSS = {
   parts: [], intro: 0, nameT: 0, dieT: 0, spawned: 0, inv: 0,
   a0: 0, a1: 0, cx: 0, gravT: 0, offT: 0, dupT: 0, shadow: null, ground: 208,
   silence: 0, rage: 0, fightT: 0, lowT: 0, nodesLeft: undefined,
-  dockI: -1, foldT: 0, nodesDone: false, colX: 0, dockBack: 0, lowCd: 0
+  dockI: -1, foldT: 0, nodesDone: false, colX: 0, dockBack: 0, lowCd: 0,
+  tpCd: 0, tpSpot: -1, punish: 0, trailT: 0, lastSeries: null
 };
 
 function bossReset() {
@@ -2812,6 +2814,7 @@ function bossReset() {
   BOSS.lowT = 0; BOSS.nodesLeft = undefined;
   BOSS.dockI = -1; BOSS.foldT = 0; BOSS.nodesDone = false; BOSS.colX = 0; BOSS.dockBack = 0;
   BOSS.lowCd = 0;
+  BOSS.tpCd = 0; BOSS.tpSpot = -1; BOSS.punish = 0; BOSS.trailT = 0; BOSS.lastSeries = null;
   world.grav = 1; world.off = null;
 }
 /**
@@ -2894,7 +2897,12 @@ function bossInvulnerable() {
     return false;
   }
   if (BOSS.type === 'glitch') return BOSS.st !== 'dock';
-  if (BOSS.type === 'chrono') return BOSS.st !== 'stagger';
+  // Фаза 3: щит падає зовсім — бити можна чим завгодно й коли завгодно.
+  // Поки часова копія доспівує серію, оригінал розсинхронізований і теж
+  // відкритий: «часова копія» стає вибором (гнатись за копією чи бити його),
+  // а не просто паузою, у яку нічого не зробиш.
+  if (BOSS.type === 'chrono')
+    return BOSS.phase < 3 && BOSS.st !== 'stagger' && BOSS.st !== 'echo';
   if (BOSS.type === 'architect') return BOSS.phase === 2;      // б'ються тільки ядра
   return false;
 }
@@ -2914,6 +2922,14 @@ function bossHitBoxes() {
 function bossDamage(hb, dmg, opt) {
   opt = opt || {};
   if (!BOSS.on || BOSS.st === 'die' || BOSS.intro > 0) return false;
+  // Влучив у Хроноклинка в момент появи — подвійна шкода: нагорода
+  // за те, що встиг розвернутись і вдарити, а не просто відскочив.
+  if (BOSS.punish > 0 && BOSS.type === 'chrono' && !hb.part) {
+    dmg *= 2; BOSS.punish = 0;
+    Sfx.parry(); cam.hit(3); hitStop(0.06);
+    ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 3, 40, 0.45, '#ffd23f', 3);
+    wfx({ k: 'rip', x: BOSS.x + BOSS.w / 2, y: BOSS.y + BOSS.h / 2, h: BOSS.h + 10, t: 0.22 });
+  }
   const part = hb.part;
   if (part) {
     if (!part.alive) return false;
@@ -2956,7 +2972,9 @@ function bossCheckPhase() {
     else if (BOSS.phase === 2 && f <= 0.33) bossArchPhase3();
     return;
   }
-  if (BOSS.phase === 2 && f <= 0.28 && (BOSS.def.phases || 3) >= 3) {
+  // Хроноклинку третя фаза належить рівно на 1/3 HP, решті — на 28 %
+  const p3 = BOSS.type === 'chrono' ? 0.34 : 0.28;
+  if (BOSS.phase === 2 && f <= p3 && (BOSS.def.phases || 3) >= 3) {
     BOSS.phase = 3; BOSS.inv = 0.9; BOSS.st = 'phase'; BOSS.tm = 0.9;
     Sfx.bossIn(); cam.hit(7);
     ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 6, 90, 0.8, '#ffd23f', 3);
@@ -3088,7 +3106,7 @@ function bossServotaur(dt) {
       BOSS.tm -= dt;
       if (Math.random() < 0.3)
         part(BOSS.x + rnd(0, BOSS.w), BOSS.y, rnd(-20, 20), -30, 0.5, '#22e0ff', 1, -10, 1);
-      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.5; }
+      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.35; }
       break;
     case 'jumpTel':                                 // ТЕЛЕГРАФ стрибка
       BOSS.vx = 0; BOSS.tm -= dt;
@@ -3209,25 +3227,94 @@ function bossQueen(dt) {
 }
 
 /* ---------------- БОС 3: ХРОНОКЛИНОК ---------------- */
+/* ================================================================
+   ХРОНОКЛИНОК: три фази
+
+   Раніше він був важкий лише запасом HP: один патерн (телепорт ->
+   випад), який після пари спроб контриться парируванням, і далі дві
+   хвилини повторення. HP зрізано на 20 % (95 -> 76), а складність
+   перенесено в патерни.
+
+   ФАЗА 1  телепорт збоку -> серія з трьох випадів. Пробити захист
+           можна тільки парируванням (як і було).
+   ФАЗА 2  + два нових патерни:
+           «РИВОК» через усю арену зі слідом, що ранить — перестрибується;
+           «ЧАСОВА КОПІЯ» — повторює його попередню серію із затримкою 1 с.
+   ФАЗА 3  (1/3 HP) щит падає зовсім: бити можна чим завгодно й коли
+           завгодно. Натомість він телепортується ЗА СПИНУ, але за 0,5 с
+           до появи в тій точці стоїть фіолетовий силует і чути звук.
+           Влучив у момент появи — подвійна шкода.
+   ================================================================ */
+const CH_TP_CD = 2.5;        // не частіше ніж раз на 2,5 с
+const CH_TEL = 0.5;          // силует-передвісник
+const CH_PUNISH = 0.45;      // вікно подвійної шкоди за реакцію
+const CH_OPEN = 2.3;         // вікно шкоди за парирування
+const CH_RUSH_OPEN = 1.4;    // вікно шкоди після ривка об стіну
+
+/** Точки появи у фазі 3: за спиною, збоку й далеко збоку. Ніколи двічі поспіль. */
+function chronoBlinkSpot() {
+  const back = P.face > 0 ? -1 : 1;                 // «за спиною» = проти погляду
+  const spots = [
+    P.x + back * 40,                                 // просто за спиною
+    P.x + back * 74,                                 // трохи далі за спиною
+    P.x - back * 62                                  // з іншого боку: щоб не вгадувалось
+  ];
+  let i = Math.floor(rnd(0, 2.999));
+  if (i === BOSS.tpSpot) i = (i + 1) % spots.length;
+  BOSS.tpSpot = i;
+  return clamp(spots[i], BOSS.a0 + 12, BOSS.a1 - BOSS.w - 12);
+}
+/** Слід ривка: низька смуга, яку видно й через яку можна перестрибнути. */
+function chronoTrail(x, gy) {
+  const z = zone(x - 8, gy - 14, 16, 14, 1.5, 1, '#8f6fff', 0);
+  z.vx = 0;
+  for (let i = 0; i < 3; i++)
+    part(x + rnd(-6, 6), gy - rnd(0, 12), rnd(-20, 20), rnd(-30, 0), 0.4, '#8f6fff', 1, -20, 1);
+}
+
 function bossChrono(dt) {
   const gy = BOSS.ground - BOSS.h;
   BOSS.vy += PH.GRAV * dt;
   BOSS.y = Math.min(gy, BOSS.y + BOSS.vy * dt);
   if (BOSS.y >= gy) { BOSS.y = gy; BOSS.vy = 0; }
   BOSS.face = sign((P.x + P.w / 2) - (BOSS.x + BOSS.w / 2)) || BOSS.face;
+  if (BOSS.tpCd > 0) BOSS.tpCd -= dt;
+  if (BOSS.punish > 0) BOSS.punish -= dt;
 
   switch (BOSS.st) {
     case 'phase': BOSS.tm -= dt; if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.4; } break;
+
     case 'idle':
       BOSS.tm -= dt;
       if (BOSS.tm <= 0) {
-        BOSS.st = 'tp'; BOSS.tm = TEL(1.07);
-        const side = (P.x < BOSS.cx) ? 1 : -1;
-        BOSS.tx = clamp(P.x + side * 54, BOSS.a0 + 12, BOSS.a1 - BOSS.w - 12);
-        BOSS.ty = gy;
+        // Фаза 3 живе телепортами за спину; фази 1-2 — випадами,
+        // і з другої фази до них додаються два нові патерни.
+        if (BOSS.phase >= 3 && BOSS.tpCd <= 0) {
+          BOSS.st = 'blinkTel'; BOSS.tm = CH_TEL;
+          BOSS.tx = chronoBlinkSpot(); BOSS.ty = gy;
+          Sfx.wChrono(); cam.hit(1.5);
+        } else if (BOSS.phase >= 2 && Math.random() < 0.30) {
+          BOSS.st = 'rushTel'; BOSS.tm = TEL(1.3);   // НОВЕ: ривок через арену
+          BOSS.tx = BOSS.face > 0 ? BOSS.a1 - BOSS.w - 8 : BOSS.a0 + 8;
+          telegraph(BOSS.a0 + 4, BOSS.ground - 16, BOSS.a1 - BOSS.a0 - 8, 16, TEL(1.3), '#8f6fff', 2);
+          Sfx.charge();
+        } else if (BOSS.phase >= 2 && BOSS.lastSeries && Math.random() < 0.30) {
+          BOSS.st = 'echo'; BOSS.tm = 1.0;           // НОВЕ: часова копія серії
+          Sfx.overheat();
+          for (let i = 0; i < BOSS.lastSeries.length; i++) {
+            const g = BOSS.lastSeries[i];
+            GHOSTS.push({ x: g.x, y: g.y, vx: g.vx, t: 0.30, delay: 1.0 + i * 0.45, hit: false });
+          }
+        } else {
+          BOSS.st = 'tp'; BOSS.tm = TEL(1.07);
+          const side = (P.x < BOSS.cx) ? 1 : -1;
+          BOSS.tx = clamp(P.x + side * 54, BOSS.a0 + 12, BOSS.a1 - BOSS.w - 12);
+          BOSS.ty = gy;
+        }
       }
       break;
-    case 'tp':                                     // ТЕЛЕГРАФ телепорту
+
+    case 'tp':                                       // ТЕЛЕГРАФ телепорту
       BOSS.tm -= dt;
       if (Math.random() < 0.7)
         part(BOSS.tx + rnd(0, BOSS.w), BOSS.ty + rnd(0, BOSS.h), 0, -20, 0.3, '#8f6fff', 1, 0, 1);
@@ -3235,31 +3322,92 @@ function bossChrono(dt) {
         burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 10, '#8f6fff', 120, 0.3, 0, 1);
         BOSS.x = BOSS.tx; BOSS.y = BOSS.ty;
         BOSS.st = 'wind'; BOSS.tm = TEL(1.19); BOSS.tm3 = 0;
+        BOSS.lastSeries = [];                        // почали нову серію — запам'ятовуємо
         burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 10, '#8f6fff', 120, 0.3, 0, 1);
       }
       break;
-    case 'wind':                                    // ТЕЛЕГРАФ випаду
+
+    /* ---- ФАЗА 3: поява за спиною з обов'язковим силуетом ---- */
+    case 'blinkTel':
+      BOSS.tm -= dt;
+      if (Math.random() < 0.8)
+        part(BOSS.tx + rnd(0, BOSS.w), BOSS.ty + rnd(0, BOSS.h), rnd(-10, 10), -24,
+             0.35, '#8f6fff', 1, 0, 1);
+      if (BOSS.tm <= 0) {
+        burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 12, '#8f6fff', 130, 0.3, 0, 1);
+        BOSS.x = BOSS.tx; BOSS.y = BOSS.ty; BOSS.vy = 0;
+        BOSS.tpCd = CH_TP_CD;
+        BOSS.punish = CH_PUNISH;                     // вікно нагороди за реакцію
+        BOSS.st = 'wind'; BOSS.tm = TEL(0.9); BOSS.tm3 = 2;   // одразу в випад
+        BOSS.lastSeries = [];
+        Sfx.parry(); cam.hit(3);
+        ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 3, 30, 0.35, '#8f6fff', 2);
+      }
+      break;
+
+    /* ---- ФАЗА 2: ривок через арену зі слідом ---- */
+    case 'rushTel':
+      BOSS.tm -= dt;
+      if (BOSS.tm <= 0) {
+        BOSS.st = 'rush'; BOSS.tm = 1.4;
+        BOSS.vx = sign(BOSS.tx - BOSS.x) * 330;
+        BOSS.trailT = 0;
+        Sfx.dash(); cam.hit(3);
+      }
+      break;
+    case 'rush': {
+      BOSS.tm -= dt;
+      moveX(BOSS, BOSS.vx * dt);
+      BOSS.x = clamp(BOSS.x, BOSS.a0 + 4, BOSS.a1 - BOSS.w - 4);
+      BOSS.trailT -= dt;
+      if (BOSS.trailT <= 0) { BOSS.trailT = 0.06; chronoTrail(BOSS.x + BOSS.w / 2, BOSS.ground); }
+      const wall = BOSS.x <= BOSS.a0 + 5 || BOSS.x >= BOSS.a1 - BOSS.w - 5;
+      if (wall || BOSS.tm <= 0) {
+        // Врізався в стіну — сам себе й відкрив. Пережив ривок — б'єш безкоштовно,
+        // без парирування: у фазі 2 це єдине вікно, яке дається за витримку.
+        BOSS.vx = -BOSS.face * 60; BOSS.st = 'stagger'; BOSS.tm = CH_RUSH_OPEN;
+        Sfx.explode(); cam.hit(5); hitStop(0.08);
+        ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 40, 0.45, '#8f6fff', 2);
+        burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h - 4, 14, '#8f6fff', 180, 0.5, 120, 2);
+      }
+      break;
+    }
+
+    /* ---- ФАЗА 2: часова копія доспівує серію за нього ---- */
+    case 'echo':
+      BOSS.tm -= dt;
+      if (Math.random() < 0.5)
+        part(BOSS.x + rnd(0, BOSS.w), BOSS.y + rnd(0, BOSS.h), rnd(-15, 15), -20,
+             0.35, '#22e0ff', 1, 0, 1);
+      if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.4 * RT(); }
+      break;
+
+    case 'wind':                                     // ТЕЛЕГРАФ випаду
       BOSS.tm -= dt;
       if (BOSS.tm <= 0) {
         BOSS.st = 'lunge'; BOSS.tm = 0.30; BOSS.hitDone = false;
         BOSS.vx = BOSS.face * 250; BOSS.tm3++;
         Sfx.slash(1);
+        if (!BOSS.lastSeries) BOSS.lastSeries = [];
+        if (BOSS.lastSeries.length < 3)
+          BOSS.lastSeries.push({ x: BOSS.x, y: BOSS.y, vx: BOSS.vx });
         if (BOSS.phase >= 2)
           GHOSTS.push({ x: BOSS.x, y: BOSS.y, vx: BOSS.vx, t: 0.30, delay: 1.2, hit: false });
-        if (BOSS.phase >= 3)                        // ФАЗА 3: друга тінь із іншою затримкою
-          GHOSTS.push({ x: BOSS.x, y: BOSS.y, vx: -BOSS.vx, t: 0.30, delay: 1.9, hit: false });
       }
       break;
+
     case 'lunge': {
       BOSS.tm -= dt;
       moveX(BOSS, BOSS.vx * dt);
       BOSS.x = clamp(BOSS.x, BOSS.a0 + 4, BOSS.a1 - BOSS.w - 4);
-      const bx = BOSS.face > 0 ? BOSS.x + BOSS.w - 6 : BOSS.x - 16;
-      const box = { x: bx, y: BOSS.y + 2, w: 22, h: 18 };
+      const bx = BOSS.face > 0 ? BOSS.x + BOSS.w - 6 : BOSS.x - 22;
+      const box = { x: bx, y: BOSS.y + 2, w: 30, h: 24 };
       if (!BOSS.hitDone && boxHit(box.x, box.y, box.w, box.h, P.x - 6, P.y - 4, P.w + 12, P.h + 8)) {
-        if (P.parryT > 0) {                        // ПАРИРУВАННЯ — єдиний спосіб пробити захист
+        // У фазах 1-2 захист пробиває тільки парирування. У фазі 3 щита
+        // немає взагалі, тож парирування лишається бонусом, а не умовою.
+        if (P.parryT > 0) {
           BOSS.hitDone = true;
-          BOSS.st = 'stagger'; BOSS.tm = 1.6; BOSS.vx = -BOSS.face * 90;
+          BOSS.st = 'stagger'; BOSS.tm = CH_OPEN; BOSS.vx = -BOSS.face * 90;
           Sfx.parry(); buzz(20); cam.hit(4); hitStop(0.10);
           ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 34, 0.4, '#ffd23f', 2);
           bladeCharge(2);
@@ -3270,11 +3418,12 @@ function bossChrono(dt) {
       if (BOSS.tm <= 0) {
         BOSS.vx = 0;
         if (BOSS.tm3 < (BOSS.phase >= 3 ? 4 : 3)) { BOSS.st = 'wind'; BOSS.tm = TEL(0.81); }
-        else { BOSS.st = 'idle'; BOSS.tm = 0.9 * RT(); BOSS.tm3 = 0; }
+        else { BOSS.st = 'idle'; BOSS.tm = 0.6 * RT(); BOSS.tm3 = 0; }
       }
       break;
     }
-    case 'stagger':                                 // ВІКНО ШКОДИ
+
+    case 'stagger':                                  // ВІКНО ШКОДИ
       BOSS.tm -= dt; BOSS.vx *= 0.9;
       moveX(BOSS, BOSS.vx * dt);
       if (Math.random() < 0.4)
@@ -3282,7 +3431,7 @@ function bossChrono(dt) {
       if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = 0.5; }
       break;
   }
-  if (BOSS.st !== 'lunge') bossContact(1);
+  if (BOSS.st !== 'lunge' && BOSS.st !== 'rush') bossContact(1);
 }
 
 /* ---------------- БОС 4: ГЛІТЧ-ЯДРО ---------------- */
