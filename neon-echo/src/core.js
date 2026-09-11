@@ -636,7 +636,7 @@ function syncDrones() {
   if (EQ.r.id !== 'swarm') { DRONES.length = 0; P.mark = null; return; }
   while (DRONES.length < 3)
     DRONES.push({ i: DRONES.length, x: P.x, y: P.y, vx: 0, vy: 0,
-                  st: 'orbit', t: 0, cd: 0, hitT: 0, target: null,
+                  st: 'orbit', t: 0, cd: 0, hitT: 0, tgt: null,
                   col: DRONE_COL[DRONES.length], tr: [] });
   DRONES.length = 3;
 }
@@ -1210,19 +1210,9 @@ function osaShoot() {
 }
 /** Сканер на стволі: «клацає» на цілі за мить до пострілу. */
 function osaScan() {
-  const cx = P.x + P.w / 2, cy = P.y + 6;
-  let best = null, bd = 1e9;
-  for (let i = 0; i < ENEM.length; i++) {
-    const e = ENEM[i];
-    if (e.dead || e.charm > 0) continue;
-    const dx = (e.x + e.w / 2) - cx, dy = (e.y + e.h / 2) - cy;
-    if (dx * P.face < 0) continue;
-    const d = Math.hypot(dx, dy);
-    if (d > 160) continue;
-    if (Math.abs(Math.atan2(dy, Math.abs(dx))) > 0.35) continue;   // конус 40°
-    if (d < bd) { bd = d; best = e; }
-  }
-  P.scan = best;
+  const t = pickTarget(P.x + P.w / 2, P.y + 6, P.face, 0, 160, 0.35);
+  // сканер підсвічує рівно ту коробку, в яку піде куля — разом із босом
+  P.scan = t ? { x: t.x, y: t.y, w: t.w, h: t.h, kind: t.kind } : null;
 }
 /** Дробовик: конус із шести дробин, сильна віддача. */
 function shotFire() {
@@ -1256,20 +1246,14 @@ function shotFire() {
          rnd(0.4, 0.8), '#8a7fa0', 2, -12, 1);
   if (P.shells <= 0) P.reloadT = 1.8;
 }
-/** «Рій»: тап позначає ціль, вільний дрон відривається від строю. */
+/** «Рій»: тап позначає ціль, вільний дрон відривається від строю.
+    Ціль шукається в єдиному списку, тож дрони вміють брати й боса. */
 function launchDrone() {
-  let best = null, bd = 1e9;
-  const cx = P.x + P.w / 2;
-  for (let i = 0; i < ENEM.length; i++) {
-    const e = ENEM[i];
-    if (e.dead || e.charm > 0) continue;
-    const d = dist2(cx, P.y + 7, e.x + e.w / 2, e.y + e.h / 2);
-    if (d < bd && d < 220 * 220) { bd = d; best = e; }
-  }
-  P.mark = best;
+  const best = pickTarget(P.x + P.w / 2, P.y + 7, P.face, 0, 220, 0);
+  P.mark = best || null;
   const d = DRONES.find(q => q.st === 'orbit' && q.cd <= 0);
   if (!d) { Sfx.blocked(); return; }
-  d.st = 'strike'; d.t = DRONE_LIFE; d.target = best; d.tr.length = 0;
+  d.st = 'strike'; d.t = DRONE_LIFE; d.tgt = best; d.tr.length = 0;
   P.droneCd = 3;
   Sfx.wSwarm();
 }
@@ -1293,47 +1277,33 @@ function updateDrones(dt) {
 
     if (d.st === 'strike') {
       d.t -= dt;
-      let tg = d.target;
-      if (!tg || tg.dead) {                         // ціль впала — шукаємо наступну
-        tg = null;
-        let bd = 1e9;
-        for (let j = 0; j < ENEM.length; j++) {
-          const e = ENEM[j];
-          if (e.dead || e.charm > 0) continue;
-          const q = dist2(d.x, d.y, e.x + e.w / 2, e.y + e.h / 2);
-          if (q < bd) { bd = q; tg = e; }
-        }
-        d.target = tg;
+      let tg = d.tgt;
+      if (!tg || !tgtAlive(tg)) {                   // ціль впала — шукаємо наступну
+        tg = pickTarget(d.x, d.y, P.face, 0, 400, 0);
+        d.tgt = tg;
       }
-      if (!tg && !BOSS.on) d.t = Math.min(d.t, 0.3);
-      const tx = tg ? tg.x + tg.w / 2 : P.x + P.w / 2;
-      const ty = tg ? tg.y + tg.h / 2 : P.y - 12;
+      const box = tg ? tgtBox(tg) : null;
+      if (!tg) d.t = Math.min(d.t, 0.3);
+      const tx = box ? box.x + box.w / 2 : P.x + P.w / 2;
+      const ty = box ? box.y + box.h / 2 : P.y - 12;
       const dx = tx - d.x, dy = ty - d.y, L = Math.max(1, Math.hypot(dx, dy));
       d.vx = lerp(d.vx, dx / L * 190, dt * 4);
       d.vy = lerp(d.vy, dy / L * 190, dt * 4);
       d.x += d.vx * dt; d.y += d.vy * dt;
       d.tr.push(d.x, d.y); if (d.tr.length > 30) { d.tr.shift(); d.tr.shift(); }
-      if (tg && d.hitT <= 0 && boxHit(d.x - 3, d.y - 3, 6, 6, tg.x, tg.y, tg.w, tg.h)) {
-        damageEnemy(tg, EQ.r.dmg, sign(d.vx) * 30, {});
+      if (tg && box && d.hitT <= 0 &&
+          boxHit(d.x - 3, d.y - 3, 6, 6, box.x, box.y, box.w, box.h)) {
+        // одна точка удару на всі типи цілей: ворог, частина боса, сам бос
+        if (tg.e) damageEnemy(tg.e, EQ.r.dmg, sign(d.vx) * 30, {});
+        else bossDamage(tg.hb || { x: box.x, y: box.y, w: box.w, h: box.h, part: tg.part || null },
+                        EQ.r.dmg, {});
         d.hitT = 0.5;
         // короткий промінь від дрона до цілі — видно, хто саме вдарив
-        wfx({ k: 'dbeam', x: d.x, y: d.y, x2: tg.x + tg.w / 2, y2: tg.y + tg.h / 2,
+        wfx({ k: 'dbeam', x: d.x, y: d.y, x2: box.x + box.w / 2, y2: box.y + box.h / 2,
               col: d.col, t: 0.12 });
         burst(d.x, d.y, 4, '#22e0ff', 90, 0.2, 0, 1);
       }
-      if (BOSS.on && d.hitT <= 0) {
-        const hbs = bossHitBoxes();
-        for (let j = 0; j < hbs.length; j++) {
-          const hb = hbs[j];
-          if (boxHit(d.x - 3, d.y - 3, 6, 6, hb.x, hb.y, hb.w, hb.h)) {
-            bossDamage(hb, EQ.r.dmg, {}); d.hitT = 0.5;
-            wfx({ k: 'dbeam', x: d.x, y: d.y, x2: hb.x + hb.w / 2, y2: hb.y + hb.h / 2,
-                  col: d.col, t: 0.12 });
-            break;
-          }
-        }
-      }
-      if (d.t <= 0) { d.st = 'back'; d.cd = DRONE_RECHARGE; d.target = null; }
+      if (d.t <= 0) { d.st = 'back'; d.cd = DRONE_RECHARGE; d.tgt = null; }
       continue;
     }
 
@@ -1344,7 +1314,7 @@ function updateDrones(dt) {
     d.vy = lerp(d.vy, dy * 7, dt * 8);
     d.x += d.vx * dt; d.y += d.vy * dt;
     if (d.tr.length) { d.tr.shift(); d.tr.shift(); }
-    if (d.st === 'back' && Math.hypot(dx, dy) < 4) d.st = 'orbit';
+    if (d.st === 'back' && Math.hypot(dx, dy) < 4) { d.st = 'orbit'; d.tgt = null; }
   }
 }
 /** Гліч-Код: перехоплює ворога або глушить боса. */
@@ -2653,21 +2623,95 @@ function updateBullets(dt) {
   }
 }
 /** Самонаведення «Оси»: доводить кулю до цілі в конусі 40°. */
-function homeBullet(b, dt) {
-  let best = null, bd = 160 * 160;
-  const dir = Math.atan2(b.vy, b.vx);
+/* ================================================================
+   ЄДИНИЙ СПИСОК ЦІЛЕЙ
+
+   Наведення («Оса», дрони «Рою», сканер) раніше ходило тільки по ENEM.
+   Боси живуть в окремому BOSS зі своїми хітбоксами, тож автоприціл їх
+   просто НЕ БАЧИВ — саме там, де він потрібен найбільше.
+
+   Тепер усе, у що можна цілитись, описується однаково, і пошук іде по
+   одному списку. Ціль — це не «ворог», а коробка з пріоритетом:
+
+     weak   5  відкрита вразлива зона боса (розкрита оболонка, ядро)
+     boss   4  сам бос, коли він вразливий
+     enemy  3  звичайний ворог
+     node   2  генератор Матки / вузол даних Гліч-Ядра
+     armor  1  бос під бронею
+
+   Порядок — з ТЗ, з однією поправкою: невразливий бос опускається НИЖЧЕ
+   вузлів і ворогів. Інакше «Оса» всаджувала б усю обойму в броню, поки
+   поруч стоїть генератор, який і треба збити. Наводитись на нього вона
+   все одно вміє — просто в останню чергу, і тоді гравець бачить
+   індикатор «броня» й чує глухий звук замість влучання.
+   ================================================================ */
+const TGT = [];                                     // буфер: нуль алокацій щокадру
+function targets() {
+  TGT.length = 0;
+  if (BOSS.on && BOSS.st !== 'die' && BOSS.intro <= 0) {
+    const inv = bossInvulnerable() || BOSS.inv > 0;
+    const hbs = bossHitBoxes();
+    for (let i = 0; i < hbs.length; i++) {
+      const hb = hbs[i];
+      if (hb.part) {
+        TGT.push({ x: hb.x, y: hb.y, w: hb.w, h: hb.h, kind: 'node', prio: 2,
+                   part: hb.part, hb: hb });
+      } else {
+        // «розкрита оболонка» — це той самий бокс, але бос у ньому вразливий
+        const weak = !inv && (BOSS.type === 'glitch' || BOSS.type === 'chrono');
+        TGT.push({ x: hb.x, y: hb.y, w: hb.w, h: hb.h,
+                   kind: inv ? 'armor' : (weak ? 'weak' : 'boss'),
+                   prio: inv ? 1 : (weak ? 5 : 4), boss: true, hb: hb });
+      }
+    }
+  }
   for (let i = 0; i < ENEM.length; i++) {
     const e = ENEM[i];
     if (e.dead || e.charm > 0) continue;
-    const dx = e.x + e.w / 2 - b.x, dy = e.y + e.h / 2 - b.y;
-    const d = dx * dx + dy * dy;
-    if (d > bd) continue;
-    let a = Math.atan2(dy, dx) - dir;
-    while (a > Math.PI) a -= Math.PI * 2;
-    while (a < -Math.PI) a += Math.PI * 2;
-    if (Math.abs(a) > 0.35) continue;               // конус 40°
-    bd = d; best = e;
+    TGT.push({ x: e.x, y: e.y, w: e.w, h: e.h, kind: 'enemy', prio: 3, e: e });
   }
+  return TGT;
+}
+/** Жива коробка цілі: бос і його частини рухаються, тож читаємо щокадру. */
+function tgtBox(t) {
+  if (t.e) return t.e;
+  if (t.part) return t.part;
+  return BOSS;
+}
+function tgtAlive(t) {
+  if (t.e) return !t.e.dead && t.e.charm <= 0;
+  if (t.part) return !!t.part.alive;
+  return BOSS.on && BOSS.st !== 'die';
+}
+/**
+ * Найкраща ціль у конусі. Спершу за пріоритетом, а вже потім за
+ * відстанню — тому відкрита вразлива зона завжди виграє в ворога,
+ * що стоїть ближче.
+ */
+function pickTarget(cx, cy, dirX, dirY, maxD, cone) {
+  const list = targets();
+  let best = null, bestPrio = -1, bestD = 0;
+  const dir = Math.atan2(dirY, dirX);
+  for (let i = 0; i < list.length; i++) {
+    const t = list[i];
+    const dx = t.x + t.w / 2 - cx, dy = t.y + t.h / 2 - cy;
+    const d = Math.hypot(dx, dy);
+    if (d > maxD) continue;
+    if (cone > 0) {
+      let a = Math.atan2(dy, dx) - dir;
+      while (a > Math.PI) a -= Math.PI * 2;
+      while (a < -Math.PI) a += Math.PI * 2;
+      if (Math.abs(a) > cone) continue;
+    }
+    if (t.prio > bestPrio || (t.prio === bestPrio && d < bestD)) {
+      best = t; bestPrio = t.prio; bestD = d;
+    }
+  }
+  return best;
+}
+
+function homeBullet(b, dt) {
+  const best = pickTarget(b.x, b.y, b.vx, b.vy, 160, 0.35);   // конус 40°
   if (!best) return;
   const dx = best.x + best.w / 2 - b.x, dy = best.y + best.h / 2 - b.y;
   const L = Math.max(1, Math.hypot(dx, dy)), sp = Math.hypot(b.vx, b.vy);
@@ -2891,6 +2935,9 @@ function bossDamage(hb, dmg, opt) {
     return true;
   }
   if (bossInvulnerable() || BOSS.inv > 0) {
+    // Наведення працює й по броні — саме тому тут потрібен ЯВНИЙ знак,
+    // що шкода не проходить: інакше здається, що зброя зламана.
+    wfx({ k: 'armor', x: hb.x + hb.w / 2, y: hb.y + hb.h / 2, t: 0.30 });
     Sfx.blocked();
     burst(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, '#22e0ff', 90, 0.22, 0, 1);
     return false;
@@ -3979,7 +4026,7 @@ export {
   stepGame, updateMovingPlatforms, Cut, playCut,
   tAt, solidAtPx, rectSolid, isSolidCode, moveX, moveY, T_EMPTY, T_SOLID, T_PLAT, T_SPIKE, T_CONVR, T_CONVL,
   bossHitBoxes, bossInvulnerable, bossDamage, bossDie, bossCheckPhase,
-  spawnEnemy, damageEnemy, shoot, part, burst, ring, playerHurt, bladeBox,
+  spawnEnemy, damageEnemy, shoot, part, burst, ring, playerHurt, bladeBox, pickTarget, targets,
   startBoss, buildBackground, updateWeather, loadLevel, spawnAllEnemies, playerSpawnAt,
   clearEntities
 };
