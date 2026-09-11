@@ -1920,16 +1920,16 @@ function updatePlayer(dt) {
   // вгору, без A — повільно вниз. Нічого з гри не переписує: вимкнув —
   // і наступний кадр рахується звичайним кодом нижче.
   if (DEV_MODE && CH.fly) {
-    const FLYV = 210;
+    const FLYV = S(210);                            // швидкість польоту в масштабі світу
     P.vx = 0; P.vy = 0; P.dropHold = 0; P.dashT = 0;
-    P.x = clamp(P.x + S.ax * FLYV * dt, 0, world.pw - P.w);
-    P.y += (S.a ? -FLYV : FLYV * 0.35) * dt;
-    P.y = clamp(P.y, -32, world.th * TS + 32);
+    P.x = clamp(P.x + IN.ax * FLYV * dt, 0, world.pw - P.w);
+    P.y += (IN.a ? -FLYV : FLYV * 0.35) * dt;
+    P.y = clamp(P.y, -Si(32), world.th * TS + Si(32));
     P.onGround = false; P.ride = null; P.jumps = 0; P.coyote = 0;
-    P.moveIntent = Math.abs(S.ax) > 0.12;
-    if (Math.abs(S.ax) > 0.12) P.face = S.ax > 0 ? 1 : -1;
-    meleeUpdate(dt, S);                             // зброя в польоті працює
-    rangedUpdate(dt, S);
+    P.moveIntent = Math.abs(IN.ax) > 0.12;
+    if (Math.abs(IN.ax) > 0.12) P.face = IN.ax > 0 ? 1 : -1;
+    meleeUpdate(dt, IN);                            // зброя в польоті працює
+    rangedUpdate(dt, IN);
     stepAnim(dt, world.grav);
     return;
   }

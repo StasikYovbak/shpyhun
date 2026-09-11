@@ -157,17 +157,19 @@ console.log('\nРУХ');
 // --- політ / noclip ---
 await hit('Політ / noclip');
 const fly = await page.evaluate(() => {
-  const D = window.__DEV, P = D.P;
+  const D = window.__DEV, P = D.P, TS = D.TS;
   D.Game.startLevel(0, false); D.god(true);
-  P.x = 60; P.y = 194; P.vy = 0;
+  const y0 = 13 * TS - P.h;                        // підлога першого сектора
+  P.x = 60; P.y = y0; P.vy = 0;
   D.kb.a = 1;
   for (let i = 0; i < 90; i++) D.step();
   D.kb.a = 0;
   const up = P.y;
   const solid = D.solidAtPx(P.x + P.w / 2, P.y + P.h / 2);
-  return { up, ground: P.onGround, solid };
+  return { up, y0, ground: P.onGround, solid };
 });
-ok(fly.up < 150, 'політ піднімає героїню вгору', 'y=' + fly.up.toFixed(0));
+ok(fly.up < fly.y0 - 3 * fly.y0 / 13, 'політ піднімає героїню вгору',
+   'y ' + fly.y0.toFixed(0) + ' → ' + fly.up.toFixed(0));
 ok(fly.ground === false, 'у польоті onGround вимкнено');
 await hit('Політ / noclip');
 const land = await page.evaluate(() => {
@@ -198,13 +200,14 @@ ok(stepped > frozen.y1, 'кнопка «наступний кадр» просу
 await hit('Покадровий режим');
 
 // --- потрійний стрибок ---
-// Рахуємо кількість зльотів за один політ. Тапи йдуть щільно (5 кадрів),
-// щоб героїня не встигла приземлитись: інакше буфер стрибка спрацює вже
-// на землі й домішає зайвий зліт, який до чита не має стосунку.
+// Рахуємо кількість зльотів за один політ. Між тапами — 5 кадрів: кнопка
+// відпускається одразу, тож це короткий стрибок (CUT 0.45), і довша пауза
+// встигла б повернути героїню на землю — а там буфер стрибка домішав би
+// зайвий зліт, який до чита не має стосунку.
 const jumps = () => page.evaluate(() => {
-  const D = window.__DEV, P = D.P;
+  const D = window.__DEV, P = D.P, TS = D.TS;
   D.Game.startLevel(0, false); D.god(true);
-  P.x = 120; P.y = 194; P.vy = 0; P.vx = 0;
+  P.x = 120; P.y = 13 * TS - P.h; P.vy = 0; P.vx = 0;
   for (let i = 0; i < 6; i++) D.step();            // стати на землю
   P.jumps = 0;
   let n = 0, landed = false;
