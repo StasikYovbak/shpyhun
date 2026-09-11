@@ -1228,12 +1228,18 @@ function osaScan() {
 function shotFire() {
   const y = P.y + 6;
   P.shells--;
+  // Конус РОЗКРИВАЄТЬСЯ З ВІДСТАННЮ, а не одразу від ствола. Раніше
+  // дробини розліталися на 45° просто з дула, тож упритул у ворога
+  // потрапляли одна-дві з шести — і дробовик бив слабше за пістолет.
+  // Тепер бічна швидкість наростає лінійно до SH.OPEN: до 30 px розліт
+  // ~3 px (влучають усі шість), на 100 px конус виходить на свої 45°.
   for (let i = 0; i < 6; i++) {
     const a = (i - 2.5) / 5 * (45 * Math.PI / 180);
     const sp = 420 + rnd(-30, 30);
-    const b = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * Math.cos(a) * sp, Math.sin(a) * sp,
+    const b = shoot(P.x + P.w / 2 + P.face * 8, y, P.face * sp, 0,
       { own: 'p', dmg: EQ.r.dmg, w: 4, h: 3, col: '#ffb03f', life: 0.26, kind: 1 });
     b.falloff = 1;
+    b.spreadV = Math.tan(a) * sp * 2;               // куди дробина розійдеться
   }
   P.fireCd = 0.42;
   P.noise = 1.0;
@@ -1695,6 +1701,9 @@ const AI_DIR = { tokens: [], eBullets: 0 };
 const REACT = 0.25;                                 // час реакції ворога, с
 const SEP = 14;                                     // мінімальна дистанція між ворогами
 const MAX_ATTACKERS = 2;                            // одночасно атакують максимум двоє
+/* Дробовик «Картеч»: на якій відстані конус виходить на повні 45°
+   і де шкода вже майже нульова. */
+const SH = { OPEN: 100, RANGE: 110 };
 const MAX_E_BULLETS = 6;                            // не більше шести ворожих куль у польоті
 
 /** Скільки ворожих куль зараз у польоті. */
@@ -2594,7 +2603,11 @@ function updateBullets(dt) {
     b.life -= dt;
     if (b.grav) b.vy += b.grav * dt;
     if (b.home) homeBullet(b, dt);
-    if (b.falloff) { b.dist = (b.dist || 0) + Math.hypot(b.vx, b.vy) * dt; }
+    if (b.falloff) {
+      b.dist = (b.dist || 0) + Math.hypot(b.vx, b.vy) * dt;
+      // розкриття конуса: біля ствола дробини йдуть купно, далі розходяться
+      if (b.spreadV !== undefined) b.vy = b.spreadV * clamp(b.dist / SH.OPEN, 0, 1);
+    }
     b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.tr) { b.tr.push(b.x, b.y); if (b.tr.length > 24) { b.tr.shift(); b.tr.shift(); } }
     let kill = b.life <= 0;
@@ -2618,7 +2631,7 @@ function updateBullets(dt) {
         if (!boxHit(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, e.x, e.y, e.w, e.h)) continue;
         if (b.kind === 5) { glitchHit(e); kill = true; break; }
         let dm = b.dmg;
-        if (b.falloff) dm *= clamp(1 - (b.dist || 0) / 110, 0.05, 1);
+        if (b.falloff) dm *= clamp(1 - (b.dist || 0) / SH.RANGE, 0.05, 1);
         if (b.home && e.elite) dm *= 0.5;              // «Оса» слабка проти броні
         damageEnemy(e, dm, sign(b.vx) * 40, { srcX: b.x - b.vx * 0.05 });
         kill = true;
@@ -2630,7 +2643,7 @@ function updateBullets(dt) {
           if (!boxHit(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h, hb.x, hb.y, hb.w, hb.h)) continue;
           if (b.kind === 5) { BOSS.silence = 1.5; Sfx.parry(); ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 50, 0.5, '#00ffcc', 2); kill = true; break; }
           let dm = b.dmg;
-          if (b.falloff) dm *= clamp(1 - (b.dist || 0) / 110, 0.05, 1);
+          if (b.falloff) dm *= clamp(1 - (b.dist || 0) / SH.RANGE, 0.05, 1);
           bossDamage(hb, dm, { srcX: b.x, parried: b.parried });
           kill = true;
         }
