@@ -37,6 +37,14 @@ export const SPR = 1.35 * SCALE;                   // героїня й звич
 export const BSPR = 1.5 * SCALE;                   // боси
 /** Округлення розміру: не менше 1 px і завжди ціле. */
 export const px = (v, k) => Math.max(1, Math.round(v * k));
+/* ================================================================
+   ШКОДА — АБСОЛЮТНІ ЧИСЛА, А НЕ ВІДСОТКИ
+   Базова одиниця: ОДИН УДАР АРК-ТЕСАКА = 10. У цих одиницях виражені
+   і вся шкода, і все HP — і зброю можна звіряти з таблицею очима,
+   без перерахунків. SCALE сюди не лізе: це баланс, а не геометрія.
+   ================================================================ */
+export const HIT = 10;
+
 export const DT = 1 / 60;                          // фіксований крок фізики
 export const MAXDT = 0.25;                         // максимальний dt кадру (п.9 чек-листа)
 
@@ -91,15 +99,15 @@ export const CONFIG = {
 export const PH = CONFIG;
 // «Арк-тесак»
 export const BL = {
-  DUR: [0.18, 0.18, 0.30], DMG: [2, 2, 3], WIN: 0.40,
-  PARRY: 0.15, MAXQ: 10, HOLD: 0.50, RAD: S(65), DDMG: 4, STUN: 1.0,
+  DUR: [0.18, 0.18, 0.30], DMG: [HIT, HIT, HIT * 1.5], WIN: 0.40,
+  PARRY: 0.15, MAXQ: 10, HOLD: 0.50, RAD: S(65), DDMG: HIT * 2, STUN: 1.0,
   // Електрохлист: замах назад -> викид уперед дугою -> повернення
   WHIP_WIND: 0.12, WHIP_LASH: 0.18, WHIP_BACK: 0.15
 };
 // «Рейкострил»
 export const RG = {
   SHOT: 12, BEAM: 30, COOL: 20, DELAY: 0.60, LOCK: 2.0,
-  CD: 0.13, CHARGE: 0.80, V: S(420), DMG: 1, BDMG: 4, RECOIL: S(62)
+  CD: 0.13, CHARGE: 0.80, V: S(420), DMG: HIT, BDMG: HIT * 2, RECOIL: S(62)
 };
 
 export const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);

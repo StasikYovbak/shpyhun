@@ -1026,6 +1026,21 @@ function drawWfx(t) {
         line(entAddP, x, y, f.x2 - camX, f.y2 - camY, 0x8fdcff, k * 0.45, 1);
         break;
       /* --- БРОНЯ: влучання не зарахувалось --- */
+      /* --- ДРОБОВИК: спалах на пів кадру --- */
+      case 'blast': {
+        // Постріл має читатись до того, як гравець гляне на смужку HP.
+        // Тепле світло заливає пів-кадру й гасне за 0,22 с, з язиком
+        // полум'я вперед по лінії ствола.
+        const a = k * k, R = vw * 0.5;
+        lightP.rect(px(), x - R, y - VH, R * 2, VH * 2, 0xffe0a0, 0.16 * a);
+        for (let n = 0; n < 3; n++) {
+          const r = R * (0.22 + n * 0.16) * (1.15 - k * 0.15);
+          lightP.rect(px(), x - r, y - r * 0.5, r * 2, r, 0xfff3d0, 0.18 * a);
+        }
+        line(entAddP, x, y, x + f.face * R * 0.55, y, 0xffffff, 0.55 * a, 3);
+        pushLight(f.x + f.face * 20, f.y, 120, 0xffd090, 0.9 * a);
+        break;
+      }
       case 'armor': {
         const r = 10 + (1 - k) * 6;
         for (let n = 0; n < 3; n++) {                // три шеврони щита

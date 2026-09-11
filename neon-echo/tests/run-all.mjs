@@ -51,11 +51,13 @@ ok = run('boss2.mjs') && ok;
 ok = run('glitch.mjs') && ok;
 ok = run('melee-audit.mjs') && ok;
 ok = run('dps.mjs') && ok;
+ok = run('shotgun.mjs') && ok;
 ok = run('homing.mjs') && ok;
 ok = run('chrono.mjs') && ok;
 ok = run('wanim.mjs') && ok;
 ok = run('cut.mjs') && ok;
 ok = run('flow.mjs') && ok;
+ok = run('perf.mjs') && ok;
 try { process.kill(-srv.pid); } catch (e) { }
 console.log('\n' + (ok ? '=== УСІ ПЕРЕВІРКИ ПРОЙДЕНО ===' : '=== Є ПРОБЛЕМИ ==='));
 process.exit(ok ? 0 : 1);

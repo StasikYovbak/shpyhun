@@ -87,9 +87,9 @@ for (const r of rows) {
 
 const shot = rows.find(r => r.id === 'shot'), osa = rows.find(r => r.id === 'osa');
 console.log();
-ok(shot.d[20] > osa.d[20] * 1.3, 'дробовик помітно сильніший за пістолет на 20 px',
-   shot.d[20] + ' проти ' + osa.d[20]);
-ok(shot.d[60] > osa.d[60] * 1.3, 'дробовик помітно сильніший за пістолет на 60 px',
+ok(shot.d[20] >= osa.d[20] * 4, 'дробовик упритул сильніший за пістолет ЩОНАЙМЕНШЕ вчетверо',
+   shot.d[20] + ' проти ' + osa.d[20] + ' — у ' + (shot.d[20] / osa.d[20]).toFixed(1) + ' раза');
+ok(shot.d[60] > osa.d[60] * 1.3, 'дробовик сильніший за пістолет і на 60 px',
    shot.d[60] + ' проти ' + osa.d[60]);
 ok(osa.d[120] > shot.d[120], 'пістолет виграє на 120 px',
    osa.d[120] + ' проти ' + shot.d[120]);
@@ -110,7 +110,7 @@ const NODPS = ['glitch', 'prism'];
 for (const r of rows) {
   if (NODPS.indexOf(r.id) >= 0) continue;
   const peak = Math.max(r.d[20], r.d[60], r.d[120]);
-  ok(peak > 1.5, r.name + ': має дистанцію, де реально працює', 'пік ' + peak + ' DPS');
+  ok(peak > 7, r.name + ': має дистанцію, де реально працює', 'пік ' + peak + ' DPS');
 }
 console.log('  (ГЛІЧ-КОД і ЕХО-ПРИЗМА не міряються DPS: перший перехоплює ворога,');
 console.log('   друга живе з рикошетів від стін — на рівній підлозі їх нема)');
