@@ -175,6 +175,7 @@ async function boot() {
     hitboxes: () => G.bossHitBoxes(),
     shoot: G.shoot, spawnEnemy: G.spawnEnemy, BULL: G.BULL, ENEM: G.ENEM, EQ: G.EQ, DRONES: G.DRONES,
     TELE: G.TELE, ZONES: G.ZONES, BEAMS: G.BEAMS, WEAPONS: G.WEAPONS,
+    GLITCH: G.GLITCH, glitchDockPos: G.glitchDockPos,
     Music, Tone: null,
     audioState: () => Music.ctxState(),
     transportState: () => Music.transportState(),

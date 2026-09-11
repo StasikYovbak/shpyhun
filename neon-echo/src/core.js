@@ -1359,6 +1359,19 @@ export function timeScale() { return slowT > 0 ? 0.45 : 1; }
 export function tickSlow(dt) { if (slowT > 0) slowT -= dt; if (desatT > 0) desatT -= dt; }
 export function getDesat() { return desatT > 0 ? desatT / 0.10 : 0; }
 export function getSlow() { return slowT; }
+/** Таймінги циклу Гліч-Ядра — потрібні HUD'у (смужка) і перевіркам. */
+export const GLITCH = {
+  get OPEN_H() { return GL_OPEN_H; },
+  get WARN() { return GL_WARN; },
+  get FLY() { return GL_FLY; },
+  get WIN() { return GL_WIN; },
+  get FOLD() { return GL_FOLD; },
+  get DETACH() { return GL_DETACH; },
+  get CEIL() { return GL_CEIL; },
+  get DOCKS() { return GL_DOCKS; },
+  dockPos: i => glitchDockPos(i),
+  nodesLeft: () => glitchNodesLeft()
+};
 
 /* ---------------- допоміжне ---------------- */
 function rectSolid(x, y, w, h) {
@@ -2706,7 +2719,9 @@ const BOSSDEF = {
   servotaur: { name: 'СЕРВОТАВР',   hp: 55,  w: 40, h: 30, sub: 'МЕХ-БИК ДОКІВ',       tel: 0.70, phases: 2 },
   queen:     { name: 'МАТКА-РІЙ',   hp: 75,  w: 36, h: 24, sub: 'ІНКУБАТОР ФАБРИКИ',   tel: 0.65, phases: 2 },
   chrono:    { name: 'ХРОНОКЛИНОК', hp: 95,  w: 14, h: 22, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.60, phases: 2 },
-  glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 95,  w: 26, h: 26, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.55, phases: 3 },
+  // HP 95 -> 60: бій тепер гейтований вікнами, і саме дальня зброя
+  // впирається в стелю «не більше 6 вікон» (див. tests/glitch.mjs)
+  glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 60,  w: 26, h: 26, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.55, phases: 3 },
   architect: { name: 'АРХІТЕКТОР',  hp: 150, w: 22, h: 30, sub: 'ЯДРО КАЙЗЕН-ВОЛЬТ',   tel: 0.50, phases: 3 }
 };
 /** Телеграф атаки: у полегшеному режимі на чверть довший. */
@@ -2737,7 +2752,8 @@ const BOSS = {
   st: 'idle', tm: 0, tm2: 0, tm3: 0, flash: 0, face: -1, anim: 0,
   parts: [], intro: 0, nameT: 0, dieT: 0, spawned: 0, inv: 0,
   a0: 0, a1: 0, cx: 0, gravT: 0, offT: 0, dupT: 0, shadow: null, ground: 208,
-  silence: 0, rage: 0, fightT: 0, lowT: 0, nodesLeft: undefined
+  silence: 0, rage: 0, fightT: 0, lowT: 0, nodesLeft: undefined,
+  dockI: -1, foldT: 0, nodesDone: false, colX: 0, dockBack: 0, lowCd: 0
 };
 
 function bossReset() {
@@ -2748,6 +2764,8 @@ function bossReset() {
   BOSS.gravT = 0; BOSS.offT = 0; BOSS.dupT = 0; BOSS.shadow = null;
   BOSS.silence = 0; BOSS.rage = 0; BOSS.fightT = 0;
   BOSS.lowT = 0; BOSS.nodesLeft = undefined;
+  BOSS.dockI = -1; BOSS.foldT = 0; BOSS.nodesDone = false; BOSS.colX = 0; BOSS.dockBack = 0;
+  BOSS.lowCd = 0;
   world.grav = 1; world.off = null;
 }
 /**
@@ -2809,7 +2827,19 @@ function startBoss() {
       BOSS.parts.push({ id: i + 1, x: pos[i][0], y: pos[i][1], w: 14, h: 14,
                         hp: 10, maxHp: 10, alive: true, flash: 0, kind: 'node' });
   }
-  if (type === 'glitch') { BOSS.x = BOSS.cx - 13; BOSS.y = 96; BOSS.inv = 1; }
+  if (type === 'glitch') {
+    BOSS.x = BOSS.cx - 13; BOSS.y = 96; BOSS.inv = 1;
+    BOSS.st = 'fly'; BOSS.tm = GL_FLY; BOSS.tm2 = 1.2; BOSS.tm3 = 3.0;
+    // центр колони шукаємо в самій карті, а не хардкодимо: колона — це
+    // єдиний стовпчик суцільних тайлів посеред арени, що не дістає стелі
+    BOSS.colX = BOSS.cx;
+    for (let tx = Math.floor(BOSS.a0 / TS) + 4; tx < world.tw - 4; tx++) {
+      const top = Math.floor((BOSS.ground - GL_DOCKS[1].up) / TS);
+      if (isSolidCode(tAt(tx, top)) && !isSolidCode(tAt(tx, top - 1)) &&
+          isSolidCode(tAt(tx, top + 1))) { BOSS.colX = tx * TS + TS / 2; break; }
+    }
+    glitchSpawnNodes();
+  }
   if (type === 'architect') { BOSS.y = BOSS.ground - d.h - 10; }
 }
 function bossInvulnerable() {
@@ -2817,7 +2847,7 @@ function bossInvulnerable() {
     for (let i = 0; i < BOSS.parts.length; i++) if (BOSS.parts[i].alive) return true;
     return false;
   }
-  if (BOSS.type === 'glitch') return BOSS.st !== 'reboot';
+  if (BOSS.type === 'glitch') return BOSS.st !== 'dock';
   if (BOSS.type === 'chrono') return BOSS.st !== 'stagger';
   if (BOSS.type === 'architect') return BOSS.phase === 2;      // б'ються тільки ядра
   return false;
@@ -2825,7 +2855,7 @@ function bossInvulnerable() {
 function bossHitBoxes() {
   const out = [];
   if (!BOSS.on || BOSS.st === 'die') return out;
-  if (BOSS.type === 'queen' || BOSS.type === 'architect') {
+  if (BOSS.type === 'queen' || BOSS.type === 'architect' || BOSS.type === 'glitch') {
     for (let i = 0; i < BOSS.parts.length; i++) {
       const p = BOSS.parts[i];
       if (p.alive) out.push({ x: p.x, y: p.y, w: p.w, h: p.h, id: p.id, part: p });
@@ -2852,6 +2882,10 @@ function bossDamage(hb, dmg, opt) {
       burst(part.x + part.w / 2, part.y + part.h / 2, 18, '#ff6b3d', 180, 0.6, 120, 2);
       ring(part.x + part.w / 2, part.y + part.h / 2, 3, 30, 0.4, '#ffd23f', 2);
       if (BOSS.type === 'architect') { BOSS.hp -= 14; bossCheckPhase(); }
+      if (BOSS.type === 'glitch') {                 // збив вузол даних
+        ring(part.x + part.w / 2, part.y + part.h / 2, 2, 22, 0.3, '#00ffcc', 2);
+        Sfx.parry();
+      }
     }
     return true;
   }
@@ -3107,6 +3141,17 @@ function bossQueen(dt) {
     Sfx.bossHurt(); cam.hit(4);
     ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h, 5, 70, 0.7, '#ffd23f', 3);
   }
+  // Коли генераторів не лишилось, щита немає — і матка більше не має
+  // права висіти недосяжно для клинка. Раз на 6 с вона сама сідає у
+  // зону ураження на 2,5 с: гравець із ближньою зброєю не впирається.
+  if (alive === 0 && BOSS.st !== 'dive' && BOSS.st !== 'diveTel') {
+    BOSS.lowCd -= dt;
+    if (BOSS.lowCd <= 0 && BOSS.lowT <= 0) {
+      BOSS.lowCd = 6.0; BOSS.lowT = 2.5;
+      Sfx.charge(); cam.hit(2);
+      ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h, 4, 46, 0.45, '#ffd23f', 2);
+    }
+  }
   if (BOSS.lowT > 0) {                              // вікно, коли її дістає навіть клинок
     BOSS.lowT -= dt;
     BOSS.y = BOSS.ground - BOSS.h - 26 + Math.sin(BOSS.anim * 3) * 3;
@@ -3260,33 +3305,214 @@ function glitchArenaFx() {
     BOSS.dupT = 3.4; Sfx.overheat();
   }
 }
+/* ================================================================
+   ГЛІТЧ-ЯДРО: цикл «політ → док → вікно шкоди»
+
+   Стара версія висіла на y=138 з хітбоксом 26 px (138..164), а вершина
+   стрибка дає клинку смугу 127,9..141,9 — перетин лише 3,9 px, та ще й
+   по цілі, що весь час їздила по горизонталі. Формально попасти було
+   можна, практично — ні.
+
+   Тепер ядро на час перезавантаження ПРИТИСКАЄТЬСЯ ДО СТІНИ в одній із
+   трьох фіксованих точок, розкриває оболонку пелюстками (вразлива зона
+   виростає з 26 до 48 px) і завмирає. Біля кожної точки є платформа,
+   тож бити можна і стоячи, і зі стрибка.
+   ================================================================ */
+const GL_OPEN_H = 48;        // висота розкритої оболонки — вразлива зона
+const GL_WARN = 1.2;         // попередження перед приземленням
+const GL_FLY = 12;           // фаза польоту
+const GL_WIN = [4.0, 3.5, 3.0];   // вікно шкоди по фазах
+const GL_FOLD = 0.5;         // за скільки до кінця вікна складаються пелюстки
+const GL_DETACH = 0.35;      // сам відрив з ударною хвилею
+const GL_CEIL = 32;          // стеля арени (для перевернутої гравітації)
+const GL_NODES = 3;          // вузлів даних за цикл
+
+/* Три точки кріплення. `up` — висота точки дотику над підлогою; оболонка
+   розкривається ВІД підлоги, тож вразлива зона йде вгору на GL_OPEN_H.
+   При перевернутій гравітації точки дзеркаляться на стелю, і зона йде
+   вниз — досяжність рахується окремо (див. tests/glitch.mjs). */
+const GL_DOCKS = [
+  { side: 'L', up: 32 },     // ліва стіна
+  { side: 'C', up: 48 },     // центральна колона
+  { side: 'R', up: 32 }      // права стіна
+];
+/** Позиція й розмір ядра в точці i. */
+export function glitchDockPos(i) {
+  const d = GL_DOCKS[i];
+  const inv = world.grav < 0;
+  let x;
+  if (d.side === 'L') x = BOSS.a0 + 2;
+  else if (d.side === 'R') x = BOSS.a1 - BOSS.w - 2;
+  else x = BOSS.colX - BOSS.w / 2;
+  const base = inv ? GL_CEIL + d.up : BOSS.ground - d.up;
+  return { x: x, y: inv ? base : base - GL_OPEN_H, base: base };
+}
+/** Наступна точка — будь-яка, крім поточної: гравець бігає, але не гадає. */
+function glitchNextDock() {
+  let i = Math.floor(rnd(0, GL_DOCKS.length - 0.001));
+  if (i === BOSS.dockI) i = (i + 1 + Math.floor(rnd(0, 1.999))) % GL_DOCKS.length;
+  return i;
+}
+/** Три вузли даних: збий усі — ядро йде на перезавантаження достроково. */
+function glitchSpawnNodes() {
+  BOSS.parts.length = 0;
+  // Арену ділимо на три смуги — вузли не злипаються в купу, і гравець
+  // справді пробігає арену, а не збиває всі три з однієї точки.
+  const w = (BOSS.a1 - BOSS.a0 - 80) / GL_NODES;
+  for (let i = 0; i < GL_NODES; i++) {
+    let x = 0, y = 0;
+    for (let k = 0; k < 14; k++) {                   // місце без тайла під ним
+      x = BOSS.a0 + 40 + i * w + rnd(4, w - 14);
+      y = BOSS.ground - 28 - rnd(0, 56);             // у межах стрибка й пострілу
+      if (!rectSolid(x - 2, y - 2, 14, 14)) break;
+    }
+    // 1 HP: вузол — це вимикач, а не ворог. Будь-яке влучання будь-чим
+    // гасить його, і дальній зброї не доводиться палити на них тепло.
+    BOSS.parts.push({ id: i + 1, x: x, y: y, w: 10, h: 10,
+                      hp: 1, maxHp: 1, alive: true, flash: 0, kind: 'dnode',
+                      ph: rnd(0, 6.28) });
+  }
+  BOSS.nodesDone = false;
+}
+/** Усі вузли збито — форсуємо перезавантаження. */
+function glitchNodesLeft() {
+  let n = 0;
+  for (let i = 0; i < BOSS.parts.length; i++) if (BOSS.parts[i].alive) n++;
+  return n;
+}
+
 function bossGlitch(dt) {
-  BOSS.x = BOSS.cx - BOSS.w / 2 + Math.sin(BOSS.anim * 0.45) * 96;
-  // під час перезавантаження ядро сідає низько — саме тоді його можна дістати
-  const wantY = BOSS.st === 'reboot' ? 138 : 78 + Math.cos(BOSS.anim * 0.75) * 30;
-  BOSS.y = lerp(BOSS.y, wantY, clamp(dt * 4, 0, 1));
-  if (BOSS.gravT > 0) { BOSS.gravT -= dt; if (BOSS.gravT <= 0) { world.grav = 1; P.vy = 40; } }
+  if (BOSS.gravT > 0 && BOSS.st === 'fly') {         // у доці таймер стоїть:
+    BOSS.gravT -= dt;                                // інверсія не має перевернутись
+    if (BOSS.gravT <= 0) { world.grav = 1; P.vy = 40; }
+  }
   if (BOSS.offT > 0) { BOSS.offT -= dt; if (BOSS.offT <= 0) world.off = null; }
   if (BOSS.dupT > 0) BOSS.dupT -= dt;
+  for (let i = 0; i < BOSS.parts.length; i++) if (BOSS.parts[i].flash > 0) BOSS.parts[i].flash -= dt;
 
   BOSS.tm -= dt;
-  if (BOSS.st === 'reboot') {                       // ВІКНО ШКОДИ
-    if (Math.random() < 0.5)
-      part(BOSS.x + rnd(0, BOSS.w), BOSS.y + rnd(0, BOSS.h), rnd(-40, 40), rnd(-40, 40),
-           0.3, '#ffffff', 1, 0, 1);
-    if (BOSS.tm <= 0) { BOSS.st = 'idle'; BOSS.tm = (BOSS.phase >= 3 ? 7 : BOSS.phase === 2 ? 9 : 12) * RT(); }
-  } else if (BOSS.tm <= 0) {
-    BOSS.st = 'reboot'; BOSS.tm = 3.0; Sfx.bossIn(); cam.hit(3);
-    ring(BOSS.x + BOSS.w / 2, BOSS.y + BOSS.h / 2, 4, 50, 0.5, '#ffffff', 2);
+  switch (BOSS.st) {
+
+    /* ---- ПОЛІТ: ядро недосяжне, це фаза виживання ---- */
+    case 'fly': {
+      BOSS.x = BOSS.cx - BOSS.w / 2 + Math.sin(BOSS.anim * 0.45) * 96;
+      BOSS.y = lerp(BOSS.y, 78 + Math.cos(BOSS.anim * 0.75) * 30, clamp(dt * 4, 0, 1));
+      BOSS.h = BOSS.def.h;
+      // атаки й пастки арени
+      BOSS.tm2 -= dt;
+      if (BOSS.tm2 <= 0) {
+        BOSS.tm2 = (BOSS.phase >= 3 ? 2.2 : BOSS.phase === 2 ? 2.8 : 3.8) * RT();
+        if (BOSS.phase >= 3) sweepGrid(); else glitchLasers();
+      }
+      BOSS.tm3 -= dt;
+      if (BOSS.tm3 <= 0) { BOSS.tm3 = BOSS.phase === 2 ? 6.0 : 8.0; glitchArenaFx(); }
+      // достроково — коли гравець збив усі три вузли
+      if (!BOSS.nodesDone && glitchNodesLeft() === 0) {
+        BOSS.nodesDone = true;
+        BOSS.tm = Math.min(BOSS.tm, 0.25);
+        Sfx.parry(); cam.hit(2);
+      }
+      if (BOSS.tm <= 0) {                            // час — заходимо на посадку
+        BOSS.dockI = glitchNextDock();
+        BOSS.st = 'warn'; BOSS.tm = GL_WARN;
+        Sfx.overheat(); cam.hit(3);                  // техніка, що вимикається
+        ZONES.length = 0; TELE.length = 0; PENDING.length = 0;
+      }
+      bossContact(1);
+      break;
+    }
+
+    /* ---- ПОПЕРЕДЖЕННЯ: точка світиться, від ядра до неї тягнеться кабель ---- */
+    case 'warn': {
+      const d = glitchDockPos(BOSS.dockI);
+      const k = 1 - clamp(BOSS.tm / GL_WARN, 0, 1);
+      BOSS.x = lerp(BOSS.x, d.x, clamp(dt * 3.2, 0, 1));
+      BOSS.y = lerp(BOSS.y, d.y, clamp(dt * 3.2, 0, 1));
+      if (Math.random() < 0.5) cam.hit(0.8);         // екран коротко смикається
+      if (Math.random() < 0.4)
+        part(BOSS.x + rnd(0, BOSS.w), BOSS.y + rnd(0, BOSS.h), rnd(-30, 30), rnd(-30, 30),
+             0.3, '#00ffcc', 1, 0, 1);
+      if (BOSS.tm <= 0) {
+        BOSS.st = 'dock';
+        BOSS.tm = GL_WIN[Math.min(2, BOSS.phase - 1)];
+        BOSS.x = d.x; BOSS.y = d.y; BOSS.h = GL_OPEN_H;
+        // чесна пауза: пастки геть, ворогів геть, гравітація як є
+        world.off = null; BOSS.offT = 0; BOSS.dupT = 0;
+        ZONES.length = 0; TELE.length = 0; PENDING.length = 0;
+        for (let i = 0; i < ENEM.length; i++) if (ENEM[i].fromBoss) ENEM[i].dead = true;
+        Sfx.discharge(); cam.hit(5);
+        ring(BOSS.x + BOSS.w / 2, d.base, 4, 54, 0.5, '#ffffff', 3);
+        burst(BOSS.x + BOSS.w / 2, d.base, 14, '#00ffcc', 150, 0.5, 0, 1);
+      }
+      break;
+    }
+
+    /* ---- ВІКНО ШКОДИ: оболонка розкрита, ядро не атакує взагалі ---- */
+    case 'dock': {
+      const d = glitchDockPos(BOSS.dockI);
+      BOSS.x = d.x; BOSS.y = d.y;                    // завмерло: ціль нерухома
+      BOSS.dockBack = BOSS.tm;                       // скільки вікна лишилось
+      if (Math.random() < 0.6)
+        part(BOSS.x + BOSS.w / 2 + rnd(-8, 8), BOSS.y + rnd(0, GL_OPEN_H),
+             rnd(-30, 30), rnd(-30, 30), 0.3, '#ffffff', 1, 0, 1);
+      if (BOSS.tm <= GL_FOLD && !BOSS.foldT) {       // ТЕЛЕГРАФ відриву
+        BOSS.foldT = 1; Sfx.charge();
+      }
+      if (BOSS.tm <= 0) {
+        BOSS.st = 'detach'; BOSS.tm = GL_DETACH; BOSS.foldT = 0;
+        BOSS.h = BOSS.def.h;
+        glitchShockwave(d);
+      }
+      break;                                          // жодного bossContact
+    }
+
+    /* ---- ВІДРИВ: ударна хвиля вже пішла, ядро злітає ---- */
+    case 'detach': {
+      BOSS.y = lerp(BOSS.y, world.grav < 0 ? 150 : 78, clamp(dt * 5, 0, 1));
+      if (BOSS.tm <= 0) {
+        BOSS.st = 'fly';
+        BOSS.tm = GL_FLY;
+        BOSS.tm2 = 1.2; BOSS.tm3 = 3.0;
+        BOSS.dockBack = 0;
+        glitchSpawnNodes();                           // вузли — у нових місцях
+      }
+      break;
+    }
+
+    /* ---- 'phase': bossCheckPhase() бере паузу на 0,9 с при зміні фази ----
+       Вікно шкоди від цього пропадати не повинно — дочекались і повернули
+       героєві рівно той залишок вікна, який був. */
+    default: {
+      if (BOSS.dockBack > 0) {
+        const d = glitchDockPos(BOSS.dockI);
+        BOSS.x = d.x; BOSS.y = d.y; BOSS.h = GL_OPEN_H;
+      }
+      if (BOSS.tm <= 0) {
+        if (BOSS.dockBack > 0.2) { BOSS.st = 'dock'; BOSS.tm = BOSS.dockBack; }
+        else {
+          BOSS.st = 'fly'; BOSS.tm = GL_FLY; BOSS.tm2 = 1.2; BOSS.tm3 = 3.0;
+          BOSS.h = BOSS.def.h; BOSS.dockBack = 0;
+          glitchSpawnNodes();
+        }
+      }
+      break;
+    }
   }
-  BOSS.tm2 -= dt;
-  if (BOSS.tm2 <= 0 && BOSS.st !== 'reboot') {
-    BOSS.tm2 = (BOSS.phase >= 3 ? 2.2 : BOSS.phase === 2 ? 2.8 : 3.8) * RT();
-    if (BOSS.phase >= 3) sweepGrid(); else glitchLasers();
+}
+/** Відрив від стіни: кільце, що відкидає гравця. Шкоди не завдає — це поштовх. */
+function glitchShockwave(d) {
+  const cx = BOSS.x + BOSS.w / 2, cy = d.base;
+  Sfx.explode(); cam.hit(6); buzz(24);
+  ring(cx, cy, 6, 92, 0.55, '#ffffff', 3);
+  burst(cx, cy, 22, '#00ffcc', 210, 0.6, 40, 2);
+  const dx = (P.x + P.w / 2) - cx, dy = (P.y + P.h / 2) - cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 110) {
+    const k = 1 - dist / 110;
+    P.vx += sign(dx || 1) * 250 * k;
+    P.vy -= 150 * k * world.grav;
+    P.onGround = false; P.ride = null;
   }
-  BOSS.tm3 -= dt;
-  if (BOSS.tm3 <= 0) { BOSS.tm3 = BOSS.phase === 2 ? 6.0 : 8.0; glitchArenaFx(); }
-  bossContact(1);
 }
 
 /* ---------------- БОС 5: АРХІТЕКТОР (3 фази) ---------------- */
