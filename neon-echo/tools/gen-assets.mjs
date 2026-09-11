@@ -9,7 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { PNG } from 'pngjs';
 import { Bitmap, pack } from './raster.mjs';
-import { HERO, PAL_HERO, PAL_PHANTOM, upscale } from './art.mjs';
+import { HERO, HERO_ATK, PAL_HERO, PAL_PHANTOM, upscale } from './art.mjs';
 import { SPR, BSPR } from '../src/config.js';
 import { THEME } from '../src/themes.js';
 
@@ -41,8 +41,9 @@ const ES = SPR, BS = BSPR;                     // вороги / боси
    (anchor 0.5/1.0), тож ноги так само стоять точно на поверхні.
    Жодного нового кольору й жодної нової деталі — саме як домовлялись. */
 const HW = 16, HH = 20;
+// базові пози + окремий кадр атаки під кожну зброю (art.mjs, HERO_ATK)
 const HERO_POSES = ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk',
-                    'hurt', 'land', 'idle2a', 'idle2b'];
+                    'hurt', 'land', 'idle2a', 'idle2b', ...HERO_ATK];
 for (const pose of HERO_POSES)
   make('hero_' + pose, HW, HH, b => b.art(upscale(HERO[pose], HW, HH), PAL_HERO));
 // фантом — та сама фігура в примарній палітрі

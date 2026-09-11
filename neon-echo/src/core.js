@@ -373,7 +373,8 @@ const P = {
   hp: 5, maxHp: 5, inv: 0, hurtT: 0, dead: false, deadT: 0,
   dashT: 0, dashCd: 0, dashDir: 1,
   dropT: 0,
-  atkT: 0, atkIdx: 0, atkAct: false, comboT: 0, hitSet: [],
+  atkT: 0, atkIdx: 0, atkAct: false, comboT: 0, hitSet: [], clawSide: 0,
+  shootT: 0, shootDur: 0, shootW: '', tpPose: 0,
   parryT: 0, bHold: 0, q: 0, dischT: 0,
   heat: 0, lock: false, lockT: 0, arA: 0.4, arB: 0.55, arUsed: false, arMark: 0,
   cHold: 0, fireCd: 0, chargeReady: false, recoil: 0,
@@ -390,6 +391,7 @@ function playerReset(full) {
   P.ride = null; P.inv = 1.0; P.hurtT = 0; P.dead = false; P.deadT = 0;
   P.dashT = 0; P.dashCd = 0; P.dropT = 0; P.h = 19;
   P.atkT = 0; P.atkIdx = 0; P.atkAct = false; P.comboT = 0; P.hitSet.length = 0;
+  P.clawSide = 0; P.shootT = 0; P.shootDur = 0; P.shootW = ''; P.tpPose = 0;
   P.parryT = 0; P.bHold = 0; P.dischT = 0;
   P.heat = 0; P.lock = false; P.lockT = 0; P.arUsed = false; P.arMark = 0;
   P.cHold = 0; P.fireCd = 0; P.chargeReady = false; P.recoil = 0;
@@ -563,7 +565,7 @@ function railShoot() {
   wfx({ k: 'rings', x: mx, y: y, face: P.face, t: 0.22, chg: 0 });
   railCase(mx, y);
   P.heat = Math.min(120, P.heat + RG.SHOT);
-  P.fireCd = RG.CD; P.recoil = 0.12;
+  P.fireCd = RG.CD; P.recoil = 0.12; shootAnim(RG.CD);
   P.noise = 0.7;
   P.vx -= P.face * (P.onGround ? RG.RECOIL * 0.35 : RG.RECOIL);
   Sfx.wRail();
@@ -591,7 +593,7 @@ function railBeam() {
   wfx({ k: 'rift', x: sx, y: y, face: P.face, len: len, t: 0.32 });
   railCase(sx, y);
   P.heat = Math.min(130, P.heat + RG.BEAM);
-  P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0;
+  P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0; shootAnim(0.25);
   P.vx -= P.face * (P.onGround ? 60 : 130);
   Sfx.wRail(); Sfx.beam(); buzz(22); cam.hit(3.5);
   for (let i = 0; i < 14; i++)
@@ -770,7 +772,7 @@ function meleeStart() {
       wfx({ k: 'plates', x: P.x + P.w / 2, y: P.y + 7, face: P.face, t: w.swing[0] });
       break;
     case 'claws':
-      P.atkIdx = 0; P.atkT = w.swing[0]; Sfx.wClaws();
+      P.atkIdx = 0; P.atkT = w.swing[0]; P.clawSide ^= 1; Sfx.wClaws();
       wfx({ k: 'cut', x: P.x + P.w / 2, y: P.y + 7, face: P.face, t: 0.15 });
       break;
     case 'chrono':
@@ -917,6 +919,7 @@ function chronoStrike() {
     P.x = tx;
     burst(P.x + P.w / 2, P.y + 7, 10, '#8f6fff', 130, 0.3, 0, 1);
   }
+  P.tpPose = 0.22;                                 // з'являється вже в іншій позі — спиною до камери
   damageEnemy(best, EQ.m.dmg[0] * 2, -P.face * 90, { melee: true, pierce: true, back: true });
   // удар зі спини — вертикальний розріз-спалах на ворозі
   wfx({ k: 'rip', x: best.x + best.w / 2, y: best.y + best.h / 2, h: best.h + 8, t: 0.18 });
@@ -1058,7 +1061,7 @@ function clawStack(e) {
    ================================================================ */
 const AST = {                                     // значення = пріоритет
   IDLE: 10, RUN: 20, LAND: 30, FALL: 45, JUMP: 50,
-  DASH: 60, ATTACK: 70, HURT: 80, DEAD: 90
+  DASH: 60, SHOOT: 65, ATTACK: 70, HURT: 80, DEAD: 90
 };
 const ANIM = {
   VXDEAD: 5,        // нижче цього без вводу швидкість вважається нулем
@@ -1068,6 +1071,61 @@ const ANIM = {
   LONGIDLE: 5.0,    // через стільки секунд простою — довга анімація
   LONGDUR: 1.6      // її тривалість
 };
+/**
+ * Кадр атаки ближньої зброї. k — частка ПРОЙДЕНОГО удару (0..1), тому
+ * анімація прив'язана до реального часу зброї: кігті встигають три
+ * кадри за 0,10 с, Тавро розтягує свої три на 0,45 с — і жодна не
+ * «наздоганяє» дію. Межа кадру удару збігається з початком вікна
+ * шкоди (k = 0,20), тож замах закінчується рівно тоді, коли зброя
+ * починає ранити.
+ */
+function meleePose(id, k, idx, side) {
+  switch (id) {
+    case 'arc':                                   // рубальний замах через плече
+      if (k < 0.20) return idx === 1 ? 'a_arcW2' : 'a_arcW';
+      if (k < 0.72) return ['a_arc1', 'a_arc2', 'a_arc3'][idx] || 'a_arc1';
+      return idx === 2 ? 'a_arcT' : 'a_arcR';     // третій удар — з розворотом корпусу
+    case 'whip':                                  // межі = реальні фази хлиста
+      if (k < 0.14) return 'a_whip1';             // 0,12 с: рука відводиться назад
+      if (k < 0.27) return 'a_whip2';             // корпус іде в розворот
+      if (k < 0.67) return 'a_whip3';             // 0,18 с: широкий викид з нахилом
+      return 'a_whip2';                           // 0,15 с: повернення через розворот
+    case 'brand':
+      if (k < 0.20) return 'a_brand1';            // присідання з підготовкою
+      if (k < 0.62) return 'a_brand2';            // удар униз усією вагою
+      return 'a_brand3';                          // віддача в плече
+    case 'chrono':
+      if (k < 0.20) return 'a_chron1';            // низька стійка
+      if (k < 0.70) return 'a_chron2';            // різкий випад уперед
+      return 'a_chron4';                          // проводка
+    case 'claws':                                 // по черзі лівою й правою
+      if (k < 0.20) return side ? 'a_claw2' : 'a_claw1';
+      if (k < 0.80) return side ? 'a_claw1' : 'a_claw2';
+      return 'a_claw3';
+  }
+  return 'atk';
+}
+/** Те саме для дальньої: k міряється від реального часу між пострілами. */
+function rangedPose(id, k) {
+  switch (id) {
+    case 'rail':                                  // упор ногою, приклад до плеча
+      return k < 0.30 ? 'a_rail2' : k < 0.70 ? 'a_rail3' : 'a_rail1';
+    case 'osa':                                   // легка стійка, ствол трохи гуляє
+      return k < 0.35 ? 'a_osa2' : k < 0.70 ? 'a_osa1' : 'a_osa3';
+    case 'shot':                                  // дві руки й важкий відкид корпусу
+      return k < 0.25 ? 'a_shot1' : k < 0.60 ? 'a_shot2' : 'a_shot3';
+    case 'swarm':                                 // не стріляє, а вказує рукою
+      return k < 0.30 ? 'a_swrm1' : k < 0.75 ? 'a_swrm2' : 'a_swrm3';
+    case 'glitch':                                // рука-протез розкривається
+      return k < 0.30 ? 'a_gl1' : k < 0.70 ? 'a_gl2' : 'a_gl3';
+    case 'prism':
+      return k < 0.30 ? 'a_pr1' : k < 0.70 ? 'a_pr2' : 'a_pr3';
+  }
+  return 'atk';
+}
+/** Пускає кадри пострілу рівно на стільки, скільки триває сам постріл. */
+function shootAnim(dur) { P.shootT = dur; P.shootDur = dur; P.shootW = EQ.r.id; }
+
 function setAnim(st) {
   if (P.aState === st) return;
   P.aState = st;
@@ -1079,7 +1137,12 @@ function setAnim(st) {
 function resolveAnim(g) {
   if (P.dead) return AST.DEAD;
   if (P.hurtT > 0) return AST.HURT;
-  if (P.atkT > 0) return AST.ATTACK;
+  if (P.atkT > 0 || P.tpPose > 0) return AST.ATTACK;
+  if (P.shootT > 0) return AST.SHOOT;
+  // дробовик перезаряджається довго, і це видно: окремий кадр із цівкою
+  if (EQ.r.id === 'shot' && P.reloadT > 0) return AST.SHOOT;
+  // рейкострил на утриманні стоїть в упорі — це його готова стійка
+  if (EQ.r.id === 'rail' && P.cHold > 0) return AST.SHOOT;
   if (P.dashT > 0) return AST.DASH;
   if (!P.onGround) return (P.vy * g < 0) ? AST.JUMP : AST.FALL;
   if (P.landT > 0) return AST.LAND;
@@ -1091,6 +1154,8 @@ function stepAnim(dt, g) {
   if (P.onGround && !P.wasGround && P.dashT <= 0 && P.atkT <= 0) P.landT = ANIM.LAND;
   P.wasGround = P.onGround;
   if (P.landT > 0) P.landT -= dt;
+  if (P.shootT > 0) P.shootT -= dt;
+  if (P.tpPose > 0) P.tpPose -= dt;
 
   setAnim(resolveAnim(g));
   P.aT += dt;
@@ -1122,7 +1187,31 @@ function stepAnim(dt, g) {
     case AST.JUMP:   P.anim = 'jump'; break;
     case AST.FALL:   P.anim = 'fall'; break;
     case AST.DASH:   P.anim = 'jump'; break;
-    case AST.ATTACK: P.anim = 'atk'; break;
+    case AST.ATTACK: {
+      if (P.tpPose > 0) {
+        // телепорт крізь ворога: випад — поява спиною до камери — стійка
+        const t = 1 - P.tpPose / 0.22;
+        P.anim = t < 0.25 ? 'a_chron2' : t < 0.78 ? 'a_chron3' : 'a_chron1';
+        break;
+      }
+      const w = EQ.m;
+      const total = w.id === 'arc' ? BL.DUR[P.atkIdx] : w.swing[0];
+      P.anim = meleePose(w.id, clamp(1 - P.atkT / Math.max(total, 0.001), 0, 1),
+                         P.atkIdx, P.clawSide);
+      break;
+    }
+    case AST.SHOOT: {
+      const id = EQ.r.id;
+      if (id === 'shot' && P.reloadT > 0 && P.shootT <= 0) {
+        // цівка ходить туди-сюди, поки триває перезаряджання
+        P.anim = (Math.floor(P.reloadT * 4) % 2) ? 'a_shotR' : 'a_shot1';
+      } else if (P.shootT <= 0) {
+        P.anim = 'a_rail1';                               // упор під час заряду
+      } else {
+        P.anim = rangedPose(id, clamp(1 - P.shootT / Math.max(P.shootDur, 0.001), 0, 1));
+      }
+      break;
+    }
     case AST.HURT:   P.anim = 'hurt'; break;
     case AST.DEAD:   P.anim = 'hurt'; break;
   }
@@ -1170,7 +1259,7 @@ function prismFire() {
     { own: 'p', dmg: EQ.r.dmg, w: 5, h: 5, col: '#8fdcff', life: 2.4, kind: 6 });
   b.bounce = 5;
   b.gx = P.x + P.w / 2 + P.face * 8; b.gy = y;      // початок геометричної сітки
-  P.fireCd = 0.34; P.noise = 0.8;
+  P.fireCd = 0.34; P.noise = 0.8; shootAnim(0.34);
   Sfx.wPrism(); buzz(12);
   ring(P.x + P.w / 2 + P.face * 8, y, 2, 16, 0.25, '#8fdcff', 2);
 }
@@ -1203,7 +1292,7 @@ function osaShoot() {
     { own: 'p', dmg: EQ.r.dmg, w: 5, h: 3, col: '#ffd23f', life: 1.1, kind: 1 });
   b.home = 1;
   b.tr = [];                                       // трасер: саме по ньому видно доводку
-  P.fireCd = 0.115;
+  P.fireCd = 0.115; shootAnim(0.115);
   P.noise = 0.4;
   Sfx.wOsa();
   part(P.x + P.w / 2 + P.face * 10, y, P.face * 60, 0, 0.12, '#ffd23f', 1, 0, 1);
@@ -1231,7 +1320,7 @@ function shotFire() {
     b.falloff = 1;
     b.spreadV = Math.tan(a) * sp * 2;               // куди дробина розійдеться
   }
-  P.fireCd = 0.42;
+  P.fireCd = 0.42; shootAnim(0.42);
   P.noise = 1.0;
   P.vx -= P.face * (P.onGround ? 110 : 285);       // віддача: у повітрі — як другий стрибок
   if (!P.onGround && P.vy > -60) P.vy -= 70;
@@ -1254,7 +1343,7 @@ function launchDrone() {
   const d = DRONES.find(q => q.st === 'orbit' && q.cd <= 0);
   if (!d) { Sfx.blocked(); return; }
   d.st = 'strike'; d.t = DRONE_LIFE; d.tgt = best; d.tr.length = 0;
-  P.droneCd = 3;
+  P.droneCd = 3; shootAnim(0.45);
   Sfx.wSwarm();
 }
 const DRONE_LIFE = 7;                               // скільки дрон працює по цілі
@@ -1326,7 +1415,7 @@ function glitchFire() {
     { own: 'p', dmg: 0, w: 7, h: 7, col: '#00ffcc', life: 2, kind: 5 });
   g.pix = [];                                       // постріл летить як розсип пікселів
   for (let i = 0; i < 7; i++) g.pix.push({ ox: rnd(-5, 5), oy: rnd(-5, 5), sp: rnd(0.6, 1.8) });
-  P.fireCd = 0.3;
+  P.fireCd = 0.3; shootAnim(0.3);
   Sfx.wGlitch();
 }
 export function glitchHit(e) {
