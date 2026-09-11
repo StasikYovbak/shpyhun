@@ -55,6 +55,7 @@ ok = run('shotgun.mjs') && ok;
 ok = run('homing.mjs') && ok;
 ok = run('chrono.mjs') && ok;
 ok = run('wanim.mjs') && ok;
+ok = run('detail.mjs') && ok;
 ok = run('cut.mjs') && ok;
 ok = run('flow.mjs') && ok;
 ok = run('perf.mjs') && ok;

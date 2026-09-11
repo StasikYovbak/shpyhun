@@ -97,7 +97,8 @@ for (const lvl of bossLevels) {
       const s = D.state();
       if (s.bossOn) { started = true; phases.add(s.bossPhase); }
       // регулярно «наносимо шкоду», щоб пройти всі фази
-      if (started && i % 40 === 0 && D.BOSS.st !== 'die') { D.killParts(); D.hurtBoss(3); }
+      // шкода в тих самих одиницях, що й гра: один удар Арк-тесака = 10
+      if (started && i % 40 === 0 && D.BOSS.st !== 'die') { D.killParts(); D.hurtBoss(15); }
       if (s.bossDone) { done = true; break; }
     }
     D.kb.r = D.kb.l = D.kb.a = D.kb.b = 0;

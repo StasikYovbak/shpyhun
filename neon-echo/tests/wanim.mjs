@@ -64,7 +64,7 @@ console.log('  зброя                  час атаки   кадрів   п
 console.log('  ' + '-'.repeat(78));
 
 const REAL = { arc: 0.18, whip: 0.45, brand: 0.45, chrono: 0.22, claws: 0.10,
-               rail: 0.13, osa: 0.115, swarm: 0.45, shot: 0.42, glitch: 0.30, prism: 0.34 };
+               rail: 0.13, osa: 0.115, swarm: 0.45, shot: 0.36, glitch: 0.30, prism: 0.34 };
 const rows = [];
 for (const id of [...MELEE, ...RANGED]) {
   const melee = MELEE.indexOf(id) >= 0;

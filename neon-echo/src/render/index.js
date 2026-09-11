@@ -11,7 +11,7 @@ import {
 import { AdvancedBloomFilter, CRTFilter, RGBSplitFilter } from 'pixi-filters';
 import { SpritePool } from './pool.js';
 import { PaletteFilter } from './palette.js';
-import { VW, VH, TS, clamp, lerp, rnd } from '../config.js';
+import { VW, VH, TS, CONFIG, clamp, lerp, rnd } from '../config.js';
 import { THEME } from '../themes.js';
 import { Store } from '../store.js';
 import * as G from '../core.js';
@@ -46,6 +46,18 @@ const RAGE_TINT = 0xff8080;                        // відтінок боса 
 
 export const Gfx = {
   get app() { return app; },
+  /** Службове для тестів: таблиця кадрів атласу, шарф і лічильник світла. */
+  frames() {
+    const out = {};
+    for (const k in T) { const f = T[k].frame; out[k] = { x: f.x, y: f.y, w: f.width, h: f.height }; }
+    return out;
+  },
+  scarfSpan() {
+    if (!scarfReady) return null;
+    const a = SCARF[0], b = SCARF[SCARF.length - 1];
+    return { n: SCARF.length, span: Math.hypot(a.x - b.x, a.y - b.y) };
+  },
+  lightCount() { return lights.length; },
   get frameW() { return vw; },
   get fps() { return fpsAvg; },
 
@@ -442,6 +454,104 @@ function drawTelegraphs() {
 }
 
 /* ----------------------------------------------------------- ВОРОГИ */
+
+/* ================================================================
+   МЕХАНІЧНІ ДЕТАЛІ ВОРОГІВ
+   У кожного типу — ТРИ видимі вузли, які рухаються: щось обертається,
+   щось гойдається, щось блимає станом. Малюємо їх поверх спрайта, а не
+   печемо в кадри: рухома деталь коштує пару прямокутників, а кадрів
+   довелось би вчетверо більше, і вони однаково не реагували б на бій.
+
+   Плюс стан пошкодження: нижче 20 % HP ворог ВИГЛЯДАЄ побитим — іскри
+   з пробитого вузла, дим і кульгавість (корпус осідає в такт кроку).
+   ================================================================ */
+function drawEnemyRig(e, sx, sy, t) {
+  const cx = sx + e.w / 2, cy = sy + e.h / 2;
+  const hurt = e.maxHp > 0 ? e.hp / e.maxHp : 1;
+  const beat = t * 6 + e.id * 1.7;                  // спільна фаза «дихання» вузлів
+  const on = 0.5 + 0.5 * Math.sin(beat);
+  const moving = Math.abs(e.vx) > 4;
+  const trim = e.elite ? COL.yellow : COL.cyan;
+
+  switch (e.t) {
+    case 'skreb': {                                 // 1 вал  2 жвала  3 око
+      const a = t * 9;
+      entAddP.rect(px(), cx - 3 + Math.cos(a) * 2, sy + 1, 2, 2, 0x9fb0c4, 0.9);
+      entAddP.rect(px(), cx + 1 - Math.cos(a) * 2, sy + 1, 2, 2, 0x7d8d9f, 0.9);
+      entP.rect(px(), sx + (e.face > 0 ? e.w - 3 : 1), cy + 2 + (moving ? Math.sin(t * 14) : 0), 2, 2, 0x3a2450, 1);
+      entAddP.rect(px(), cx + e.face * 3, cy - 1, 2, 2, COL.orange, 0.5 + 0.5 * on);
+      break;
+    }
+    case 'thug': {                                  // 1 поршень  2 кабель  3 індикатор
+      entAddP.rect(px(), sx + 1, cy - 2 + Math.sin(beat) * 1.5, 2, 5, 0xc7d3e0, 0.8);
+      line(entP, sx + e.w - 2, cy - 3, sx + e.w - 1 + Math.sin(t * 3) * 2, cy + 4, 0x2a1140, 0.9, 1);
+      entAddP.rect(px(), cx - 1, sy + 2, 2, 2, trim, 0.35 + 0.65 * on);
+      break;
+    }
+    case 'turret': {                                // 1 барабан  2 радіатор  3 лінза
+      const a = (e.st === 'aim' || e.st === 'shoot') ? t * 26 : t * 3;
+      for (let k = 0; k < 3; k++) {
+        const an = a + k * 2.1;
+        entAddP.rect(px(), cx + Math.cos(an) * 3 - 1, cy + Math.sin(an) * 3 - 1, 2, 2, 0x8fa0b4, 0.85);
+      }
+      entP.rect(px(), sx + 1, sy + e.h - 4, e.w - 2, 2, 0x39414d, 0.9);
+      entAddP.rect(px(), cx + e.face * 4 - 1, cy - 1, 3, 3, COL.cyan, 0.4 + 0.6 * on);
+      break;
+    }
+    case 'wasp': case 'kami': {                     // 1 ротор  2 підвіс  3 заряд
+      const w = 2 + Math.abs(Math.sin(t * 30)) * 3;
+      entAddP.rect(px(), cx - w, sy, w * 2, 1, 0xbff4ff, 0.7);
+      line(entP, cx, sy + 2, cx + Math.sin(t * 5) * 2, sy + e.h - 1, 0x2a1140, 0.8, 1);
+      entAddP.rect(px(), cx - 1, cy + 1, 2, 2, e.t === 'kami' ? COL.orange : trim, 0.3 + 0.7 * on);
+      break;
+    }
+    case 'shield': {                                // 1 шарнір щита  2 привід  3 лампа
+      const bx = sx + (e.face > 0 ? e.w - 1 : -2);
+      entAddP.rect(px(), bx, cy - 4 + Math.sin(beat) * 1.2, 2, 8, COL.cyan, e.open ? 0.25 : 0.85);
+      entAddP.rect(px(), sx + 2, cy + 3 + Math.cos(beat) * 1.2, 3, 2, 0xc7d3e0, 0.8);
+      entAddP.rect(px(), cx - 1, sy + 2, 2, 2, e.open ? COL.orange : COL.green, 0.4 + 0.6 * on);
+      break;
+    }
+    case 'adept': {                                 // 1 клинок  2 пояс-кабель  3 маска
+      const sw = (e.st === 'wind' || e.st === 'swing') ? 5 : 2;
+      entAddP.rect(px(), cx + e.face * 4, cy - sw, 2, sw * 2, COL.ice, 0.9);
+      line(entP, sx + 2, cy + 2, sx + 3 + Math.sin(t * 4) * 2, cy + 7, 0x2a1140, 0.85, 1);
+      entAddP.rect(px(), cx - 2, sy + 3, 4, 1, e.guard > 0 ? COL.yellow : COL.cyan, 0.4 + 0.6 * on);
+      break;
+    }
+    case 'spider': {                                // 1 лапи  2 сенсор  3 черево
+      for (let k = 0; k < 3; k++) {
+        const ph = t * 12 + k * 2;
+        line(entP, cx - 3 + k * 3, sy + e.h - 2, cx - 4 + k * 3 + Math.sin(ph) * 2,
+             sy + e.h + 1, 0x3a2450, 0.9, 1);
+      }
+      entAddP.rect(px(), cx + e.face * 3, sy + 2, 2, 2, COL.pink, 0.4 + 0.6 * on);
+      entP.rect(px(), cx - 2, cy + 1, 4, 3, 0x5a3a7a, 0.9);
+      break;
+    }
+    default: {                                      // моби-передвісники: спільний набір
+      entAddP.rect(px(), sx + 1, cy - 2 + Math.sin(beat) * 1.4, 2, 4, 0xc7d3e0, 0.75);
+      line(entP, sx + e.w - 2, sy + 3, sx + e.w - 1 + Math.cos(t * 3) * 2, cy + 3, 0x2a1140, 0.8, 1);
+      entAddP.rect(px(), cx - 1, sy + 1, 2, 2, trim, 0.3 + 0.7 * on);
+    }
+  }
+
+  /* --- побитий вигляд: видно, що ворогові лишилось трохи --- */
+  if (hurt <= 0.2 && !e.dead) {
+    const limp = moving ? Math.max(0, Math.sin(t * 9 + e.id)) * 2 : 0;
+    entP.rect(px(), sx, sy + e.h - 1 + limp, e.w, 1, 0x000000, 0.35);   // осідання на крок
+    if (Math.floor(t * 30) % 4 === 0)                                   // іскри з пробитого вузла
+      entAddP.rect(px(), cx + rnd(-e.w / 3, e.w / 3), cy + rnd(-e.h / 3, e.h / 3), 2, 2, COL.yellow, 0.9);
+    const sm = (t * 2 + e.id) % 1;                                      // дим угору
+    entP.rect(px(), cx - 2 + Math.sin(t * 3 + e.id) * 2, sy - sm * 10, 3, 3, 0x8a7fa0, 0.30 * (1 - sm));
+    pushLight(e.x + e.w / 2, e.y + e.h / 2, 24, COL.orange, 0.25);
+  } else if (hurt <= 0.55 && !e.dead) {
+    // на половині — вже видно вм'ятини, але ще не дим
+    entP.rect(px(), cx - e.face * 2, cy - 2, 2, 1, 0x1a0a22, 0.7);
+    entP.rect(px(), cx + e.face * 1, cy + 2, 3, 1, 0x1a0a22, 0.55);
+  }
+}
+
 function drawEnemies() {
   const t = G.world.time;
   for (let i = 0; i < G.ENEM.length; i++) {
@@ -476,6 +586,7 @@ function drawEnemies() {
       else if (e.charm > 0) s.tint = 0x8effe4;      // перехоплений Гліч-Кодом
       reflect(tex, e.x, e.y, e.w, e.h, 0xffffff, 0.35);
     }
+    drawEnemyRig(e, sx, sy, t);                     // три рухомі деталі + стан пошкоджень
     if (e.charm > 0) {
       // палітра інвертована на бірюзову, силует мерехтить, зверху — символ коду
       entAddP.rect(px(), sx - 2, sy - 2, e.w + 4, e.h + 4, 0x00ffcc, 0.18 + 0.12 * Math.sin(t * 9));
@@ -613,6 +724,79 @@ function drawEnemies() {
 }
 
 /* -------------------------------------------------------------- БОС */
+
+/* ================================================================
+   БОС ЖИВЕ, А НЕ СТОЇТЬ
+   Окремі шари поверх корпусу: поршні ходять, труби пульсують у такт
+   диханню, кабелі гойдаються з інерцією, а ОКО СТЕЖИТЬ ЗА ГРАВЦЕМ —
+   зіниця зміщується в його бік, і одразу видно, кого бос «тримає».
+
+   Фаза теж має бути ВИДНА, а не тільки відчутна по темпу: на другій
+   бос скидає броню (пластини відлітають і лишаються щілини, крізь які
+   світиться ядро), на третій — ядро оголюється повністю й корпус
+   деформується, аж підсвітка міняє колір.
+   ================================================================ */
+function bossEye(B, ex, ey, r, col) {
+  const P = G.P;
+  const dx = (P.x + P.w / 2) - (B.x + B.w / 2), dy = (P.y + P.h / 2) - (B.y + B.h / 2);
+  const L = Math.max(1, Math.hypot(dx, dy));
+  const px2 = ex + (dx / L) * r, py2 = ey + (dy / L) * r;
+  entP.rect(px(), ex - r - 1, ey - r - 1, r * 2 + 2, r * 2 + 2, 0x140a20, 0.9);
+  entAddP.rect(px(), ex - r, ey - r, r * 2, r * 2, col, 0.45);
+  entAddP.rect(px(), px2 - 1, py2 - 1, 2, 2, 0xffffff, 0.95);
+  pushLight(B.x + B.w / 2 + (ex - (B.x - camX)), B.y + (ey - (B.y - camY)), 26, col, 0.5);
+}
+function drawBossRig(B, sx, sy, t) {
+  const cx = sx + B.w / 2, cy = sy + B.h / 2;
+  const breathe = Math.sin(t * 2.2);                 // спільний такт дихання
+  const ph = B.phase || 1;
+  const hot = ph >= 3 ? COL.orange : (ph >= 2 ? COL.pink : COL.cyan);
+
+  // --- труби, що пульсують: спільні для всіх корпусів ---
+  for (let k = 0; k < 3; k++) {
+    const w = 2 + (0.5 + 0.5 * Math.sin(t * 2.2 + k * 1.3)) * 2;
+    entAddP.rect(px(), sx + 2 + k * (B.w - 6) / 3, sy + B.h - 5, w, 3, hot, 0.35);
+  }
+  // --- кабелі з інерцією: гойдаються від руху боса ---
+  for (let k = 0; k < 2; k++) {
+    const swing = Math.sin(t * 3 + k * 2) * 3 - B.vx * 0.02;
+    line(entP, sx + 3 + k * (B.w - 6), sy + 4, sx + 3 + k * (B.w - 6) + swing, sy + 12,
+         0x1a0a22, 0.85, 2);
+    entAddP.rect(px(), sx + 2 + k * (B.w - 6) + swing, sy + 11, 2, 2, hot, 0.5);
+  }
+  // --- поршні: ходять туди-сюди, швидше коли бос атакує ---
+  const busy = B.st !== 'idle' && B.st !== 'phase';
+  const pist = (0.5 + 0.5 * Math.sin(t * (busy ? 9 : 3))) * 4;
+  entP.rect(px(), sx + 1, cy - 4 + pist, 3, 6, 0x39414d, 0.95);
+  entAddP.rect(px(), sx + 1, cy - 4 + pist, 3, 1, 0xc7d3e0, 0.8);
+  entP.rect(px(), sx + B.w - 4, cy - 4 + (4 - pist), 3, 6, 0x39414d, 0.95);
+  entAddP.rect(px(), sx + B.w - 4, cy - 4 + (4 - pist), 3, 1, 0xc7d3e0, 0.8);
+
+  // --- око, що стежить ---
+  bossEye(B, cx + B.face * (B.w * 0.18), sy + B.h * 0.28, ph >= 3 ? 4 : 3, hot);
+
+  /* --- ВИДИМА ЗМІНА ФАЗИ --- */
+  if (ph >= 2) {
+    // скинута броня: щілини по корпусу, крізь які світиться ядро
+    for (let k = 0; k < 4; k++) {
+      const gy = sy + 6 + k * (B.h - 10) / 4;
+      entP.rect(px(), sx + 3, gy, B.w - 6, 1, 0x0a0512, 0.8);
+      entAddP.rect(px(), sx + 4, gy, B.w - 8, 1, hot, 0.30 + 0.25 * Math.abs(breathe));
+    }
+  }
+  if (ph >= 3) {
+    // ядро оголене: корпус «розходиться», всередині б'ється світло
+    const r = 4 + Math.abs(breathe) * 3;
+    entP.rect(px(), cx - r - 1, cy - r - 1, r * 2 + 2, r * 2 + 2, 0x0a0512, 0.85);
+    entAddP.rect(px(), cx - r, cy - r, r * 2, r * 2, COL.orange, 0.55);
+    entAddP.rect(px(), cx - 2, cy - 2, 4, 4, 0xffffff, 0.85);
+    pushLight(B.x + B.w / 2, B.y + B.h / 2, 70, COL.orange, 0.5 + 0.2 * breathe);
+    // деформація: корпус ходить по вертикалі на пів пікселя
+    if (Math.floor(t * 12) % 3 === 0)
+      entP.rect(px(), sx, cy + Math.sin(t * 5) * 3, B.w, 1, 0xff6b3d, 0.4);
+  }
+}
+
 function drawBoss() {
   const B = G.BOSS;
   if (!B.on) return;
@@ -634,6 +818,7 @@ function drawBoss() {
     entAddP.rect(px(), sx - 4, sy - 4, B.w + 8, B.h + 8, 0xff3355, k);
     pushLight(B.x + B.w / 2, B.y + B.h / 2, 90, 0xff3355, 0.35 + 0.15 * Math.sin(t * 7));
   }
+  drawBossRig(B, sx, sy, t);                         // шари, що живуть: поршні, труби, кабелі
   switch (B.type) {
     case 'servotaur': {
       const tel = B.st === 'paw' || B.st === 'jumpTel';
@@ -818,31 +1003,38 @@ function drawGhosts() {
 }
 
 /* ------------------------------------------------------------ ГЕРОЙ */
-/* Шарф — ланцюжок із п'яти ланок: кожна тягнеться за попередньою з
-   запізненням, тому на розвороті він відстає, а в падінні здіймається.
+/* Шарф — ланцюжок із СЕМИ ланок (було п'ять): кожна тягнеться за
+   попередньою з запізненням, тому на розвороті він відстає, у падінні
+   здіймається, а на бігу витягується в струну назад. Сім ланок дають
+   помітну хвилю по довжині — на п'яти шарф читався як просто смужка.
    Стан живе між кадрами, тому це модульний масив, а не локальна змінна. */
+const SCARF_N = 7;
 const SCARF = [];
-for (let i = 0; i < 5; i++) SCARF.push({ x: 0, y: 0 });
+for (let i = 0; i < SCARF_N; i++) SCARF.push({ x: 0, y: 0 });
 let scarfReady = false;
 function drawScarf(P, t) {
-  // Кріпиться до шиї спрайта 12x15 і тримається близько до тіла:
+  // Кріпиться до шиї спрайта 24x30 і тримається близько до тіла:
   // це шарф, а не окрема деталь, що літає поруч.
-  const ax = P.x + (P.face > 0 ? 2 : P.w - 2), ay = P.y + 5;
-  if (!scarfReady || Math.hypot(SCARF[0].x - ax, SCARF[0].y - ay) > 48) {
+  const ax = P.x + (P.face > 0 ? 4 : P.w - 4), ay = P.y + 9;
+  if (!scarfReady || Math.hypot(SCARF[0].x - ax, SCARF[0].y - ay) > 72) {
     for (const q of SCARF) { q.x = ax; q.y = ay; }   // старт рівня / телепорт
     scarfReady = true;
   }
-  const wind = -P.face * (1.0 + clamp(Math.abs(P.vx) / 130, 0, 1) * 1.8);
-  const lift = clamp(-P.vy / 300, -1.2, 1.6);
+  // Реакція саме на РУХ: чим швидше біжить, тим далі відносить назад;
+  // чим швидше летить угору, тим вище здіймається хвіст.
+  const wind = -P.face * (1.5 + clamp(Math.abs(P.vx) / CONFIG.RUN, 0, 1) * 2.7);
+  const lift = clamp(-P.vy / 450, -1.2, 1.6) * 1.5;
+  const COLS = [0xffd23f, 0xffc02f, 0xffb03f, 0xf59a34, 0xdd8a28, 0xc27a20, 0xa66518];
   let px0 = ax, py0 = ay;
-  for (let i = 0; i < SCARF.length; i++) {
+  for (let i = 0; i < SCARF_N; i++) {
     const q = SCARF[i];
-    const tx = px0 + wind, ty = py0 - lift + Math.sin(t * 9 - i * 0.9) * (0.6 + i * 0.25);
-    q.x += (tx - q.x) * (0.42 - i * 0.05);           // хвіст в'ялий, основа жорстка
-    q.y += (ty - q.y) * (0.42 - i * 0.05);
-    const w = 2.4 - i * 0.3;
-    entP.rect(px(), q.x - camX - w / 2, q.y - camY - 1, w, 2,
-              i === 0 ? COL.yellow : (i < 3 ? 0xffb03f : 0xc98a12), 1 - i * 0.11);
+    const tx = px0 + wind, ty = py0 - lift + Math.sin(t * 9 - i * 0.8) * (0.9 + i * 0.3);
+    q.x += (tx - q.x) * (0.46 - i * 0.045);          // хвіст в'ялий, основа жорстка
+    q.y += (ty - q.y) * (0.46 - i * 0.045);
+    const w = 3.6 - i * 0.35;
+    entP.rect(px(), q.x - camX - w / 2, q.y - camY - 1.5, w, 3,
+              COLS[i], 1 - i * 0.09);
+    if (i < 3) entP.rect(px(), q.x - camX - w / 2, q.y - camY - 1.5, w, 1, 0xffe9a0, 0.7 - i * 0.2);
     px0 = q.x; py0 = q.y;
   }
 }

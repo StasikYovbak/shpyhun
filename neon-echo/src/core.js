@@ -388,7 +388,7 @@ const P = {
   parryT: 0, bHold: 0, q: 0, dischT: 0,
   heat: 0, lock: false, lockT: 0, arA: 0.4, arB: 0.55, arUsed: false, arMark: 0,
   cHold: 0, fireCd: 0, chargeReady: false, recoil: 0,
-  anim: 'idle', animT: 0, noise: 0, exiting: 0, spawnFx: 0,
+  anim: 'idle', animT: 0, noise: 0, exiting: 0, spawnFx: 0, worn: false,
   // арсенал
   shells: 6, reloadT: 0, cores: 3, coreFrac: 0, chronoCd: 0, chronoHits: 0, scan: null,
   droneCd: 0, mark: null, blinkT: 0, breath: 0,
@@ -1070,6 +1070,9 @@ function clawStack(e) {
    кадр обирає resolveAnim() за пріоритетом станів, а лічильник кадру
    живе ВСЕРЕДИНІ стану й обнуляється на кожному переході.
    ================================================================ */
+/** Пози, для яких є побита версія (решта миготіла б надто рідко). */
+const HERO_DMG = ['idle', 'jump', 'fall', 'hurt',
+                  'run1', 'run2', 'run3', 'run4', 'run5', 'run6', 'run7', 'run8'];
 const AST = {                                     // значення = пріоритет
   IDLE: 10, RUN: 20, LAND: 30, FALL: 45, JUMP: 50,
   DASH: 60, SHOOT: 65, ATTACK: 70, HURT: 80, DEAD: 90
@@ -1174,9 +1177,11 @@ function stepAnim(dt, g) {
 
   switch (P.aState) {
     case AST.RUN: {
-      const fps = 6 + Math.abs(P.vx) / S(26);
-      P.aFrame = Math.floor(P.aT * fps) % 4;
-      P.anim = ['run1', 'run2', 'run3', 'run2'][P.aFrame];
+      // Вісім кадрів замість трьох: хода береться з формули, тож цикл
+      // плавний і в ньому видно перенос ваги, а не «крок-крок».
+      const fps = 10 + Math.abs(P.vx) / S(16);
+      P.aFrame = Math.floor(P.aT * fps) % 8;
+      P.anim = 'run' + (P.aFrame + 1);
       break;
     }
     case AST.IDLE: {
@@ -1226,6 +1231,11 @@ function stepAnim(dt, g) {
     case AST.HURT:   P.anim = 'hurt'; break;
     case AST.DEAD:   P.anim = 'hurt'; break;
   }
+  // На двох серцях і менше героїня ВИГЛЯДАЄ побитою: подряпини на
+  // куртці й іскри з протеза. Стан здоров'я читається з персонажа,
+  // а не тільки зі смужки вгорі — дивитись туди в бою ніколи.
+  P.worn = P.hp <= 2 && !P.dead;
+  if (P.worn && HERO_DMG.indexOf(P.anim) >= 0) P.anim = 'dmg_' + P.anim;
   // дихання: у спокої повільне, у русі частіше
   P.breath += dt * (P.aState === AST.IDLE ? 2.2 : 4.4);
 }
