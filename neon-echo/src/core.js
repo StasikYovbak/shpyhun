@@ -4,7 +4,7 @@
  * який тепер живе в src/render/. Тут немає жодного звертання до canvas.
  */
 import {
-  VW, VH, TS, DT, MAXDT, CONFIG, PH, BL, RG,
+  VW, VH, TS, DT, MAXDT, CONFIG, PH, BL, RG, SPR, BSPR, px as SC,
   clamp, lerp, sign, rnd, rndi, aabb, boxHit, dist2, mulberry
 } from './config.js';
 import { Store } from './store.js';
@@ -96,7 +96,10 @@ const cam = {
   hit(mag) { this.shake = Math.max(this.shake, mag); this.shakeT = 0.28; },
   update(dt, tx, ty) {
     let minX = 0, maxX = Math.max(0, world.pw - view.w);
-    if (this.lockX0 >= 0) {
+    // На аренах босів камеру раніше прибивало до меж арени — через це
+    // героїня з'їжджала з центра «щоб показати боса». У режимі «по центру»
+    // цього винятку немає: межі лишаються тільки в світу.
+    if (this.lockX0 >= 0 && Store.data.cam === 1) {
       const span = this.lockX1 - this.lockX0;
       if (span <= view.w) {
         // кадр ширший за арену — центруємо арену, а не показуємо порожнечу за нею
@@ -104,10 +107,17 @@ const cam = {
         minX = maxX = c;
       } else { minX = this.lockX0; maxX = this.lockX1 - view.w; }
     }
+    // «По центру» (за замовчуванням): героїня жорстко в центрі кадру —
+    // ні мертвої зони, ні випередження, ні зсуву вниз. Це прямо проти
+    // того, щоб палець ховав її за собою. «Класична» лишає старий
+    // варіант зі згладжуванням і зсувом на 5 % вниз.
+    const classic = Store.data.cam === 1;
     const gx = clamp(tx - view.w / 2, minX, maxX);
-    const gy = clamp(ty - view.h * 0.55, 0, Math.max(0, world.ph - view.h));
-    this.x = lerp(this.x, gx, clamp(dt * 9, 0, 1));
-    this.y = lerp(this.y, gy, clamp(dt * 7, 0, 1));
+    const gy = clamp(ty - view.h * (classic ? 0.55 : 0.5), 0, Math.max(0, world.ph - view.h));
+    this.x = classic ? lerp(this.x, gx, clamp(dt * 9, 0, 1)) : gx;
+    // по вертикалі згладжування лишається завжди — інакше кадр сіпається
+    // на кожному стрибку — але цілиться рівно в центр
+    this.y = lerp(this.y, gy, clamp(dt * (classic ? 7 : 11), 0, 1));
     if (this.shakeT > 0) {
       this.shakeT -= dt;
       if (this.shakeT <= 0) this.shake = 0; else this.shake *= 0.90;
@@ -355,7 +365,9 @@ function rayLen(x, y, dir, maxLen) {
    10. ГЕРОЙ «ЕХО»
    ================================================================ */
 const P = {
-  x: 0, y: 0, w: 10, h: 14, vx: 0, vy: 0, face: 1,
+  // 10x14 -> 13x19: хітбокс росте разом зі спрайтом, інакше «картинка
+  // більша, а б'є по-старому». Найвужчий прохід у рівнях — 2 тайли (32 px).
+  x: 0, y: 0, w: 13, h: 19, vx: 0, vy: 0, face: 1,
   onGround: false, coyote: 0, jbuf: 0, jumpHeld: false, ride: null,
   jumps: 0, flipT: 0, dropHold: 0, wallRestored: false,
   hp: 5, maxHp: 5, inv: 0, hurtT: 0, dead: false, deadT: 0,
@@ -376,7 +388,7 @@ function playerReset(full) {
   P.vx = 0; P.vy = 0; P.face = 1; P.onGround = false; P.coyote = 0; P.jbuf = 0;
   P.jumps = 0; P.flipT = 0; P.dropHold = 0; P.wallRestored = false;
   P.ride = null; P.inv = 1.0; P.hurtT = 0; P.dead = false; P.deadT = 0;
-  P.dashT = 0; P.dashCd = 0; P.dropT = 0; P.h = 14;
+  P.dashT = 0; P.dashCd = 0; P.dropT = 0; P.h = 19;
   P.atkT = 0; P.atkIdx = 0; P.atkAct = false; P.comboT = 0; P.hitSet.length = 0;
   P.parryT = 0; P.bHold = 0; P.dischT = 0;
   P.heat = 0; P.lock = false; P.lockT = 0; P.arUsed = false; P.arMark = 0;
@@ -429,15 +441,19 @@ function playerDie() {
 }
 
 /* ---------------- зброя 1: «Арк-тесак» ---------------- */
+/**
+ * Коробка ближнього удару. Усі числа перераховані під новий розмір
+ * героїні (x1.35): дуга не має «відставати» від того, що видно.
+ */
 function bladeBox() {
   const w = EQ.m, idx = P.atkIdx;
   const cx = P.x + P.w / 2, cy = P.y + P.h / 2;
   if (w.id === 'arc') {
-    if (idx === 2) return { x: P.face > 0 ? cx : cx - 26, y: cy - 10, w: 26, h: 20 };
-    return { x: P.face > 0 ? cx : cx - 19, y: cy - 7, w: 19, h: 14 };
+    if (idx === 2) return { x: P.face > 0 ? cx : cx - 35, y: cy - 14, w: 35, h: 27 };
+    return { x: P.face > 0 ? cx : cx - 26, y: cy - 9, w: 26, h: 19 };
   }
-  const r = w.id === 'chrono' ? 20 : w.reach;      // 44 px хронорізу — радіус телепорту
-  const h = w.id === 'whip' ? 26 : (w.id === 'brand' ? 20 : 12);
+  const r = w.id === 'chrono' ? 27 : w.reach;      // радіус телепорту хронорізу
+  const h = w.id === 'whip' ? 35 : (w.id === 'brand' ? 27 : 16);
   return { x: P.face > 0 ? cx : cx - r, y: cy - h / 2, w: r, h: h };
 }
 function bladeStart() {
@@ -1649,26 +1665,27 @@ function updatePlayer(dt) {
         Велика літера в карті = елітна версія (міцніша, швидша,
         з додатковим прийомом).
    ================================================================ */
+// Розміри ворогів збільшено рівно на SPR (x1.35) разом зі спрайтами.
 const ETYPE = {
-  skreb:  { w: 12, h: 9,  hp: 2, sp: 30,  dmg: 1, fly: false },
-  thug:   { w: 12, h: 15, hp: 4, sp: 52,  dmg: 1, fly: false },
-  turret: { w: 14, h: 14, hp: 5, sp: 0,   dmg: 1, fly: false },
-  wasp:   { w: 12, h: 10, hp: 3, sp: 46,  dmg: 1, fly: true },
-  kami:   { w: 11, h: 11, hp: 2, sp: 96,  dmg: 2, fly: true },
-  shield: { w: 14, h: 16, hp: 8, sp: 32,  dmg: 1, fly: false },
-  adept:  { w: 12, h: 15, hp: 6, sp: 60,  dmg: 1, fly: false },
-  phantom:{ w: 12, h: 15, hp: 5, sp: 90,  dmg: 1, fly: true },
-  spider: { w: 12, h: 10, hp: 3, sp: 40,  dmg: 1, fly: false },
+  skreb:  { w: 16, h: 12,  hp: 2, sp: 30,  dmg: 1, fly: false },
+  thug:   { w: 16, h: 20, hp: 4, sp: 52,  dmg: 1, fly: false },
+  turret: { w: 19, h: 19, hp: 5, sp: 0,   dmg: 1, fly: false },
+  wasp:   { w: 16, h: 14, hp: 3, sp: 46,  dmg: 1, fly: true },
+  kami:   { w: 15, h: 15, hp: 2, sp: 96,  dmg: 2, fly: true },
+  shield: { w: 19, h: 22, hp: 8, sp: 32,  dmg: 1, fly: false },
+  adept:  { w: 16, h: 20, hp: 6, sp: 60,  dmg: 1, fly: false },
+  phantom:{ w: 16, h: 20, hp: 5, sp: 90,  dmg: 1, fly: true },
+  spider: { w: 16, h: 14, hp: 3, sp: 40,  dmg: 1, fly: false },
   // --- моби-передвісники босів ---
-  rammer:  { w: 14, h: 12, hp: 4,  sp: 40, dmg: 1, fly: false },
-  anvil:   { w: 16, h: 16, hp: 6,  sp: 26, dmg: 1, fly: false },
-  carrier: { w: 18, h: 14, hp: 6,  sp: 34, dmg: 1, fly: true },
-  pylon:   { w: 12, h: 20, hp: 8,  sp: 0,  dmg: 1, fly: false },
-  blinker: { w: 12, h: 10, hp: 3,  sp: 70, dmg: 1, fly: false },
-  worm:    { w: 14, h: 10, hp: 5,  sp: 32, dmg: 1, fly: false },
-  arch1:   { w: 16, h: 20, hp: 8,  sp: 52, dmg: 1, fly: false },
-  arch2:   { w: 16, h: 20, hp: 9,  sp: 40, dmg: 1, fly: false },
-  arch3:   { w: 16, h: 20, hp: 10, sp: 60, dmg: 1, fly: false }
+  rammer:  { w: 19, h: 16, hp: 4,  sp: 40, dmg: 1, fly: false },
+  anvil:   { w: 22, h: 22, hp: 6,  sp: 26, dmg: 1, fly: false },
+  carrier: { w: 24, h: 19, hp: 6,  sp: 34, dmg: 1, fly: true },
+  pylon:   { w: 16, h: 27, hp: 8,  sp: 0,  dmg: 1, fly: false },
+  blinker: { w: 16, h: 14, hp: 3,  sp: 70, dmg: 1, fly: false },
+  worm:    { w: 19, h: 14, hp: 5,  sp: 32, dmg: 1, fly: false },
+  arch1:   { w: 22, h: 27, hp: 8,  sp: 52, dmg: 1, fly: false },
+  arch2:   { w: 22, h: 27, hp: 9,  sp: 40, dmg: 1, fly: false },
+  arch3:   { w: 22, h: 27, hp: 10, sp: 60, dmg: 1, fly: false }
 };
 
 /* ================================================================
@@ -2686,14 +2703,15 @@ function updateTele(dt) {
 /* ================================================================
    13. БОСИ — 5 штук, у кожного 2-3 фази й читані телеграфи атак
    ================================================================ */
+// Боси збільшено на BSPR (x1.5) разом зі спрайтами.
 const BOSSDEF = {
-  servotaur: { name: 'СЕРВОТАВР',   hp: 55,  w: 40, h: 30, sub: 'МЕХ-БИК ДОКІВ',       tel: 0.70, phases: 2 },
-  queen:     { name: 'МАТКА-РІЙ',   hp: 75,  w: 36, h: 24, sub: 'ІНКУБАТОР ФАБРИКИ',   tel: 0.65, phases: 2 },
-  chrono:    { name: 'ХРОНОКЛИНОК', hp: 95,  w: 14, h: 22, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.60, phases: 2 },
+  servotaur: { name: 'СЕРВОТАВР',   hp: 55,  w: 60, h: 45, sub: 'МЕХ-БИК ДОКІВ',       tel: 0.70, phases: 2 },
+  queen:     { name: 'МАТКА-РІЙ',   hp: 75,  w: 54, h: 36, sub: 'ІНКУБАТОР ФАБРИКИ',   tel: 0.65, phases: 2 },
+  chrono:    { name: 'ХРОНОКЛИНОК', hp: 95,  w: 21, h: 33, sub: 'ДУЕЛЯНТ САДУ',        tel: 0.60, phases: 2 },
   // HP 95 -> 60: бій тепер гейтований вікнами, і саме дальня зброя
   // впирається в стелю «не більше 6 вікон» (див. tests/glitch.mjs)
-  glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 60,  w: 26, h: 26, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.55, phases: 3 },
-  architect: { name: 'АРХІТЕКТОР',  hp: 150, w: 22, h: 30, sub: 'ЯДРО КАЙЗЕН-ВОЛЬТ',   tel: 0.50, phases: 3 }
+  glitch:    { name: 'ГЛІТЧ-ЯДРО',  hp: 60,  w: 39, h: 39, sub: 'ЗБІЙ У МЕРЕЖІ',       tel: 0.55, phases: 3 },
+  architect: { name: 'АРХІТЕКТОР',  hp: 150, w: 33, h: 45, sub: 'ЯДРО КАЙЗЕН-ВОЛЬТ',   tel: 0.50, phases: 3 }
 };
 /** Телеграф атаки: у полегшеному режимі на чверть довший. */
 function TEL(k) {
@@ -3288,7 +3306,7 @@ function glitchArenaFx() {
    виростає з 26 до 48 px) і завмирає. Біля кожної точки є платформа,
    тож бити можна і стоячи, і зі стрибка.
    ================================================================ */
-const GL_OPEN_H = 48;        // висота розкритої оболонки — вразлива зона
+const GL_OPEN_H = 68;        // висота розкритої оболонки (виросла разом із босом)
 const GL_WARN = 1.2;         // попередження перед приземленням
 const GL_FLY = 12;           // фаза польоту
 const GL_WIN = [4.0, 3.5, 3.0];   // вікно шкоди по фазах
@@ -3748,6 +3766,7 @@ const Game = {
   state: 'menu', level: 0, introT: 0, cpTaken: false, cpIndex: 0, backTo: 'menu',
   pickupName: '', pickupT: 0, assembleT: 0, reward: null,
   assist: false, assistAsked: false, bossDeaths: 0, bossDeathLvl: -1, cutT: false,
+  combat: false,
 
   startLevel(idx, useCp) {
     const lvl = clamp(idx, 0, LEVELS.length - 1);
@@ -3928,6 +3947,7 @@ function stepGame(dt) {
       if (Game.pickupT > 0.1 && lv === 0) lv = 0;
     }
     Music.layer(lv);
+    Game.combat = lv >= 2;                          // бій: кнопки трохи тьмяніють
   }
   Music.update(dt);
 }

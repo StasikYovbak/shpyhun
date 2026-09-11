@@ -33,6 +33,9 @@ html,body{height:100%;margin:0;padding:0;overflow:hidden;background:#000;
 #dpad .arw{fill:rgba(20,6,36,.5);stroke:#22e0ff;stroke-width:3;stroke-linejoin:round;
   transition:fill .06s linear}
 #dpad .arw.hit{fill:#ff2e88;stroke:#ffd23f}
+/* у бою керування на 20% тьмяніше — щоб палець менше ховав героїню */
+#touch.fight #dpad{opacity:calc(var(--dpadop) * .8)}
+#touch.fight .pad{opacity:calc(var(--btnop) * .8)}
 #btnPause{position:absolute;width:44px;height:44px;border-radius:10px;border:2px solid var(--line);
   background:rgba(11,4,19,.55);opacity:var(--btnop);display:flex;align-items:center;justify-content:center;
   color:#bff4ff;font-size:15px;font-weight:700}

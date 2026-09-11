@@ -27,7 +27,9 @@ const ok = (c, m, extra) => { if (!c) { fails++; console.log('  ✗ ' + m + (ext
 
 const res = await page.evaluate(() => {
   const D = window.__DEV, G = D.G, P = D.P;
-  const FLOOR = 208, PH = 14;
+  // розмір героїні беремо в гри: після збільшення спрайтів
+  // зашитий 14 давав би зону ураження від старого зросту
+  const FLOOR = 208, PH = P.h;
 
   // Справжня висота стрибка — міряємо грою, а не беремо з константи.
   D.Game.startLevel(0, false); D.god(true);
@@ -120,12 +122,12 @@ const res = await page.evaluate(() => {
     rec.states = Object.keys(rec.states).join('/');
     out.push(rec);
   }
-  return { jumpH: +jumpH.toFixed(1), apexY: +apexY.toFixed(1), rows: out };
+  return { jumpH: +jumpH.toFixed(1), apexY: +apexY.toFixed(1), ph: PH, rows: out };
 });
 
 console.log('АУДИТ ДОСЯЖНОСТІ БЛИЖНЬОЮ ЗБРОЄЮ\n');
-console.log('  висота стрибка ' + res.jumpH + ' px, дуга клинка по вертикалі 14 px,');
-console.log('  підлога арен y=208 (стоячи y=194, вершина стрибка y=' + res.apexY + ')\n');
+console.log('  висота стрибка ' + res.jumpH + ' px, дуга клинка по вертикалі ' + res.ph + ' px,');
+console.log('  підлога арен y=208 (стоячи y=' + (208 - res.ph) + ', вершина стрибка y=' + res.apexY + ')\n');
 console.log('  бос                       HP   вікно раз на  вразлива зона  дістає  запас   у зоні  пауза');
 console.log('  ' + '-'.repeat(90));
 for (const r of res.rows) {
@@ -141,7 +143,7 @@ for (const r of res.rows) {
 console.log('\n  «запас»  — найкращий перетин зони ураження клинка з вразливою коробкою.');
 console.log('  «у зоні» — яку частку вразливого часу до боса взагалі можна дотягнутись.');
 console.log('  «пауза»  — найдовший відрізок вразливого часу, коли дотягнутись не можна.');
-console.log('  Зона ураження з поверхні на висоті sy — смуга [sy-14-' + res.jumpH + ', sy]:');
+console.log('  Зона ураження з поверхні на висоті sy — смуга [sy-' + res.ph + '-' + res.jumpH + ', sy]:');
 console.log('  за один стрибок тіло героїні (а з ним і дуга) проходить усі ці висоти.\n');
 
 for (const r of res.rows) {

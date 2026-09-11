@@ -90,6 +90,8 @@ export function syncSettings() {
   $('sMus').value = Store.data.mus; $('vMus').textContent = Store.data.mus + '%';
   $('sTrack').textContent = Music.title || '—';
   segSet('sGfx', Store.data.gfx);
+  segSet('sCam', String(Store.data.cam));
+  segSet('sDim', String(Store.data.dimFight));
   segSet('sCrt', String(Store.data.crt));
   segSet('sOut', String(Store.data.outline));
   segSet('sDbg', String(Store.data.dbg));
@@ -269,6 +271,8 @@ export function initUI() {
     applyVolume(); Store.save();
   });
   segBind('sGfx', v => { Store.data.gfx = v; Gfx.applyQuality(); });
+  segBind('sCam', v => { Store.data.cam = +v; });
+  segBind('sDim', v => { Store.data.dimFight = +v; });
   segBind('sCrt', v => { Store.data.crt = +v; Gfx.applyQuality(); });
   segBind('sOut', v => { Store.data.outline = +v; Gfx.applyQuality(); });
   segBind('sDbg', v => { Store.data.dbg = +v; });

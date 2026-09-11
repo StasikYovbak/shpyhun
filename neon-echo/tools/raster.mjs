@@ -29,7 +29,19 @@ export class Bitmap {
     d[i + 2] = (b * k + d[i + 2] * da * ik) / oa;
     d[i + 3] = oa * 255;
   }
+  /**
+   * Прямокутник. Якщо у бітмапа виставлено `k` (масштаб персонажів),
+   * координати множаться саме ПО КРАЯХ, а не по ширині — інакше між
+   * сусідніми прямокутниками з'являлись би щілини в один піксель.
+   */
   rect(x, y, w, h, col) {
+    const k = this.k || 1;
+    if (k !== 1) {
+      const X = Math.round(x * k), Y = Math.round(y * k);
+      const W = Math.max(1, Math.round((x + w) * k) - X);
+      const H = Math.max(1, Math.round((y + h) * k) - Y);
+      x = X; y = Y; w = W; h = H;
+    }
     const [r, g, b, a] = Bitmap.rgba(col);
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) this.blend(x + i, y + j, r, g, b, a);
   }
@@ -47,6 +59,8 @@ export class Bitmap {
   }
   // Радіальний градієнт (для спрайтів світла й спалахів).
   radial(cx, cy, rad, col, pow = 1) {
+    const kr = this.k || 1;
+    if (kr !== 1) { cx *= kr; cy *= kr; rad *= kr; }
     const [r, g, b] = Bitmap.rgba(col);
     for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) {
       const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy) / rad;
@@ -56,6 +70,8 @@ export class Bitmap {
     }
   }
   ring(cx, cy, rad, width, col) {
+    const kg = this.k || 1;
+    if (kg !== 1) { cx *= kg; cy *= kg; rad *= kg; width *= kg; }
     const [r, g, b] = Bitmap.rgba(col);
     for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) {
       const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);

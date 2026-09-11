@@ -148,7 +148,9 @@ const R = await page.evaluate(() => {
   let loTop = 999; D.kb.a = 1; D.step(); D.kb.a = 0;
   for (let i = 0; i < 70; i++) { D.step(); loTop = Math.min(loTop, P.y); }
   out.varJump = { holdY: Math.round(hiTop), tapY: Math.round(loTop),
-                  height: Math.round(194 - hiTop) };
+                  // висоту міряємо від того, де героїня СТОЇТЬ, а не від
+                  // зашитого числа: хітбокс змінився, фізика стрибка — ні
+                  height: Math.round((208 - P.h) - hiTop) };
 
   // --- подвійний стрибок ---
   reset();

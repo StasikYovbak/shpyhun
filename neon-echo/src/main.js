@@ -25,7 +25,7 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import { App } from '@capacitor/app';
 
 const canvas = document.getElementById('game');
-let last = 0, acc = 0, audioReady = false;
+let last = 0, acc = 0, audioReady = false, lastFight = null;
 
 /* ------------------------------------------------------- нативний шар */
 async function setupNative() {
@@ -80,6 +80,12 @@ function frame(now) {
     }
     if (acc > DT * 6) acc = 0;
   } else acc = 0;
+  // клас бою на шар керування — CSS робить решту
+  const fight = G.Game.state === 'play' && G.Game.combat && Store.data.dimFight;
+  if (fight !== lastFight) {
+    lastFight = fight;
+    document.getElementById('touch').classList.toggle('fight', !!fight);
+  }
   Gfx.draw();
 }
 
