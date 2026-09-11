@@ -11,7 +11,7 @@ import {
 import { AdvancedBloomFilter, CRTFilter, RGBSplitFilter } from 'pixi-filters';
 import { SpritePool } from './pool.js';
 import { PaletteFilter } from './palette.js';
-import { VW, VH, TS, CONFIG, clamp, lerp, rnd } from '../config.js';
+import { VW, VH, TS, CONFIG, Si, clamp, lerp, rnd } from '../config.js';
 import { THEME } from '../themes.js';
 import { Store } from '../store.js';
 import * as G from '../core.js';
@@ -246,6 +246,7 @@ export const Gfx = {
     drawParticles();
     drawRings();
     drawWeather(th);
+    drawLevelFx(G.world.time);
     drawDarkness();
     drawLights();
     if (!G.Cut.on) drawHud();               // під час катсцени HUD не потрібен
@@ -466,6 +467,7 @@ function drawTelegraphs() {
    з пробитого вузла, дим і кульгавість (корпус осідає в такт кроку).
    ================================================================ */
 function drawEnemyRig(e, sx, sy, t) {
+  if (Gfx.level === 0) return;       // у режимі продуктивності без дрібних вузлів
   const cx = sx + e.w / 2, cy = sy + e.h / 2;
   const hurt = e.maxHp > 0 ? e.hp / e.maxHp : 1;
   const beat = t * 6 + e.id * 1.7;                  // спільна фаза «дихання» вузлів
@@ -747,6 +749,7 @@ function bossEye(B, ex, ey, r, col) {
   pushLight(B.x + B.w / 2 + (ex - (B.x - camX)), B.y + (ey - (B.y - camY)), 26, col, 0.5);
 }
 function drawBossRig(B, sx, sy, t) {
+  if (Gfx.level === 0) return;
   const cx = sx + B.w / 2, cy = sy + B.h / 2;
   const breathe = Math.sin(t * 2.2);                 // спільний такт дихання
   const ph = B.phase || 1;
@@ -1500,6 +1503,206 @@ function drawWeather(th) {
     }
   }
 }
+
+/* ================================================================
+   ХАРАКТЕР СЕКТОРА НА ЕКРАНІ
+   Механіка має бути ВИДНА до того, як вона вб'є: вивіска гасне на очах,
+   вітер видно по нахилу дощу, гаряча зона пашить, зона інверсії має
+   стрілки вниз-вгору. Голограма-підказка — дві секунди анімації там,
+   де механіка вводиться, замість абзацу тексту.
+   ================================================================ */
+function drawLevelFx(t) {
+  const L = G.LFX, W = G.world;
+  if (!L || !L.on) return;
+
+  // --- вивіски: ділянка провалюється в темряву ---
+  for (const s of L.signs) {
+    const x = s.x - camX;
+    if (x < -vw || x > vw * 2) continue;
+    const lit = s.off <= 0;
+    for (let k = 0; k < 3; k++) {
+      const sx = x + Si(20) + k * (s.w / 3), sy = Si(90) + (k % 2) * Si(26);
+      entP.rect(px(), sx, sy, Si(26), Si(9), 0x1a0a22, 0.9);
+      if (lit) {
+        const f = Math.random() < 0.06 ? 0.4 : 1;    // зламана: сіпається
+        entAddP.rect(px(), sx + 1, sy + 1, Si(24), Si(7), k % 2 ? COL.pink : COL.cyan, 0.75 * f);
+        pushLight(s.x + Si(20) + k * (s.w / 3) + Si(13), Si(94) + (k % 2) * Si(26),
+                  70, k % 2 ? COL.pink : COL.cyan, 0.5 * f);
+      }
+    }
+  }
+  if (W.signDark) {                                  // локальна темрява під згаслою вивіскою
+    const k = 0.74, x0 = Math.max(0, W.signDark.x - camX);
+    const x1 = Math.min(vw, W.signDark.x + W.signDark.w - camX);
+    if (x1 > x0) {
+      const P = G.P, cx = P.x + P.w / 2 - camX, cy = P.y + P.h / 2 - camY, R = Si(80);
+      // тінь лягає тільки на ділянку вивіски, і в ній лишається пляма
+      // світла навколо героїні — рівно як у метро, але локально
+      darkP.rect(px(), x0, 0, x1 - x0, Math.max(0, cy - R), 0x03020a, k);
+      darkP.rect(px(), x0, cy + R, x1 - x0, Math.max(0, VH - (cy + R)), 0x03020a, k);
+      darkP.rect(px(), x0, cy - R, Math.max(0, Math.min(x1, cx - R) - x0), R * 2, 0x03020a, k);
+      darkP.rect(px(), Math.max(x0, cx + R), cy - R, Math.max(0, x1 - Math.max(x0, cx + R)), R * 2, 0x03020a, k);
+      const h = darkP.get(T.dark_hole);
+      h.x = cx - R; h.y = cy - R; h.width = R * 2; h.height = R * 2; h.alpha = k;
+    }
+  }
+
+  // Далі — суто декоративне: у режимі продуктивності його не малюємо.
+  // Усе, від чого залежить ВИЖИВАННЯ (темрява під вивіскою, голограма
+  // з підказкою, рамка кімнати-виклику), лишається завжди.
+  const rich = Gfx.level >= 1;
+
+  // --- вітер: видно по нахилу дощу й по смужках повітря ---
+  if (rich && L.wind) {
+    for (let i = 0; i < 6; i++) {
+      const y = ((t * 40 + i * 61) % VH);
+      const x = ((t * L.wind * 260 + i * 137) % (vw + 80)) - 40;
+      entAddP.rect(px(), x, y, Si(14), 1, 0xbff4ff, 0.18);
+    }
+  }
+
+  // --- гарячі й холодні зони ---
+  for (const z of (rich ? L.zones : [])) {
+    const x = z.x - camX;
+    if (x < -vw || x > vw * 2) continue;
+    const col = z.hot ? 0xff6b3d : 0x22e0ff;
+    entAddP.rect(px(), x, VH - Si(70), z.w, Si(70), col, z.hot ? 0.06 : 0.05);
+    for (let i = 0; i < 5; i++) {
+      const ox = (i * z.w / 5 + (z.hot ? t * 20 : -t * 14) % (z.w / 5));
+      const oy = z.hot ? (VH - Si(20) - ((t * 30 + i * 40) % Si(60))) : (VH - Si(60) + ((t * 20 + i * 30) % Si(50)));
+      entAddP.rect(px(), x + ox, oy, 2, Si(6), col, 0.30);
+    }
+  }
+
+  // --- зони інверсії гравітації ---
+  for (const z of (rich ? L.grav : [])) {
+    const x = z.x - camX;
+    if (x < -vw || x > vw * 2) continue;
+    entAddP.rect(px(), x, 0, z.w, VH, 0x8f6fff, 0.05 + 0.02 * Math.sin(t * 3));
+    for (let i = 0; i < 6; i++) {
+      const ax = x + Si(16) + i * (z.w - Si(32)) / 5;
+      const ay = ((t * -50 + i * 70) % VH + VH) % VH;
+      entAddP.rect(px(), ax, ay, 2, Si(8), 0x8f6fff, 0.5);
+      entAddP.rect(px(), ax - 2, ay, 6, 2, 0x8f6fff, 0.5);
+    }
+  }
+
+  // --- туман саду: видимість падає на середній дистанції ---
+  if (rich && L.fog) {
+    const P = G.P, cx = P.x + P.w / 2 - camX;
+    for (let i = 0; i < 4; i++) {
+      const fx2 = ((t * (8 + i * 3) + i * 200) % (vw + 300)) - 150;
+      weatherP.rect(px(), fx2, VH - Si(120) - i * Si(18), Si(220), Si(44), 0xdfe9ff, 0.055);
+    }
+    // замість двох напівекранів — вузькі градієнтні смуги по краях
+    // видимості: те саме відчуття, учетверо менше заповнення
+    for (let i = 0; i < 3; i++) {
+      const w2 = Si(40);
+      weatherP.rect(px(), cx - Si(130) - w2 * (i + 1), 0, w2, VH, 0xdfe9ff, 0.05 + i * 0.03);
+      weatherP.rect(px(), cx + Si(130) + w2 * i, 0, w2, VH, 0xdfe9ff, 0.05 + i * 0.03);
+    }
+  }
+
+  // --- краєвиди: у цих місцях місто відкривається ширше й яскравіше ---
+  for (const v of (rich ? L.vista : [])) {
+    const d = Math.abs((G.P.x) - v.x);
+    if (d > Si(200)) continue;
+    // Раніше тут була адитивна смуга на весь кадр — 640x150 щокадру, і
+    // саме вона з'їдала заповнення. Те саме враження дають два джерела
+    // світла: їх шар і так батчиться в один прохід.
+    // Радіус тут — не смак, а ціна: спрайт світла малюється як квадрат
+    // 2r x 2r, тож r=240 коштує цілий екран заливки. Два помірні джерела
+    // дають те саме враження за чверть ціни.
+    const k = (1 - d / Si(200)) * 0.5;
+    pushLight(v.x, Si(60), 110, 0xff2e88, 0.42 * k);
+    pushLight(v.x + Si(90), Si(100), 90, 0x22e0ff, 0.34 * k);
+  }
+
+  // --- тріснуті стіни: видно, що це не просто тайл ---
+  for (const v of (rich ? L.vaults : [])) {
+    const x = v.x - camX, y = v.y - camY;
+    if (x < -Si(40) || x > vw + Si(40)) continue;
+    for (let i = 0; i < 3; i++)
+      entP.rect(px(), x + 2 + i, y + Si(4) + i * Si(9) + (i % 2) * 3, Si(14) - i * 3, 1, 0x0a0512, 0.9);
+    entAddP.rect(px(), x + Si(2), y + Si(2), Si(3), Si(3), COL.yellow, 0.18 + 0.12 * Math.sin(t * 4));
+  }
+
+  // --- кімната-виклик: рамка й лічильник, поки триває ---
+  const C = L.chal;
+  if (C && C.st === 'run') {
+    const x = C.x - camX;
+    entAddP.rect(px(), x, 0, 2, VH, COL.yellow, 0.5);
+    entAddP.rect(px(), x + C.w, 0, 2, VH, COL.yellow, 0.5);
+    const k = Math.max(0, C.t) / 15;
+    hudP.rect(px(), vw / 2 - Si(60), Si(30), Si(120), Si(5), 0x0b0413, 0.7);
+    hudP.rect(px(), vw / 2 - Si(59), Si(31), Si(118) * k, Si(3), k > 0.33 ? COL.yellow : COL.orange, 1);
+  }
+
+  // --- пасхалка: аркадний автомат, на якому крутиться демка цієї ж гри ---
+  if (L.arcade) {
+    const x = L.arcade.x - camX, y = L.arcade.y - camY;
+    if (x > -Si(40) && x < vw + Si(40)) {
+      entP.rect(px(), x, y, Si(18), Si(26), 0x2a1140, 1);
+      entP.rect(px(), x + Si(2), y + Si(3), Si(14), Si(11), 0x05030a, 1);
+      entAddP.rect(px(), x + Si(2), y + Si(3), Si(14), Si(11), 0x22e0ff, 0.12);
+      // мініатюрна гра всередині: біжить героїня, повз пролітають платформи
+      const px2 = x + Si(4) + ((t * 14) % Si(10));
+      entAddP.rect(px(), px2, y + Si(9), 2, 3, COL.pink, 0.95);
+      entAddP.rect(px(), x + Si(3), y + Si(12), Si(12), 1, COL.cyan, 0.6);
+      for (let i = 0; i < 2; i++)
+        entAddP.rect(px(), x + Si(4) + ((t * 22 + i * 7) % Si(12)), y + Si(6), 2, 1, COL.yellow, 0.8);
+      entAddP.rect(px(), x + Si(3), y + Si(17), Si(5), Si(2), COL.orange, 0.8);
+      entAddP.rect(px(), x + Si(11), y + Si(17), Si(4), Si(2), COL.green, 0.8);
+      pushLight(L.arcade.x + Si(9), L.arcade.y + Si(9), 60, 0x22e0ff, 0.55);
+    }
+  }
+
+  // --- голограма-підказка: дві секунди анімації замість тексту ---
+  if (L.holoT > 0 && L.holo) {
+    const k = Math.min(1, L.holoT / 0.3), x = L.holo.x - camX, y = L.holo.y - camY;
+    const a = 0.85 * k, ph = (2.0 - L.holoT) * 3;
+    entAddP.rect(px(), x - Si(20), y - Si(18), Si(40), Si(30), 0x22e0ff, 0.10 * k);
+    for (let i = 0; i < 3; i++)
+      entAddP.rect(px(), x - Si(20), y - Si(18) + i * Si(12), Si(40), 1, 0x22e0ff, 0.25 * k);
+    // сама підказка — рухома піктограма, різна для кожної механіки
+    const K = L.holo.k;
+    if (K === 'dark') {                              // вивіска гасне, коло світла звужується
+      const r = Si(12) * (0.4 + 0.6 * Math.abs(Math.sin(ph)));
+      entAddP.rect(px(), x - r, y - r, r * 2, r * 2, 0xffd23f, a * 0.5);
+    } else if (K === 'press' || K === 'crate') {     // плита падає згори
+      const dy = (ph % 1.2) / 1.2 * Si(18);
+      entAddP.rect(px(), x - Si(10), y - Si(16) + dy, Si(20), Si(6), 0xff6b3d, a);
+      entAddP.rect(px(), x - Si(12), y + Si(6), Si(24), 1, 0xff6b3d, a * 0.6);
+    } else if (K === 'wind') {                       // стрілки вбік
+      const ox = (ph % 1) * Si(16) - Si(8);
+      for (let i = 0; i < 3; i++)
+        entAddP.rect(px(), x - Si(14) + ox, y - Si(6) + i * Si(6), Si(16), 2, 0xbff4ff, a);
+    } else if (K === 'train') {                      // склад проноситься повз
+      const ox = ((ph % 1.4) / 1.4) * Si(40) - Si(20);
+      entAddP.rect(px(), x + ox - Si(14), y - Si(4), Si(28), Si(8), 0xffd23f, a);
+    } else if (K === 'heat') {                       // термометр повзе вгору
+      entAddP.rect(px(), x - 2, y - Si(14), 4, Si(18), 0x39414d, a);
+      const h = Si(16) * (0.3 + 0.7 * Math.abs(Math.sin(ph)));
+      entAddP.rect(px(), x - 2, y + Si(4) - h, 4, h, 0xff6b3d, a);
+    } else if (K === 'grav') {                       // стрілка перевертається
+      const up = Math.sin(ph) > 0;
+      for (let i = 0; i < 3; i++)
+        entAddP.rect(px(), x - Si(6) + i * Si(6), y + (up ? -Si(8) : Si(4)), 2, Si(10), 0x8f6fff, a);
+    } else if (K === 'fall') {                       // плитка осипається
+      for (let i = 0; i < 4; i++)
+        entAddP.rect(px(), x - Si(14) + i * Si(8), y + ((ph * 14 + i * 5) % Si(18)), Si(6), Si(4), 0x7b2fbe, a * 0.9);
+    } else if (K === 'chal') {                       // виклик: пісочний годинник
+      const f = (ph % 1.2) / 1.2;
+      entAddP.rect(px(), x - Si(8), y - Si(12), Si(16), 2, COL.yellow, a);
+      entAddP.rect(px(), x - Si(8), y + Si(8), Si(16), 2, COL.yellow, a);
+      entAddP.rect(px(), x - 1, y - Si(10) + f * Si(18), 2, Si(3), COL.yellow, a);
+    } else if (K === 'fog') {
+      for (let i = 0; i < 3; i++)
+        entAddP.rect(px(), x - Si(16) + ((ph * 8 + i * 9) % Si(32)), y - Si(6) + i * Si(6), Si(14), 2, 0xdfe9ff, a);
+    }
+  }
+}
+
 function drawDarkness() {
   if (!G.world.dark) return;
   const P = G.P;

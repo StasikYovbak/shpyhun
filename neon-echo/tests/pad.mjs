@@ -97,6 +97,10 @@ console.log('\nСПУСК КРІЗЬ ТОНКУ ПЛАТФОРМУ — УТРИ�
 const drop = await page.evaluate(() => {
   const D = window.__DEV, P = D.P, W = D.world, TS = D.TS || 16;
   D.Game.startLevel(0, false); D.god(true);
+  // Механіку сектора на час заміру глушимо: кімната-виклик спавнить
+  // ворогів, і вони збивають героїню з платформи — а міряємо ми спуск,
+  // а не бій. Сама механіка перевіряється в tests/levels.mjs.
+  D.G.LFX.on = false; D.G.LFX.chal = null; D.ENEM.length = 0;
   // шукаємо тонку платформу ('=' → T_PLAT) з порожнечею під нею
   let spot = null;
   for (let ty = 3; ty < W.th - 2 && !spot; ty++)

@@ -274,6 +274,7 @@ function loadLevel(idx) {
   world.tiles = new Uint8Array(world.tw * world.th);
   world.off = null; world.grav = 1;
   world.dark = (def.th === 'metro');
+  world.signDark = false;
   world.time = 0; world.rng = mulberry(1337 + idx * 7919);
   world.spawnList = []; world.pickList = [];
   world.bossX = 0; world.exitOpen = !def.boss;
@@ -322,8 +323,384 @@ function loadLevel(idx) {
   }
   if (!world.cps.length) world.cps.push({ x: world.spawn.x, y: world.spawn.y, taken: false });
   world.cpPos = world.cps[0];                       // сумісність зі старим кодом/тестами
+  // Механіка й секрети вбудовуються в УЖЕ зібраний світ: тайли на
+  // місці, список пікапів існує. Інакше прес ставав би посеред стіни,
+  // ніша прорізалась би в порожнечу, а нагороду з неї одразу ж затерло б.
+  levelFxInit(def);
+  levelSecrets(def, idx);
 }
 
+
+
+/* ================================================================
+   ХАРАКТЕР РІВНЯ
+   Темрява в метро вийшла найцікавішою рівно тому, що це МЕХАНІКА, а
+   не декорація: вона міняє те, ЯК ти граєш. Тут те саме дано кожному
+   сектору — по одній головній ідеї на рівень.
+
+   Правило для всіх десяти однакове:
+     — вводиться в безпечному місці, де помилка нічого не коштує;
+     — повторюється три-чотири рази, щоразу складніше;
+     — бос цього (або наступного) сектора користується ТІЄЮ САМОЮ ідеєю,
+       тож рівень виявляється тренуванням перед боєм.
+
+   Механіки тримаються на вже наявних системах: ZONES ранять, TELE
+   попереджає, world.dark гасить світло, mp возить платформи. Нового
+   стану — мінімум, і весь він у LFX.
+   ================================================================ */
+const LFX = {
+  on: false, kind: '', t: 0, zones: [], wind: 0, windT: 0, heat: 0,
+  presses: [], trains: [], signs: [], holo: null, holoT: 0, grav: [], beat: 0,
+  crumble: [], fog: 0, vista: [], vaults: [], chal: null, arcade: null
+};
+/**
+ * Смерть не має лишати гравця в пастці: обвалена підлога повертається
+ * на місце разом із респавном, а лічильники механік — у вихідний стан.
+ */
+function levelFxRespawn() {
+  for (const c of LFX.crumble) {
+    if (c.gone && c.cells && world.off) for (const i of c.cells) world.off[i] = 0;
+    c.gone = 0; c.t = 0; c.cells = null;
+  }
+  for (const m of LFX.presses) { m.st = 'up'; m.t = m.cd; }
+  for (const tr of LFX.trains) { tr.st = 'wait'; tr.t = tr.cd; }
+  LFX.wind = 0; LFX.windT = 1.5;
+  if (world.grav < 0) world.grav = 1;
+}
+
+/* ----------------------------------------------------------------
+   СЕКРЕТИ Й ВИКЛИКИ
+   Три речі, які роблять сектор вартим того, щоб у ньому озирнутись:
+     — тріснута стіна, за якою ніша з нагородою: ламає тільки Тавро;
+     — кімната-виклик: зайшов — 15 секунд на те, щоб вибити всіх;
+     — одна пасхалка на всю гру: аркадний автомат, на якому крутиться
+       демка цієї ж гри.
+   Усе це вбудовується в уже завантажений світ, а не в карти: тайли
+   міняються після розбору рядків, тож жодна карта не переписується.
+   ---------------------------------------------------------------- */
+function carveVault(tx, ty) {
+  // ніша 3x2 в товщі підлоги, запечатана тріснутим тайлом
+  for (let y = ty; y < ty + 2; y++)
+    for (let x = tx; x < tx + 3; x++) {
+      const i = y * world.tw + x;
+      if (i >= 0 && i < world.tiles.length) world.tiles[i] = T_EMPTY;
+    }
+  for (let y = ty; y < ty + 2; y++) {
+    const i = y * world.tw + (tx - 1);
+    if (i >= 0 && i < world.tiles.length) world.tiles[i] = T_CRACK;
+  }
+  world.pickList.push({ x: (tx + 1) * TS + Si(3), y: ty * TS + Si(4),
+                        kind: Math.random() < 0.5 ? 'med' : 'log' });
+  LFX.vaults.push({ x: (tx - 1) * TS, y: ty * TS, open: 0 });
+}
+/** Знайти рівну ділянку підлоги правіше за задану точку. */
+/**
+ * Найближча рівна ділянка підлоги правіше за задану точку. Рядок
+ * підлоги в кожному секторі свій (на дахах він вище), тож шукаємо його
+ * самі, а не припускаємо 13-й. Повертає тайлову колонку або -1.
+ */
+function groundRow(tx) {
+  for (let ty = 10; ty < world.th; ty++) if (tAt(tx, ty) === T_SOLID) return ty;
+  return -1;
+}
+function flatSpotAfter(px0) {
+  const W = world.tw;
+  for (let pass = 0; pass < 2; pass++) {
+    const from = pass === 0 ? Math.max(2, Math.floor(px0 / TS)) : 2;
+    for (let tx = from; tx < W - 7; tx++) {
+      const g = groundRow(tx);
+      if (g < 10) continue;
+      let ok = true;
+      for (let k = 0; k < 5; k++) {
+        if (groundRow(tx + k) !== g) { ok = false; break; }
+        if (tAt(tx + k, g - 1) !== T_EMPTY || tAt(tx + k, g - 2) !== T_EMPTY) { ok = false; break; }
+      }
+      if (ok) return tx;
+    }
+  }
+  return -1;
+}
+function levelSecrets(def, idx) {
+  LFX.vaults.length = 0; LFX.chal = null; LFX.arcade = null;
+  // дві тріснуті ніші на сектор, у першій і третій чверті
+  for (const frac of [0.28, 0.66]) {
+    const tx = flatSpotAfter(world.pw * frac);
+    if (tx > 0) carveVault(tx + 1, groundRow(tx));
+  }
+  // кімната-виклик: одна на сектор, у другій половині
+  const cx = flatSpotAfter(world.pw * 0.52);
+  if (cx > 0) LFX.chal = { x: cx * TS, w: Si(200), gy: groundRow(cx) * TS,
+                           st: 'idle', t: 0, foes: [], done: 0 };
+  // пасхалка — рівно одна на гру, у метро: там темно й на неї натикаєшся
+  if (idx === 4) {
+    const ax = flatSpotAfter(world.pw * 0.44);
+    if (ax > 0) LFX.arcade = { x: ax * TS + Si(20), y: groundRow(ax) * TS - Si(26) };
+  }
+}
+/** Кімната-виклик: зайшов — 15 секунд, щоб вибити всіх. Нагорода за темп. */
+function challengeUpdate(dt) {
+  const c = LFX.chal;
+  if (!c || c.done) return;
+  const inRoom = P.x + P.w / 2 > c.x && P.x + P.w / 2 < c.x + c.w;
+  if (c.st === 'idle') {
+    if (!inRoom) return;
+    c.st = 'run'; c.t = 15;
+    holoHint(c.x + c.w / 2, c.gy - Si(40), 'chal');
+    Sfx.charge(); cam.hit(3);
+    const kinds = ['skreb', 'thug', 'wasp', 'skreb'];
+    for (let i = 0; i < 4; i++) {
+      const e = spawnEnemy(kinds[i], c.x + Si(30) + i * Si(42), c.gy - Si(40), i === 3);
+      if (e) { e.alertSt = 'fight'; c.foes.push(e); }
+    }
+    return;
+  }
+  c.t -= dt;
+  const alive = c.foes.filter(e => !e.dead).length;
+  if (alive === 0) {
+    c.done = 1; c.st = 'won';
+    Sfx.win(); cam.hit(5); buzz(24);
+    ring(P.x + P.w / 2, P.y + P.h / 2, 4, Si(60), 0.6, '#ffd23f', 3);
+    PICKS.push({ x: P.x, y: P.y - Si(14), t: 0, kind: 'log' });
+    PICKS.push({ x: P.x + Si(20), y: P.y - Si(14), t: 0, kind: 'med' });
+  } else if (c.t <= 0) {
+    c.done = 1; c.st = 'lost';                      // не встиг — просто без нагороди
+    Sfx.blocked();
+  }
+}
+
+/** Голограма-підказка: дві секунди анімації замість абзацу тексту. */
+function holoHint(x, y, kind) { LFX.holo = { x: x, y: y, k: kind }; LFX.holoT = 2.0; }
+
+function levelFxInit(def) {
+  LFX.on = true; LFX.kind = def.th; LFX.t = 0;
+  LFX.zones.length = 0; LFX.presses.length = 0; LFX.trains.length = 0;
+  LFX.signs.length = 0; LFX.grav.length = 0; LFX.crumble.length = 0;
+  LFX.vista.length = 0;
+  LFX.wind = 0; LFX.windT = 0; LFX.heat = 0; LFX.fog = 0; LFX.beat = 0;
+  LFX.holo = null; LFX.holoT = 0;
+  const W = world.pw, G0 = 12 * TS;
+  const R = world.rng || Math.random;
+  // Точки «введення -> ускладнення x3» рівномірно по довжині сектора:
+  // перша — одразу після спавну, де помилка нічого не коштує. Кожна
+  // сідає на НАЙБЛИЖЧУ рівну підлогу: інакше прес опиняється в стіні,
+  // а зона спеки — над прірвою.
+  const at = k => {
+    const want = W * (0.14 + k * 0.21);
+    const tx = flatSpotAfter(want);
+    return tx > 0 ? tx * TS : Math.round(want);
+  };
+  /** Рядок підлоги під конкретною точкою, у пікселях. */
+  const gyAt = pxs => {
+    const g = groundRow(Math.floor(pxs / TS) + 2);
+    return (g > 0 ? g : 13) * TS;
+  };
+  switch (def.th) {
+    case 'slum':                                   // 1. ДОЩ І ЗЛАМАНІ ВИВІСКИ
+      for (let i = 0; i < 4; i++)
+        LFX.signs.push({ x: at(i), w: Si(110) + i * Si(40), t: 1.5 + i * 0.4,
+                         off: 0, dur: 0.5 + i * 0.35 });
+      break;
+    case 'docks':                                  // 2. КРАНИ Й КОНТЕЙНЕРИ
+      for (let i = 0; i < 4; i++)
+        LFX.presses.push({ x: at(i), gy: gyAt(at(i)), w: Si(44), h: Si(44), t: 2.2 + i * 0.5,
+                           cd: 3.4 - i * 0.4, st: 'up', kind: 'crate' });
+      break;
+    case 'roofs':                                  // 3. ВІТЕР І ЗИПЛАЙНИ
+      LFX.windT = 2.5;
+      break;
+    case 'factory':                                // 4. КОНВЕЄРИ Й ПРЕСИ
+      for (let i = 0; i < 4; i++)
+        LFX.presses.push({ x: at(i), gy: gyAt(at(i)), w: Si(52), h: Si(30), t: 1.6 + i * 0.4,
+                           cd: 2.8 - i * 0.35, st: 'up', kind: 'press' });
+      break;
+    case 'metro':                                  // 5. ТЕМРЯВА + ПОТЯГИ
+      for (let i = 0; i < 4; i++)
+        LFX.trains.push({ x: 0, t: 3.5 + i * 1.1, cd: 6.5 - i * 0.8, dir: i % 2 ? 1 : -1,
+                          y: G0 - Si(46), st: 'wait' });
+      break;
+    case 'garden':                                 // 6. ТУМАН І ДЗЕРКАЛЬНІ КАЛЮЖІ
+      LFX.fog = 1;
+      break;
+    case 'server':                                 // 7. СПЕКА Й ХОЛОДНІ ОСТРІВЦІ
+      for (let i = 0; i < 4; i++)
+        LFX.zones.push({ x: at(i), w: Si(150) + i * Si(50), hot: 1 });
+      for (let i = 0; i < 3; i++)
+        LFX.zones.push({ x: at(i) + Si(190), w: Si(70), hot: 0 });
+      break;
+    case 'virtual':                                // 8. ІНВЕРСІЯ ГРАВІТАЦІЇ + РИТМ
+      for (let i = 0; i < 4; i++) LFX.grav.push({ x: at(i), w: Si(130) + i * Si(30) });
+      break;
+    case 'spire':                                  // 9. ПІДЙОМ НА ЧАС
+      LFX.windT = 3.0;
+      for (let i = 0; i < 4; i++) LFX.crumble.push({ x: at(i), w: Si(160), t: 0, gone: 0 });
+      break;
+    case 'core':                                   // 10. УСЕ РАЗОМ, ПО ЗОНІ НА МЕХАНІКУ
+      LFX.signs.push({ x: at(0), w: Si(120), t: 1.6, off: 0, dur: 0.7 });
+      LFX.presses.push({ x: at(1), gy: gyAt(at(1)), w: Si(52), h: Si(30), t: 1.8,
+                           cd: 2.4, st: 'up', kind: 'press' });
+      LFX.trains.push({ x: 0, t: 4, cd: 6, dir: -1, y: G0 - Si(46), st: 'wait' });
+      LFX.zones.push({ x: at(2), w: Si(170), hot: 1 });
+      LFX.grav.push({ x: at(3), w: Si(140) });
+      LFX.windT = 3.5;
+      break;
+  }
+  // Краєвиди: одне-два місця на сектор, де камера відкриває місто.
+  LFX.vista.push({ x: Math.round(W * 0.33) }, { x: Math.round(W * 0.72) });
+}
+
+/** Чи стоїть гравець у зоні [x, x+w]. */
+const inSpan = (z) => P.x + P.w / 2 > z.x && P.x + P.w / 2 < z.x + z.w;
+
+function levelFx(dt) {
+  if (!LFX.on || Game.state !== 'play') return;
+  LFX.t += dt;
+  if (LFX.holoT > 0) LFX.holoT -= dt;
+  challengeUpdate(dt);
+  const G0 = 12 * TS;
+  // На арені боса небезпеки СЕКТОРА мовчать. Ідею підхоплює сам бос —
+  // саме тому рівень і був тренуванням перед ним; якщо ж прес далі
+  // гатить під час бою, гравець отримує дві незалежні атаки одночасно,
+  // і жодна модель балансу такого не витримує (перевірено: Матка-Рій
+  // виходила за стелю HP рівно через це).
+  if (BOSS.on) {
+    for (const m of LFX.presses) { m.st = 'up'; m.t = Math.max(m.t, 1); }
+    for (const tr of LFX.trains) { tr.st = 'wait'; tr.t = Math.max(tr.t, 1); }
+    LFX.wind = 0;
+    return;
+  }
+
+  /* --- 1/10. ВИВІСКИ: блимнули — і ділянка на мить у темряві --- */
+  for (const s of LFX.signs) {
+    s.t -= dt;
+    if (s.t <= 0) { s.off = s.dur; s.t = 2.6 + Math.random() * 1.8; Sfx.blocked(); }
+    if (s.off > 0) s.off -= dt;
+    if (inSpan({ x: s.x, w: s.w }) && s.off > 0.3 && LFX.holoT <= 0 && !s.seen) {
+      s.seen = 1; holoHint(s.x + s.w / 2, G0 - Si(40), 'dark');
+    }
+  }
+  // Гасне САМЕ ДІЛЯНКА, а не весь екран: і за змістом («на мить
+  // занурюючи ділянку в темряву»), і за ціною — заливка на весь кадр у
+  // програмному рендері коштує більше за все інше разом.
+  const dk = LFX.signs.find(s => s.off > 0 && inSpan({ x: s.x, w: s.w }));
+  world.signDark = dk ? { x: dk.x, w: dk.w } : null;
+
+  /* --- 2/4/10. ПРЕСИ Й КОНТЕЙНЕРИ: б'ють за телеграфом, ними ж давлять --- */
+  for (const m of LFX.presses) {
+    m.t -= dt;
+    if (m.st === 'up' && m.t <= 0) {
+      m.st = 'tel'; m.t = 0.9;
+      telegraph(m.x, m.gy - m.h, m.w, m.h, 0.9, '#ff6b3d', 1);
+      if (!m.seen) { m.seen = 1; holoHint(m.x + m.w / 2, m.gy - Si(46), m.kind); }
+    } else if (m.st === 'tel' && m.t <= 0) {
+      m.st = 'down'; m.t = 0.45;
+      const z = zone(m.x, m.gy - m.h, m.w, m.h, 0.45, 1, m.kind === 'press' ? '#ff6b3d' : '#c9a227', 1);
+      z.crush = 1;                                 // цим же можна розчавити ворога
+      Sfx.explode(); cam.hit(4);
+      for (let i = 0; i < 10; i++)
+        part(m.x + rnd(0, m.w), m.gy - 2, rnd(-120, 120), rnd(-90, -10), rnd(0.3, 0.7), '#c9b08a', 2, 260, 1);
+    } else if (m.st === 'down' && m.t <= 0) { m.st = 'up'; m.t = m.cd; }
+  }
+
+  /* --- 3/9/10. ВІТЕР: штовхає в повітрі, напрямок видно по дощу --- */
+  if (LFX.windT > 0) {
+    LFX.windT -= dt;
+    if (LFX.windT <= 0) {
+      LFX.wind = (Math.random() < 0.5 ? -1 : 1) * (0.6 + Math.random() * 0.6);
+      LFX.windT = 2.4 + Math.random() * 2.2;
+      if (LFX.kind === 'roofs' && LFX.holoT <= 0 && LFX.t < 12) holoHint(P.x, P.y - Si(30), 'wind');
+    }
+    // Вітер ЗНОСИТЬ, а не «підштовхує»: якщо додавати його до vx, його
+    // повністю з'їдає гальмування в повітрі (450 px/с² проти 345) і на
+    // екрані не відбувається нічого. Тому це прямий знос позиції —
+    // як течія: керування лишається, але тебе несе.
+    if (!P.onGround && LFX.wind) moveX(P, LFX.wind * S(80) * dt);
+  }
+
+  /* --- 5/10. ПОТЯГИ: проносяться по сусідній колії з попередженням --- */
+  for (const tr of LFX.trains) {
+    tr.t -= dt;
+    if (tr.st === 'wait' && tr.t <= 0) {
+      tr.st = 'tel'; tr.t = 1.4;
+      const cx = P.x + P.w / 2;
+      tr.x = tr.dir > 0 ? cx - Si(420) : cx + Si(420);
+      telegraph(Math.min(tr.x, cx) - Si(60), tr.y, Si(900), Si(40), 1.4, '#ffd23f', 2);
+      Sfx.charge();
+      if (!tr.seen) { tr.seen = 1; holoHint(cx, tr.y - Si(20), 'train'); }
+    } else if (tr.st === 'tel' && tr.t <= 0) {
+      tr.st = 'run'; tr.t = 2.2;
+      const z = zone(tr.x, tr.y, Si(260), Si(40), 2.2, 1, '#ffd23f', 2);
+      z.vx = tr.dir * S(520); z.crush = 1;
+      Sfx.dash(); cam.hit(6);
+    } else if (tr.st === 'run' && tr.t <= 0) { tr.st = 'wait'; tr.t = tr.cd; }
+  }
+
+  /* --- 7/10. СПЕКА: у гарячій зоні зброя гріється вдвічі швидше --- */
+  if (LFX.zones.length) {
+    const hot = LFX.zones.some(z => z.hot && inSpan(z));
+    const cold = LFX.zones.some(z => !z.hot && inSpan(z));
+    LFX.heat = hot ? 1 : (cold ? -1 : 0);
+    if (!hot && !cold) P.heatK = 1;
+    P.heatK = hot ? 2 : 1;                          // у спеці зброя гріється ВДВІЧІ швидше
+    if (hot) {
+      P.heat = Math.min(140, P.heat + 14 * dt);      // і сама пашить, навіть коли мовчить
+      if (Math.random() < dt * 8)
+        part(P.x + rnd(0, P.w), P.y + P.h, rnd(-10, 10), rnd(-40, -10), 0.6, '#ff6b3d', 1, -30, 1);
+      if (!LFX.hotSeen) { LFX.hotSeen = 1; holoHint(P.x, P.y - Si(30), 'heat'); }
+    } else if (cold) {
+      P.heat = Math.max(0, P.heat - 30 * dt);       // холодний острівець гасить перегрів
+      if (Math.random() < dt * 5)
+        part(P.x + rnd(0, P.w), P.y, rnd(-8, 8), rnd(10, 30), 0.5, '#7df9ff', 1, -10, 1);
+    }
+  }
+
+  /* --- 8/10. ІНВЕРСІЯ ГРАВІТАЦІЇ + ПЛАТФОРМИ В ТАКТ --- */
+  if (LFX.grav.length) {
+    const inv = LFX.grav.some(z => inSpan(z));
+    if (inv && world.grav > 0 && !BOSS.on) {
+      world.grav = -1; Sfx.parry(); cam.hit(3);
+      ring(P.x + P.w / 2, P.y + P.h / 2, 4, Si(40), 0.4, '#8f6fff', 2);
+      if (!LFX.gravSeen) { LFX.gravSeen = 1; holoHint(P.x, P.y - Si(30), 'grav'); }
+    } else if (!inv && world.grav < 0 && !BOSS.on) {
+      world.grav = 1; Sfx.parry();
+    }
+    LFX.beat = (LFX.beat + dt) % 2.0;               // такт: платформи з'являються на долю
+  }
+
+  /* --- 9/10. ПІДЙОМ НА ЧАС: підлога обвалюється позаду --- */
+  for (const c of LFX.crumble) {
+    if (!c.gone && P.x > c.x + c.w * 0.4) {
+      c.t += dt;
+      if (!c.seen) { c.seen = 1; holoHint(c.x + c.w / 2, G0 - Si(40), 'fall'); }
+      if (c.t > 1.2) {
+        c.gone = 1; c.cells = [];
+        const tx0 = Math.floor(c.x / TS), tx1 = Math.floor((c.x + c.w) / TS);
+        for (let tx = tx0; tx < tx1; tx++)
+          for (let ty = 12; ty < Math.min(world.th, 15); ty++) {
+            const i = ty * world.tw + tx;
+            if (!world.off) world.off = new Uint8Array(world.tw * world.th);
+            world.off[i] = 1; c.cells.push(i);
+          }
+        Sfx.explode(); cam.hit(5);
+        for (let i = 0; i < 24; i++)
+          part(c.x + rnd(0, c.w), G0, rnd(-90, 90), rnd(-60, 40), rnd(0.5, 1.1), '#7b2fbe', 2, 300, 1);
+      }
+    }
+  }
+
+  /* --- 6. ТУМАН: видимість падає на середній дистанції --- */
+  if (LFX.fog && !LFX.fogSeen && LFX.t > 2) { LFX.fogSeen = 1; holoHint(P.x, P.y - Si(30), 'fog'); }
+}
+/** Зони з crush=1 убивають і ворогів — вбивство чужими руками. */
+function zoneCrush(z) {
+  if (!z.crush) return;
+  for (let i = 0; i < ENEM.length; i++) {
+    const e = ENEM[i];
+    if (e.dead) continue;
+    if (!boxHit(z.x, z.y, z.w, z.h, e.x, e.y, e.w, e.h)) continue;
+    e.gib = 1;
+    damageEnemy(e, 999, sign(z.vx || 0) * S(200), { stun: 0.4 });
+  }
+}
 
 /* ================================================================
    9. ПУЛИ СУТНОСТЕЙ (масиви з компактуванням — не течуть)
@@ -390,7 +767,7 @@ const P = {
   cHold: 0, fireCd: 0, chargeReady: false, recoil: 0,
   anim: 'idle', animT: 0, noise: 0, exiting: 0, spawnFx: 0, worn: false,
   // арсенал
-  shells: 6, reloadT: 0, cores: 3, coreFrac: 0, chronoCd: 0, chronoHits: 0, scan: null,
+  shells: 6, reloadT: 0, cores: 3, coreFrac: 0, chronoCd: 0, chronoHits: 0, scan: null, heatK: 1,
   droneCd: 0, mark: null, blinkT: 0, breath: 0,
   aState: 0, aT: 0, aFrame: 0, idleT: 0, landT: 0, wasGround: true, moveIntent: false
 };
@@ -418,6 +795,7 @@ function playerReset(full) {
 function playerSpawnAt(x, y) {
   P.x = x; P.y = y;
   playerReset(false);
+  levelFxRespawn();                     // підлога, преси й потяги — у вихідний стан
   burst(P.x + P.w / 2, P.y + P.h / 2, 14, '#22e0ff', 120, 0.4, 40, 2);
 }
 
@@ -575,7 +953,7 @@ function railShoot() {
   wfx({ k: 'ray', x: mx, y: y, face: P.face, len: len, t: 0.08, wide: 0 });
   wfx({ k: 'rings', x: mx, y: y, face: P.face, t: 0.22, chg: 0 });
   railCase(mx, y);
-  P.heat = Math.min(120, P.heat + RG.SHOT);
+  P.heat = Math.min(120, P.heat + RG.SHOT * (P.heatK || 1));
   P.fireCd = RG.CD; P.recoil = 0.12; shootAnim(RG.CD);
   P.noise = 0.7;
   P.vx -= P.face * (P.onGround ? RG.RECOIL * 0.35 : RG.RECOIL);
@@ -603,7 +981,7 @@ function railBeam() {
   wfx({ k: 'rings', x: sx, y: y, face: P.face, t: 0.30, chg: 1 });
   wfx({ k: 'rift', x: sx, y: y, face: P.face, len: len, t: 0.32 });
   railCase(sx, y);
-  P.heat = Math.min(130, P.heat + RG.BEAM);
+  P.heat = Math.min(130, P.heat + RG.BEAM * (P.heatK || 1));
   P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0; shootAnim(0.25);
   P.vx -= P.face * S(P.onGround ? 60 : 130);
   Sfx.wRail(); Sfx.beam(); buzz(22); cam.hit(3.5);
@@ -1304,7 +1682,9 @@ function railUpdate(dt, IN) {
     if (P.chargeReady && !P.lock) railBeam();
     P.chargeReady = false; P.cHold = 0;
   }
-  if (P.fireCd <= -RG.DELAY + RG.CD) P.heat = Math.max(0, P.heat - RG.COOL * dt);
+  // у гарячій зоні охолодження не встигає за нагрівом
+  if (P.fireCd <= -RG.DELAY + RG.CD)
+    P.heat = Math.max(0, P.heat - RG.COOL * dt / (P.heatK || 1));
 }
 /** «Оса»: самонавідна куля, слабка, зате нескінченна. */
 function osaShoot() {
@@ -1684,6 +2064,8 @@ function updatePlayer(dt) {
     }
     return;
   }
+
+  levelFx(dt);                                    // характер сектора: своя механіка
 
   meleeUpdate(dt, IN);
 
@@ -3164,6 +3546,7 @@ function updateZones(dt) {
     const z = ZONES[i];
     z.t -= dt;
     if (z.vx) z.x += z.vx * dt;
+    zoneCrush(z);                                   // прес, потяг і контейнер б'ють обидві сторони
     if (!z.hit && boxHit(z.x, z.y, z.w, z.h, P.x, P.y, P.w, P.h)) {
       if (playerHurt(z.dmg, z.x + z.w / 2)) z.hit = true;
     }
@@ -4317,7 +4700,7 @@ export const timing = {
 };
 export function setGod(v) { GOD = !!v; }
 export {
-  cam, world, P, BOSS, Game,
+  cam, world, P, BOSS, Game, LFX,
   PARTS, RINGS, ZONES, TELE, BEAMS, GHOSTS, PICKS, PENDING, BULL, ENEM, TRAIL, WEATHER, WFX,
   ETYPE, LEVELS, WEAPONS, WHIP,
   stepGame, updateMovingPlatforms, Cut, playCut,
