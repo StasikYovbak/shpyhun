@@ -41,7 +41,7 @@ const capture = (id, melee, reps) => page.evaluate(({ id, melee, reps }) => {
   const key = melee ? 'b' : 'c';
   const out = [];
   for (let r = 0; r < reps; r++) {
-    P.x = 120; P.y = 208 - P.h; P.vy = 0; P.face = 1; P.inv = 1;
+    P.x = 120; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1; P.inv = 1;
     P.heat = 0; P.cores = 3; P.shells = 6; P.reloadT = 0; P.droneCd = 0;
     P.fireCd = 0; P.atkT = 0; P.comboT = r ? 0.3 : 0;   // комбо продовжуємо лише з другого удару
     P.chronoCd = 9;                                   // звичайний замах, без телепорту
@@ -64,7 +64,7 @@ console.log('  зброя                  час атаки   кадрів   п
 console.log('  ' + '-'.repeat(78));
 
 const REAL = { arc: 0.18, whip: 0.45, brand: 0.45, chrono: 0.22, claws: 0.10,
-               rail: 0.13, osa: 0.115, swarm: 0.45, shot: 0.42, glitch: 0.30, prism: 0.34 };
+               rail: 0.13, osa: 0.115, swarm: 0.45, shot: 0.36, glitch: 0.30, prism: 0.34 };
 const rows = [];
 for (const id of [...MELEE, ...RANGED]) {
   const melee = MELEE.indexOf(id) >= 0;
@@ -128,7 +128,7 @@ const rl = await page.evaluate(() => {
   D.Game.startLevel(0, false); D.god(true);
   D.Store.data.owned = Object.keys(D.WEAPONS); D.equip('arc', 'shot');
   for (let i = 0; i < 4; i++) D.step();
-  P.x = 120; P.y = 208 - P.h; P.vy = 0; P.face = 1; P.inv = 1;
+  P.x = 120; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1; P.inv = 1;
   P.shells = 0; P.fireCd = 0;
   D.kb.c = 1; D.step(); D.kb.c = 0;
   const seen = {};
@@ -143,8 +143,8 @@ const ch = await page.evaluate(() => {
   D.Game.startLevel(0, false); D.god(true);
   D.Store.data.owned = Object.keys(D.WEAPONS); D.equip('chrono', 'rail');
   for (let i = 0; i < 4; i++) D.step();
-  P.x = 120; P.y = 208 - P.h; P.vy = 0; P.face = 1; P.inv = 1; P.chronoCd = 0;
-  const e = D.spawnEnemy('thug', P.x + 34, 208 - 20, false);
+  P.x = 120; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1; P.inv = 1; P.chronoCd = 0;
+  const e = D.spawnEnemy('thug', P.x + D.TS * 1.5, 13 * D.TS - 20, false);
   if (!e) return { poses: [] };
   e.hp = e.maxHp = 1e6; e.blind = 1; e.sp = 0;
   const seen = [];

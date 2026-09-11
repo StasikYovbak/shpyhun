@@ -32,7 +32,7 @@ const settle = (setup) => page.evaluate((setup) => {
                  50: 'JUMP', 60: 'DASH', 70: 'ATTACK', 80: 'HURT', 90: 'DEAD' };
   D.Game.startLevel(0, false); D.god(true);
   D.kb.l = D.kb.r = D.kb.a = D.kb.b = D.kb.c = D.kb.d = 0;
-  P.x = 60; P.y = 194; P.vx = 0; P.vy = 0;
+  P.x = 60; P.y = 13 * D.TS - P.h; P.vx = 0; P.vy = 0;
   for (let i = 0; i < 20; i++) D.step();
   eval(setup);                                       // ситуація готується тут
   D.kb.l = D.kb.r = D.kb.a = D.kb.b = D.kb.c = D.kb.d = 0;   // ВІДПУСТИЛИ ВСЕ
@@ -87,7 +87,7 @@ console.log('\nСПОКІЙНИЙ КАДР\n');
 const rest = await page.evaluate(() => {
   const D = window.__DEV, P = D.P;
   D.Game.startLevel(0, false); D.god(true);
-  P.x = 60; P.y = 194; P.vx = 0; P.vy = 0;
+  P.x = 60; P.y = 13 * D.TS - P.h; P.vx = 0; P.vy = 0;
   for (let i = 0; i < 20; i++) D.step();
   let air = 0, states = new Set(), frames = new Set();
   for (let i = 0; i < 120; i++) { D.step(); if (!P.onGround) air++; states.add(P.aState); frames.add(P.anim); }

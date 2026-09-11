@@ -29,7 +29,7 @@ await page.waitForTimeout(200);
 
 const R = await page.evaluate(() => {
   const D = window.__DEV, P = D.P, out = {};
-  const reset = () => { D.Game.startLevel(0, false); D.god(false); P.inv = 0; P.x = 60; P.y = 194; P.vy = 0;
+  const reset = () => { D.Game.startLevel(0, false); D.god(false); P.inv = 0; P.x = 60; P.y = 13 * D.TS - P.h; P.vy = 0;
                         D.kb.l = D.kb.r = D.kb.a = D.kb.b = D.kb.c = D.kb.d = 0; for (let i = 0; i < 3; i++) D.step(); };
   const steps = n => { for (let i = 0; i < n; i++) D.step(); };
 
@@ -100,7 +100,7 @@ const R = await page.evaluate(() => {
 
   // --- coyote time ---
   reset();
-  P.x = 176; P.y = 194; P.vy = 0; P.vx = 0;        // майданчик обривається на x=192
+  P.x = 11 * D.TS; P.y = 13 * D.TS - P.h; P.vy = 0; P.vx = 0;  // майданчик обривається на 12-му тайлі
   D.kb.r = 1;
   let air = 0;
   for (let i = 0; i < 60; i++) { D.step(); if (!P.onGround) { air = 1; break; } }
@@ -111,11 +111,12 @@ const R = await page.evaluate(() => {
 
   // --- буфер стрибка ---
   reset();
-  P.y = 182; P.vy = 160; P.onGround = false; P.coyote = 0; P.jbuf = 0;   // до землі ~0.07 с
+  P.y = 13 * D.TS - P.h - 12 * D.SCALE; P.vy = 160 * D.SCALE;            // до землі ~0.07 с
+  P.onGround = false; P.coyote = 0; P.jbuf = 0;
   P.jumps = 2;                                      // обидва стрибки вже витрачені
   D.kb.a = 1; D.step();                             // натиснули ЩЕ в повітрі й тримаємо
   let jumped = false, landed = false, air0 = P.vy;
-  for (let i = 0; i < 14; i++) { D.step(); if (P.vy < -300) jumped = true; if (P.onGround) landed = true; }
+  for (let i = 0; i < 14; i++) { D.step(); if (P.vy < -D.CONFIG.JUMP * 0.7) jumped = true; if (P.onGround) landed = true; }
   D.kb.a = 0;
   out.buffer = { jumped: jumped, landed: landed, air0: Math.round(air0) };
 
@@ -150,7 +151,7 @@ const R = await page.evaluate(() => {
   out.varJump = { holdY: Math.round(hiTop), tapY: Math.round(loTop),
                   // висоту міряємо від того, де героїня СТОЇТЬ, а не від
                   // зашитого числа: хітбокс змінився, фізика стрибка — ні
-                  height: Math.round((208 - P.h) - hiTop) };
+                  height: Math.round((13 * D.TS - P.h) - hiTop) };
 
   // --- подвійний стрибок ---
   reset();
@@ -166,13 +167,15 @@ const R = await page.evaluate(() => {
   D.step(); D.kb.a = 1;
   for (let i = 0; i < 20; i++) { D.step(); third = Math.min(third, P.y); }
   D.kb.a = 0;
-  out.dbl = { single: Math.round(194 - single), total: Math.round(194 - dbl),
+  const GY = 13 * D.TS - P.h;
+  out.ts = D.TS; out.scale = D.SCALE;
+  out.dbl = { single: Math.round(GY - single), total: Math.round(GY - dbl),
               extra: Math.round(single - dbl), jumps: jumpsUsed,
               noThird: Math.abs(third - dbl) < 2 };
 
   // --- удар головою об стелю: vY має обнулятись, героя не має затягувати в тайл ---
   D.Game.startLevel(4, false); D.god(true);         // метро: суцільна стеля
-  P.x = 60; P.y = 194; P.vy = 0; P.jumps = 0;
+  P.x = 60; P.y = 13 * D.TS - P.h; P.vy = 0; P.jumps = 0;
   D.kb.l = D.kb.r = D.kb.a = 0;
   for (let i = 0; i < 4; i++) D.step();
   D.kb.a = 1;
@@ -219,9 +222,13 @@ ok(R.dash.iframes, 'і-фрейми: під час ривка шкода не п
 ok(R.dash.moved > 40, 'ривок переносить героя на ' + R.dash.moved + ' px');
 ok(R.varJump.holdY < R.varJump.tapY - 10, 'змінна висота стрибка (утримання вище за тап)',
    'утримання y=' + R.varJump.holdY + ', тап y=' + R.varJump.tapY);
-ok(Math.abs(R.varJump.height - 66) <= 3, 'фактична висота повного стрибка ≈ 66 px (4,1 тайла)',
-   R.varJump.height + ' px');
-ok(R.dbl.extra >= 30 && R.dbl.jumps === 2,
+// Висота міряється в тайлах, а не в пікселях: після SCALE пікселів
+// більше, а геометрія рівня в тайлах лишилась та сама — і саме це
+// має триматись, інакше поїде вся прохідність.
+ok(Math.abs(R.varJump.height / R.ts - 4.1) <= 0.2,
+   'фактична висота повного стрибка ≈ 4,1 тайла',
+   R.varJump.height + ' px = ' + (R.varJump.height / R.ts).toFixed(2) + ' тайла');
+ok(R.dbl.extra >= 30 * R.scale && R.dbl.jumps === 2,
    'подвійний стрибок додає ще ' + R.dbl.extra + ' px (разом ' + R.dbl.total + ' px)',
    JSON.stringify(R.dbl));
 ok(R.dbl.noThird, 'третього стрибка в повітрі немає');

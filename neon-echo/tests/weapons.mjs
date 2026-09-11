@@ -28,7 +28,7 @@ async function measure(id, dist, targets) {
     const melee = D.EQ.m && ['arc', 'whip', 'brand', 'chrono', 'claws'].indexOf(id) >= 0;
     D.equip(melee ? id : 'arc', melee ? 'rail' : id);
     for (let i = 0; i < 3; i++) D.step();
-    P.x = 60; P.y = 194; P.vy = 0; P.face = 1;
+    P.x = 60; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1;
     D.kb.l = D.kb.r = D.kb.a = D.kb.b = D.kb.c = D.kb.d = 0;
     // мішені
     const dummies = [];

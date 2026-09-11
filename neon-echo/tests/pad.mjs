@@ -82,7 +82,7 @@ const cr = await page.evaluate(() => {
   const D = window.__DEV;
   D.Game.startLevel(0, false);
   const h0 = D.P.h;
-  D.P.x = 60; D.P.y = 208 - h0;
+  D.P.x = 60; D.P.y = 13 * D.TS - h0;
   for (let i = 0; i < 40; i++) { D.kb.a = i % 8 < 3 ? 1 : 0; D.step(); }
   D.kb.a = 0;
   return { field: 'crouch' in D.P, down: 'down' in D.S, kbd: 'd' in D.kb,
@@ -97,6 +97,10 @@ console.log('\nСПУСК КРІЗЬ ТОНКУ ПЛАТФОРМУ — УТРИ�
 const drop = await page.evaluate(() => {
   const D = window.__DEV, P = D.P, W = D.world, TS = D.TS || 16;
   D.Game.startLevel(0, false); D.god(true);
+  // Механіку сектора на час заміру глушимо: кімната-виклик спавнить
+  // ворогів, і вони збивають героїню з платформи — а міряємо ми спуск,
+  // а не бій. Сама механіка перевіряється в tests/levels.mjs.
+  D.G.LFX.on = false; D.G.LFX.chal = null; D.ENEM.length = 0;
   // шукаємо тонку платформу ('=' → T_PLAT) з порожнечею під нею
   let spot = null;
   for (let ty = 3; ty < W.th - 2 && !spot; ty++)

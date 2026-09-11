@@ -47,7 +47,7 @@ const frags = await page.evaluate(() => {
     const rows = D.G.LEVELS[i].rows;
     for (let y = 0; y < rows.length; y++) {
       const x = rows[y].indexOf('*');
-      if (x >= 0) out.push({ lvl: i + 1, tx: x, ty: y, px: x * 16, py: y * 16 });
+      if (x >= 0) out.push({ lvl: i + 1, tx: x, ty: y, px: x * D.TS, py: y * D.TS });
     }
   }
   return out;
@@ -90,7 +90,7 @@ const ric = await page.evaluate(() => {
   D.Game.startLevel(0, false); D.god(true);
   D.equip('arc', 'prism');
   D.ENEM.length = 0;                              // щоб промінь дожив до стіни
-  P.x = 40; P.y = 194; P.vx = 0; P.vy = 0; P.face = 1; P.cores = 3;
+  P.x = 2.5 * D.TS; P.y = 13 * D.TS - P.h; P.vx = 0; P.vy = 0; P.face = 1; P.cores = 3;
   D.BULL.length = 0;
   for (let i = 0; i < 3; i++) D.step();
   D.kb.c = 1; D.step(); D.kb.c = 0;
@@ -113,13 +113,13 @@ ok(ric.cores === 2, 'постріл коштує одне ядро', String(ric.
 const dmg = await page.evaluate(() => {
   const D = window.__DEV, P = D.P;
   D.Game.startLevel(0, false); D.god(true); D.equip('arc', 'prism');
-  P.x = 40; P.y = 194; P.face = 1; P.cores = 3; P.vx = 0; P.vy = 0;
+  P.x = 2.5 * D.TS; P.y = 13 * D.TS - P.h; P.face = 1; P.cores = 3; P.vx = 0; P.vy = 0;
   for (let i = 0; i < 3; i++) D.step();
   D.ENEM.length = 0;
-  const e = D.spawnEnemy('thug', P.x + 70, 192, false);
+  const e = D.spawnEnemy('thug', P.x + 4 * D.TS, 13 * D.TS - 20, false);
   e.blind = 1; e.sp = 0; e.st = 'idle'; e.hp = e.maxHp = 1000;
   D.kb.c = 1; D.step(); D.kb.c = 0;
-  for (let i = 0; i < 90; i++) { D.step(); e.x = P.x + 70; e.y = 192; e.vx = 0; }
+  for (let i = 0; i < 90; i++) { D.step(); e.x = P.x + 4 * D.TS; e.y = 13 * D.TS - e.h; e.vx = 0; }
   const hit = e.maxHp - e.hp;
   e.dead = true;
   return +hit.toFixed(2);

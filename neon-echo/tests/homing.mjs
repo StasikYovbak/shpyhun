@@ -39,7 +39,7 @@ const res = await page.evaluate(() => {
     // Ганяємо бій і дивимось, що бачить наведення в різні моменти.
     for (let f = 0; f < 60 * 40; f++) {
       D.step();
-      P.x = B.x + B.w / 2 - 90; P.y = 208 - P.h; P.vy = 0; P.face = 1; P.inv = 1;
+      P.x = B.x + B.w / 2 - 90; P.y = 13 * D.TS - P.h; P.vy = 0; P.face = 1; P.inv = 1;
       const t = D.pickTarget(P.x + P.w / 2, P.y + 6, 1, 0, 400, 0);
       if (t) rec.seen[t.kind] = (rec.seen[t.kind] || 0) + 1;
     }
@@ -101,12 +101,35 @@ for (const r of res) {
      KIND[r.osa] || r.osa);
   ok(r.swarm && r.swarm !== 'нема', r.name + ': дрони «Рою» беруть боса за ціль',
      KIND[r.swarm] || r.swarm);
-  // якщо в боса є конкретна вразлива точка — цілитись треба саме в неї
-  const hasPart = r.seen.node > 0;
-  if (hasPart)
-    ok(r.osa === 'node' || r.osa === 'weak' || r.osa === 'boss',
-       r.name + ': наведення йде у вразливу точку, а не в центр моделі', KIND[r.osa]);
+
 }
+
+/* ---------- ПОРЯДОК ПРІОРИТЕТІВ, ПЕРЕВІРЕНИЙ НАПРЯМУ ----------
+ * Таблиця вище показує, кого куля зустріла в конусі — це залежить від
+ * арени. А сам ПОРЯДОК треба перевіряти окремо: ставимо кандидатів на
+ * однакову відстань від дула й дивимось, кого візьме pickTarget.
+ */
+const prio = await page.evaluate(() => {
+  const D = window.__DEV, P = D.P, B = D.BOSS;
+  D.Game.startLevel(5, false); D.god(true); D.gotoBoss();   // Хроноклинок: у фазах 1-2 під бронею
+  for (let i = 0; i < 170; i++) D.step();
+  B.hp = B.maxHp = 4000;
+  D.ENEM.length = 0;
+  P.x = B.x - 70; P.y = B.y + B.h - P.h; P.vy = 0; P.face = 1; P.inv = 9;
+  const mx = P.x + P.w / 2, my = P.y + 6;
+  const only = D.pickTarget(mx, my, 1, 0, 400, 0);          // сам лише бос під бронею
+  const e = D.spawnEnemy('thug', B.x - 40, B.y + B.h - 20, false);
+  if (e) { e.blind = 1; e.sp = 0; e.st = 'idle'; e.hp = e.maxHp = 100; }
+  for (let i = 0; i < 2; i++) D.step();
+  P.x = B.x - 70; P.y = B.y + B.h - P.h; P.inv = 9;
+  const both = D.pickTarget(P.x + P.w / 2, P.y + 6, 1, 0, 400, 0);
+  return { only: only && only.kind, both: both && both.kind };
+});
+console.log('  порядок: сам бос під бронею -> ' + (KIND[prio.only] || prio.only) +
+            ';  бос + звичайний ворог -> ' + (KIND[prio.both] || prio.both));
+ok(prio.only === 'armor', 'коли більше нема кого, наведення бере броньованого боса');
+ok(prio.both === 'enemy', 'з\'явився звичайний ворог — наведення переходить на нього',
+   'броня стоїть останньою, пріоритет 1 проти 3');
 
 ok(errors.length === 0, 'без помилок JS' + (errors.length ? ': ' + errors[0] : ''));
 console.log('\n' + (fails === 0 ? 'НАВЕДЕННЯ: УСЕ ЧИСТО' : 'НАВЕДЕННЯ: ПРОБЛЕМ ' + fails));

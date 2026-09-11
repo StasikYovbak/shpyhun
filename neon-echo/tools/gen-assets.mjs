@@ -9,8 +9,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { PNG } from 'pngjs';
 import { Bitmap, pack } from './raster.mjs';
-import { HERO, HERO_ATK, PAL_HERO, PAL_PHANTOM, upscale } from './art.mjs';
-import { SPR, BSPR } from '../src/config.js';
+import { upscale } from './art.mjs';
+import { allPoses, damagedPoses, PAL_HERO, PAL_PHANTOM } from './hero.mjs';
+import { SPR, BSPR, SCALE } from '../src/config.js';
 import { THEME } from '../src/themes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -35,20 +36,24 @@ const ES = SPR, BS = BSPR;                     // вороги / боси
 
 
 /* ------------------------------------------------------------ ГЕРОЇНЯ
-   Той самий дизайн версії 1.x і ті самі п'ять матеріалів, але сітку
-   збільшено з 12x15 до 16x20 (рівно 4/3 по обох осях). Хітбокс виріс
-   разом — 10x14 -> 13x19. Спрайт ставиться по низу хітбокса
-   (anchor 0.5/1.0), тож ноги так само стоять точно на поверхні.
-   Жодного нового кольору й жодної нової деталі — саме як домовлялись. */
-const HW = 16, HH = 20;
-// базові пози + окремий кадр атаки під кожну зброю (art.mjs, HERO_ATK)
-const HERO_POSES = ['idle', 'blink', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk',
-                    'hurt', 'land', 'idle2a', 'idle2b', ...HERO_ATK];
-for (const pose of HERO_POSES)
-  make('hero_' + pose, HW, HH, b => b.art(upscale(HERO[pose], HW, HH), PAL_HERO));
+   Сітка 24x30 — і на ній нарешті є що малювати. Фігуру збирає
+   tools/hero.mjs зі скелета: голова, тулуб, дві руки, дві ноги,
+   по ШІСТЬ тонів на кожен матеріал. Поза — це положення суглобів,
+   тому 55 кадрів існують без жодної намальованої вручну сітки, а
+   вісім кадрів бігу беруться прямо з формули ходи.
+   Пошкоджена версія кожного кадру — той самий скелет із подряпинами
+   на куртці й іскрою з протеза: стан здоров'я видно по персонажу. */
+const HW = 24, HH = 30;
+const POSES = allPoses();
+for (const [name, rows] of Object.entries(POSES))
+  make('hero_' + name, HW, HH, b => b.art(rows, PAL_HERO));
+// побитий вигляд: лише для поз, у яких героїню видно найчастіше
+const DMG_POSES = damagedPoses();
+for (const [name, rows] of Object.entries(DMG_POSES))
+  make('hero_dmg_' + name, HW, HH, b => b.art(rows, PAL_HERO));
 // фантом — та сама фігура в примарній палітрі
-for (const pose of ['idle', 'run1', 'run2', 'run3', 'jump', 'fall', 'atk', 'hurt'])
-  make('phantom_' + pose, HW, HH, b => b.art(upscale(HERO[pose], HW, HH), PAL_PHANTOM));
+for (const name of ['idle', 'run1', 'run3', 'run5', 'run7', 'jump', 'fall', 'hurt'])
+  make('phantom_' + name, HW, HH, b => b.art(POSES[name], PAL_PHANTOM));
 
 /* ---------------------------------------------------------------- ВОРОГИ */
 // Палітри: [основа, світле, акцент]; елітні — золоті вставки.
@@ -251,28 +256,30 @@ makeS('b_arch_head', 60, 52, BS, b => {
   for (let i = 0; i < 6; i++) b.rect(8 + i * 8, 40, 5, 10, '#c7d3e0');
 });
 
-/* ---------------------------------------------------------------- ТАЙЛИ */
+/* ---------------------------------------------------------------- ТАЙЛИ
+   Тайл росте тим самим SCALE, що й фізика: 16 -> 24 px. makeS множить
+   і саму сітку, і кожен примітив усередині, тож малюнок не «пливе». */
 for (const [key, th] of Object.entries(THEME)) {
-  make(`t_${key}_solid`, 16, 16, b => {
+  makeS(`t_${key}_solid`, 16, 16, SCALE, b => {
     b.rect(0, 0, 16, 16, th.tile);
     b.rect(0, 13, 16, 3, '#00000038'); b.rect(13, 0, 3, 16, '#00000030');
     b.rect(5, 6, 3, 3, th.glow + '44');
   });
-  make(`t_${key}_top`, 16, 16, b => {
+  makeS(`t_${key}_top`, 16, 16, SCALE, b => {
     b.rect(0, 0, 16, 16, th.tile);
     b.rect(0, 13, 16, 3, '#00000038'); b.rect(13, 0, 3, 16, '#00000030');
     b.rect(0, 0, 16, 2, th.edge); b.rect(0, 2, 16, 2, th.edge + '30');
   });
-  make(`t_${key}_plat`, 16, 6, b => {
+  makeS(`t_${key}_plat`, 16, 6, SCALE, b => {
     b.rect(0, 0, 16, 5, th.tile); b.rect(0, 0, 16, 2, th.edge);
     b.rect(0, 5, 16, 1, th.glow + '40');
   });
-  make(`t_${key}_conv`, 16, 16, b => {
+  makeS(`t_${key}_conv`, 16, 16, SCALE, b => {
     b.rect(0, 0, 16, 16, '#2a2a3a'); b.rect(0, 0, 16, 2, th.edge);
     b.rect(0, 5, 4, 2, th.glow); b.rect(8, 5, 4, 2, th.glow);
   });
 }
-make('t_spike', 16, 16, b => {
+makeS('t_spike', 16, 16, SCALE, b => {
   for (let i = 0; i < 4; i++) {
     const x = i * 4;
     b.rect(x + 1, 12, 2, 4, '#c7d3e0'); b.rect(x + 1, 8, 2, 4, '#e6eef7');
@@ -436,16 +443,19 @@ function portrait(name, fn) {
   });
 }
 portrait('p_echo', b => {
-  // Той самий персонаж і та сама п'ятиколірна палітра, що й у спрайті.
+  // Той самий персонаж і та сама палітра, що й у спрайті — тепер із
+  // шістьма тонами на матеріал, тож портрет теж має об'єм.
   const C = PAL_HERO;
-  b.rect(9, 36, 30, 12, C['4']); b.rect(9, 36, 30, 3, C['2']);
-  b.rect(13, 6, 22, 30, C['2']);
-  b.rect(13, 6, 4, 30, C['3']); b.rect(31, 6, 4, 30, C['3']);
-  b.rect(17, 12, 14, 22, C['1']);
-  b.rect(15, 16, 18, 6, C['3']); b.rect(16, 17, 16, 4, C['7']);
-  b.rect(18, 18, 5, 2, C['5']);
-  b.rect(12, 34, 24, 6, C['4']); b.rect(12, 39, 24, 2, C['3']);
-  b.rect(34, 30, 8, 14, C['5']); b.rect(34, 30, 8, 3, '#ffffff');
+  b.rect(9, 36, 30, 12, C['r']); b.rect(9, 36, 30, 3, C['e']);
+  b.rect(13, 6, 22, 30, C['c']); b.rect(15, 6, 12, 4, C['v']);
+  b.rect(13, 6, 4, 30, C['x']); b.rect(31, 6, 4, 30, C['x']);
+  b.rect(17, 12, 14, 22, C['4']); b.rect(19, 14, 9, 8, C['5']);
+  b.rect(15, 16, 18, 6, C['k']); b.rect(16, 17, 16, 4, C['l']);
+  b.rect(18, 18, 5, 2, C['m']); b.rect(21, 19, 2, 2, C['j']); b.rect(27, 19, 2, 2, C['j']);
+  b.rect(17, 30, 14, 4, C['3']); b.rect(19, 33, 10, 2, C['2']);
+  b.rect(12, 34, 24, 6, C['C']); b.rect(12, 39, 24, 2, C['B']);
+  b.rect(34, 30, 8, 14, C['f']); b.rect(34, 30, 8, 3, C['h']);
+  b.rect(34, 36, 8, 1, C['s']);
 });
 portrait('p_servotaur', b => {
   b.rect(2, 10, 10, 12, '#c7d3e0'); b.rect(36, 10, 10, 12, '#c7d3e0');
@@ -535,8 +545,8 @@ function iconBitmap(size) {
       b.rect(Math.round(ox + x * sc), Math.round(oy + y * sc), Math.ceil(sc), Math.ceil(sc), c);
     }
   };
-  const sc = s * 2.3;
-  put(HERO.run1, { ...PAL_HERO, '1': '#f7c9a6' }, size / 2 - 6 * sc, size / 2 - 8 * sc, sc);
+  const sc = s * 1.5;
+  put(POSES.run3, PAL_HERO, size / 2 - 12 * sc, size / 2 - 15 * sc, sc);
   // шарф
   b.rect(size / 2 - 8 * sc, size / 2 - 2.2 * sc, 7 * sc, 1.2 * sc, '#ffd23f');
   b.rect(size / 2 - 11 * sc, size / 2 - 1.2 * sc, 4 * sc, 1.1 * sc, '#ffb03f');
@@ -568,10 +578,11 @@ for (let y = 0; y < 720; y++) for (let x = 0; x < 1280; x++) {
   if (halo.data[i + 3]) splash.blend(x, y, halo.data[i], halo.data[i + 1], halo.data[i + 2], halo.data[i + 3] * 0.6);
 }
 {
-  const sc = 14;
-  const ox = 640 - 6 * sc, oy = 360 - 8 * sc;
-  for (let y = 0; y < HERO.idle.length; y++) for (let x = 0; x < HERO.idle[y].length; x++) {
-    const c = PAL_HERO[HERO.idle[y][x]]; if (!c) continue;
+  const sc = 9;
+  const ox = 640 - 10 * sc, oy = 360 - 14 * sc;
+  const SPL = POSES.idle;
+  for (let y = 0; y < SPL.length; y++) for (let x = 0; x < SPL[y].length; x++) {
+    const c = PAL_HERO[SPL[y][x]]; if (!c) continue;
     splash.rect(ox + x * sc, oy + y * sc, sc, sc, c);
   }
   splash.rect(ox - 3 * sc, oy + 6.2 * sc, 8 * sc, 1.3 * sc, '#ffd23f');

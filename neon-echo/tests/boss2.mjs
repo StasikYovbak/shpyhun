@@ -24,7 +24,7 @@ const R = await page.evaluate(() => {
   const D = window.__DEV, P = D.P, W = D.world;
   D.Game.startLevel(1, false); D.god(true);
   // --- геометрія арени з тайлової карти ---
-  const rows = W.def.rows, TS = 16;
+  const rows = W.def.rows, TS = D.TS;
   const a0 = W.bossX / TS, a1 = W.tw;
   let floorRow = -1, flat = 0, plats = [];
   for (let y = 0; y < rows.length; y++) {
@@ -57,7 +57,7 @@ const R = await page.evaluate(() => {
 
   // --- висота стрибка просто на цій арені ---
   D.BULL.length = 0;
-  P.x = D.BOSS.a0 + 120; P.y = floorY - P.h; P.vy = 0; P.jumps = 0;
+  P.x = D.BOSS.a0 + 7 * TS; P.y = floorY - P.h; P.vy = 0; P.jumps = 0;
   D.kb.l = D.kb.r = D.kb.a = 0;
   for (let i = 0; i < 5; i++) D.step();
   const standY = P.y;
@@ -93,7 +93,7 @@ const R = await page.evaluate(() => {
     plats: plats.filter(p => p.x0 >= D.BOSS.a0),
     wave: { top: waveTop, h: waveH, speed: waveSpeed },
     jump: { standTop: standY, apexTop: apex, height: standY - apex, framesAbove: above },
-    dodge: { jumped: jumped, hpMin: hpMin }
+    dodge: { jumped: jumped, hpMin: hpMin }, ts: D.TS
   };
 });
 
@@ -101,7 +101,7 @@ const A = R.arena, W = R.wave, J = R.jump;
 const clearNeeded = (A.floorY - W.top);              // на скільки треба піднятись
 console.log('АРЕНА СЕРВОТАВРА (сектор 2)\n');
 console.log('  межі арени         x = %d..%d (%d px = %d тайлів)',
-            A.x0, A.x1, A.width, A.width / 16);
+            A.x0, A.x1, A.width, A.width / R.ts);
 console.log('  підлога            y = %d, суцільна смуга %d px без жодної перешкоди',
             A.floorY, A.flat);
 R.plats.forEach(p => console.log('  бічна галерея      x = %d, ширина %d px, висота над підлогою %d px',
