@@ -57,7 +57,7 @@ ok(secs.length === 5, 'п\'ять розділів: бій, рух, навіга
 
 console.log('\nБІЙ');
 // --- безсмертя ---
-await hit('Безсмертя');
+await hit('Безсмертя (чит)');
 const inv = await page.evaluate(() => {
   const D = window.__DEV, P = D.P;
   D.Game.startLevel(0, false); D.god(false);
@@ -67,7 +67,7 @@ const inv = await page.evaluate(() => {
   return { withCheat, max: P.maxHp };
 });
 ok(inv.withCheat === inv.max, 'безсмертя тримає шкоду', inv.withCheat + '/' + inv.max);
-await hit('Безсмертя');                                  // вимикаємо
+await hit('Безсмертя (чит)');                                  // вимикаємо
 const noInv = await page.evaluate(() => {
   const D = window.__DEV, P = D.P;
   P.hp = P.maxHp; P.inv = 0;
@@ -256,7 +256,7 @@ ok(at.boss > 0 && Math.abs(at.x - (at.boss - 34)) < 6, 'перехід до ар
 
 console.log('\nІНДИКАЦІЯ Й СЛУЖБОВЕ');
 await page.click('#btnDbg'); await page.waitForTimeout(150);
-await hit('Безсмертя');
+await hit('Безсмертя (чит)');
 await page.waitForTimeout(150);
 ok(await page.isVisible('#godFrame'), 'з увімкненим читом видно рамку GOD MODE');
 await page.evaluate(() => document.querySelector('.dbgHead .dbgB').click());   // ВИМКНУТИ ВСЕ

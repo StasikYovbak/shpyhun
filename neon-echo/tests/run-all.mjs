@@ -34,6 +34,7 @@ srv = spawn('npx', ['vite', 'preview', '--port', String(PORT)], { stdio: 'ignore
 if (!await waitServer()) { console.error('preview-сервер не піднявся'); process.exit(1); }
 
 let ok = true;
+ok = run('jump.mjs') && ok;
 ok = run('gaps.mjs') && ok;
 ok = run('reach.mjs') && ok;
 ok = run('smoke.mjs') && ok;

@@ -1,10 +1,11 @@
 /**
  * Навчання й тренувальна кімната.
  *
- * Перевіряємо не «підказка з'явилась», а що вона з'являється ТАМ, ДЕ
- * дія вперше потрібна, і зникає САМЕ від виконання цієї дії — не за
- * таймером. Плюс: навчання пропускається, парирування має своє
- * тренування з пропуском після п'яти невдач, кімната нічого не псує.
+ * Скарга була однакова на обидва: «незрозуміло, що від тебе хочуть».
+ * Тому тут перевіряється не «щось з'явилось», а що на екрані в кожен
+ * момент ВИДНО: який це крок із дев'яти, що саме треба зробити, і яку
+ * кнопку тиснути. Плюс що ніхто не застрягне: після п'яти невдач є
+ * пропуск, у будь-який момент є вихід.
  *   node tests/tutor.mjs
  */
 let pw;
@@ -27,212 +28,219 @@ page.on('pageerror', e => errs.push(e.message));
 await page.goto(file);
 await page.waitForFunction(() => !!window.__DEV);
 
-console.log('ПИТАННЯ ПРИ ПЕРШОМУ ЗАПУСКУ\n');
+console.log('ПЕРШИЙ ЗАПУСК\n');
 await page.click('#mPlay');
 await page.waitForTimeout(350);
 ok(await page.isVisible('#tutask'), 'перший запуск питає про навчання');
-const both = await page.evaluate(() => ({
-  yes: !!document.getElementById('tuYes'), no: !!document.getElementById('tuNo'),
-  asked: window.__DEV.Store.data.tutAsked
-}));
-ok(both.yes && both.no, 'є обидві відповіді: пройти й пропустити');
-ok(both.asked === 1, 'питання запам`ятовується й більше не повторюється');
-
-// «Ні, я знаю платформери» — просто запускає гру
 await page.click('#tuNo');
-await page.waitForTimeout(500);
-const skipped = await page.evaluate(() => ({
-  state: window.__DEV.Game.state, level: window.__DEV.Game.level,
-  tut: window.__DEV.Tut.active, hint: !!window.__DEV.TUTFX.hint
-}));
-ok(skipped.state === 'play' && skipped.level === 0, 'пропуск одразу запускає сектор 1');
-ok(!skipped.tut && !skipped.hint, 'жодної підказки після пропуску');
+await page.waitForTimeout(450);
+ok(await page.evaluate(() => window.__DEV.Game.state === 'play' && !window.__DEV.Tut.active),
+   '«Ні, я знаю платформери» одразу запускає гру');
 
-// повторний запуск уже не питає
-await page.evaluate(() => window.__DEV.Game.toMenu());
-await page.click('#mPlay'); await page.waitForTimeout(400);
-ok(!(await page.isVisible('#tutask')), 'удруге питання не показується');
-
-console.log('\nПІДКАЗКИ: КОНТЕКСТНІ, ЗНИКАЮТЬ ВІД ДІЇ');
+console.log('\nКРОК N З 9: ВИДНО, ЩО РОБИТИ');
 await page.evaluate(() => window.__DEV.Game.startTutorial());
 await page.waitForTimeout(600);
-ok(await page.evaluate(() => window.__DEV.Tut.active), 'навчання з меню вмикається');
+ok(await page.isVisible('#tutBar'), 'смуга навчання на екрані');
 
-// крок 1: рух. Підказка висить, поки не пройшла три тайли.
-const s1 = await page.evaluate(() => {
+const bar = () => page.evaluate(() => ({
+  no: document.getElementById('tbNo').textContent,
+  task: document.getElementById('tbTask').textContent,
+  pulse: [...document.querySelectorAll('.tutWant')].map(e => e.id),
+  skip: !document.getElementById('tbSkip').hidden,
+  quit: !document.getElementById('tbQuit').hidden,
+  repeat: !document.getElementById('tbRepeat').hidden
+}));
+const b1 = await bar();
+ok(/КРОК 1 З 9/.test(b1.no), 'видно номер кроку й скільки всього', b1.no);
+ok(b1.task.length > 3, 'видно завдання одним реченням', '«' + b1.task + '»');
+ok(b1.pulse.length === 1, 'пульсує рівно одна потрібна кнопка', b1.pulse.join(','));
+ok(b1.quit && b1.repeat, 'вихід і «Повторити» доступні завжди');
+ok(!b1.skip, 'пропуск спершу схований — його треба заслужити невдачами');
+
+// проходимо кроки й дивимось, що лічильник і підсвітка йдуть за ними
+console.log('\n  крок  завдання                                кнопка');
+const seen = [];
+for (let n = 1; n <= 4; n++) {
+  const b = await bar();
+  seen.push(b);
+  console.log('  ' + String(n).padEnd(6) + b.task.slice(0, 38).padEnd(40) + (b.pulse[0] || '—'));
+  // виконуємо поточний крок напряму
+  await page.evaluate(() => {
+    const D = window.__DEV, T = D.Tut;
+    const id = T.st.step && T.st.step.id;
+    if (id === 'move') { D.kb.r = 1; for (let i = 0; i < 200; i++) D.step(); D.kb.r = 0; }
+    else if (id === 'jump') {
+      // Тиснемо A кілька разів: після попереднього кроку героїня може
+      // бути ще в повітрі, і один тап пішов би в порожнечу.
+      for (let k = 0; k < 4 && !T.st.done.jumped; k++) {
+        D.kb.a = 1; D.step(); D.kb.a = 0;
+        for (let i = 0; i < 30; i++) D.step();
+      }
+    }
+    else { T.note(T.st.step.need === 'hitMelee' ? 'hitMelee'
+                : T.st.step.need === 'dashed' ? 'dashed'
+                : T.st.step.need === 'shot' ? 'shot' : 'cooled');
+           for (let i = 0; i < 5; i++) D.step(); }
+  });
+  await page.waitForTimeout(200);
+}
+ok(new Set(seen.map(s => s.no)).size === seen.length,
+   'номер кроку росте, а не стоїть на місці', seen.map(s => s.no.replace('КРОК ', '').replace(' З 9', '')).join(' → '));
+ok(seen.every(s => s.pulse.length === 1), 'на кожному кроці підсвічена рівно одна кнопка');
+
+console.log('\nНІХТО НЕ ЗАСТРЯГНЕ');
+const sk = await page.evaluate(() => {
   const D = window.__DEV;
-  D.god(true);
-  for (let i = 0; i < 20; i++) D.step();
-  const atStart = D.TUTFX.hint ? D.TUTFX.hint.step.id : null;
-  D.kb.r = 1;
-  let frames = 0;
-  while (D.TUTFX.hint && D.TUTFX.hint.step.id === 'move' && frames < 400) { D.step(); frames++; }
-  D.kb.r = 0;
-  return { atStart, frames, moved: Math.round(D.P.x - D.world.spawn.x), tile: D.TS,
-           next: D.TUTFX.hint ? D.TUTFX.hint.step.id : null };
+  const before = document.getElementById('tbSkip').hidden;
+  for (let i = 0; i < 5; i++) D.Tut.fail();
+  return { before, after: document.getElementById('tbSkip').hidden, tries: D.Tut.st.tries };
 });
-ok(s1.atStart === 'move', 'перша підказка — рух, одразу на спавні', s1.atStart);
-ok(s1.moved > s1.tile * 3 - 4, 'зникає САМЕ від руху, а не за таймером',
-   'пройдено ' + s1.moved + ' px при порозі ' + s1.tile * 3);
+ok(sk.before && !sk.after, 'після п`яти невдач з`являється «Пропустити цей крок»', sk.tries + ' спроб');
+const jumped = await page.evaluate(async () => {
+  const no = () => document.getElementById('tbNo').textContent;
+  const was = no();
+  document.getElementById('tbSkip').click();
+  await new Promise(r => setTimeout(r, 200));
+  return { was, now: no() };
+});
+ok(jumped.was !== jumped.now, 'пропуск справді веде далі', jumped.was + ' → ' + jumped.now);
 
-// крок 2: стрибок. Ходьба його не закриває — потрібен саме стрибок.
-const s2 = await page.evaluate(() => {
+const rep = await page.evaluate(async () => {
   const D = window.__DEV;
-  const id = () => D.TUTFX.hint ? D.TUTFX.hint.step.id : null;
-  // спершу дійти до місця, де підказка стрибка вмикається
-  D.kb.r = 1;
-  let armed = 0;
-  for (let i = 0; i < 600 && !armed; i++) { D.step(); if (id() === 'jump') armed = 1; }
-  // а тепер просто йти далі: сама лише ходьба її закрити не повинна
-  let walked = 0;
-  for (let i = 0; i < 240 && id() === 'jump'; i++) { D.step(); walked++; }
-  const stillJump = id() === 'jump';
-  // і тільки справжній стрибок її гасить
-  D.kb.a = 1; D.step(); D.kb.a = 0;
-  for (let i = 0; i < 40; i++) D.step();
-  D.kb.r = 0;
-  return { armed, stillJump, after: id(), walked };
+  const was = D.Tut.st.i;
+  D.Tut.fail(); D.Tut.fail();
+  const tries = D.Tut.st.tries;
+  document.getElementById('tbRepeat').click();
+  await new Promise(r => setTimeout(r, 200));
+  return { was, now: D.Tut.st.i, triesBefore: tries, triesAfter: D.Tut.st.tries };
 });
-ok(s2.armed === 1, 'підказка стрибка вмикається там, де вперше треба стрибати');
-ok(s2.stillJump, 'і не зникає від самої лише ходьби', s2.walked + ' кадрів поспіль');
-ok(s2.after !== 'jump', 'зникає від справжнього стрибка', 'далі: ' + (s2.after || '—'));
+ok(rep.was === rep.now && rep.triesAfter === 0,
+   '«Повторити» перезапускає той самий крок і чистить лічильник спроб',
+   'спроб ' + rep.triesBefore + ' → ' + rep.triesAfter);
 
-// кожен крок має свою кнопку й свою анімацію, а не абзац тексту
-const steps = await page.evaluate(() => window.__DEV.Tut.steps ? null : null);
-const table = await page.evaluate(() => {
-  const D = window.__DEV;
-  // прокручуємо весь список кроків через внутрішній стан
-  const all = [];
-  for (const s of (window.__TUT_STEPS || [])) all.push(s);
-  return all;
+const quit = await page.evaluate(async () => {
+  document.getElementById('tbQuit').click();
+  await new Promise(r => setTimeout(r, 300));
+  return { on: window.__DEV.Tut.active, bar: document.getElementById('tutBar').hidden };
 });
+ok(!quit.on && quit.bar, 'вихід із навчання — одним тапом');
 
-console.log('\nТРЕНУВАННЯ ПАРИРУВАННЯ');
-const drill = await page.evaluate(async () => {
+console.log('\nПІСЛЯ НАВЧАННЯ — ВИБІР');
+const fin = await page.evaluate(async () => {
   const D = window.__DEV;
   D.Game.startTutorial();
   await new Promise(r => setTimeout(r, 300));
-  D.god(true);
-  // доганяємо до кроку парирування напряму
-  const T = D.Tut;
-  T.st.i = 7; T.st.step = null;
-  D.P.x = Math.min(D.world.pw - D.TS * 6, 640 * 3 * 0.8 + 10);
-  for (let i = 0; i < 20; i++) D.step();
-  const id = D.TUTFX.hint ? D.TUTFX.hint.step.id : null;
-  const dummy = D.ENEM.filter(e => e.dummy === 'parry').length;
-  const gate = D.TUTFX.gate;
-  // куля летить повільно?
-  for (let i = 0; i < 120; i++) D.step();
-  // Саме кулі манекена: на рівні є й звичайні вороги зі своїм темпом.
-  const slow = D.BULL.filter(b => b.drill)
-                     .map(b => Math.round(Math.hypot(b.vx, b.vy)));
-  return { id, dummy, gate, slow: slow.slice(0, 4), need: 2 };
+  // проганяємо всі кроки пропуском
+  for (let i = 0; i < 12 && D.Tut.active; i++) D.Tut.skip();
+  await new Promise(r => setTimeout(r, 300));
+  return { done: D.Store.data.tutDone,
+           screen: document.getElementById('tutdone').classList.contains('on'),
+           btns: [!!document.getElementById('tdRange'), !!document.getElementById('tdPlay')] };
 });
-ok(drill.id === 'parry', 'крок парирування вмикається', drill.id);
-ok(drill.dummy === 1, 'з`являється тренувальний ворог', drill.dummy + ' шт.');
-ok(drill.gate > 0, 'далі не пускає, поки не паріювала', 'ворота на x=' + Math.round(drill.gate));
-ok(drill.slow.length > 0 && drill.slow.every(v => v < 120),
-   'кулі справді повільні — вікно читається оком', drill.slow.join(', ') + ' px/с');
+ok(fin.screen, 'наприкінці показується екран вибору');
+ok(fin.btns[0] && fin.btns[1], 'обидві кнопки: тренувальна кімната й почати гру');
+ok(fin.done === 1, 'навчання позначене як пройдене');
 
-const pass = await page.evaluate(() => {
-  const D = window.__DEV, T = D.Tut;
-  T.note('parryOk'); T.note('parryOk');
-  for (let i = 0; i < 10; i++) D.step();
-  return { ok: T.st.parryOk, gate: D.TUTFX.gate, dummy: D.ENEM.filter(e => e.dummy === 'parry').length };
+console.log('\nТРЕНУВАЛЬНА КІМНАТА: ЧОТИРИ ЗОНИ');
+const owned0 = await page.evaluate(() => {
+  window.__DEV.Game.toMenu();
+  return window.__DEV.Store.data.owned.slice();
 });
-ok(pass.ok >= 2 && pass.gate === 0, 'два вдалі парирування відкривають прохід');
-ok(pass.dummy === 0, 'тренувальний ворог зникає після тренування');
-
-const giveup = await page.evaluate(async () => {
-  const D = window.__DEV, T = D.Tut;
-  D.Game.startTutorial();
-  await new Promise(r => setTimeout(r, 250));
-  D.god(true);
-  T.st.i = 7; T.st.step = null;
-  D.P.x = Math.min(D.world.pw - D.TS * 6, 640 * 3 * 0.8 + 10);
-  for (let i = 0; i < 20; i++) D.step();
-  const gateBefore = D.TUTFX.gate;
-  for (let i = 0; i < 5; i++) T.note('parryMiss');
-  for (let i = 0; i < 10; i++) D.step();
-  return { gateBefore, gate: D.TUTFX.gate, skip: T.st.parrySkip, say: D.TUTFX.say };
-});
-ok(giveup.gateBefore > 0 && giveup.gate === 0 && giveup.skip === 1,
-   'після п`яти невдач прохід відкривається сам — навчання не стіна');
-ok(/ТРЕНУВАЛЬН/i.test(giveup.say || ''), 'і гравцю кажуть, де дотренуватись', giveup.say);
-
-console.log('\nПІДКАЗКА ДО КОЖНОЇ НОВОЇ ЗБРОЇ');
-const tips = await page.evaluate(() => {
-  const D = window.__DEV, out = {};
-  D.Store.data.tutSeen = [];
-  for (const id of ['osa', 'whip', 'shot', 'prism']) {
-    D.Tut.weaponTip(id);
-    out[id] = D.Tut.tip;
-    D.Tut.st.tipT = 0; D.Tut.st.tipId = null;
-  }
-  D.Tut.weaponTip('osa');                       // другий раз — мовчки
-  out.repeat = D.Tut.tip;
-  return out;
-});
-ok(['osa', 'whip', 'shot', 'prism'].every(k => tips[k] && tips[k].length > 10),
-   'у кожної зброї своя підказка про механіку');
-ok(tips.repeat === null, 'удруге та сама підказка не повторюється');
-console.log('    напр.: «' + tips.shot + '»');
-
-console.log('\nТРЕНУВАЛЬНА КІМНАТА');
-const owned0 = await page.evaluate(() => { window.__DEV.Game.toMenu(); return window.__DEV.Store.data.owned.slice(); });
-await page.evaluate(() => window.__DEV.Game.startRange());
+await page.evaluate(() => window.__DEV.Game.startRange('menu'));
 await page.waitForTimeout(500);
 const room = await page.evaluate(() => {
   const D = window.__DEV;
-  const tg = D.ENEM.filter(e => e.dummy === 'target').map(e => e.maxHp).sort((a, b) => a - b);
-  return { on: D.RANGE.on, targets: tg, shooter: D.ENEM.filter(e => e.dummy === 'parry').length,
-           weapons: D.Store.data.owned.length, all: Object.keys(D.WEAPONS).length };
+  const map = D.rangeMap();
+  return {
+    zones: D.RANGE_ZONES.map(z => z.id),
+    signs: D.RANGE_ZONES.every(z => z.name && z.hint && z.hint.length > 20),
+    targets: D.ENEM.filter(e => e.dummy === 'target').map(e => e.infinite ? '∞' : e.maxHp),
+    turret: D.ENEM.filter(e => e.dummy === 'parry').length,
+    gaps: map.marks.gaps.map(g => g.n),
+    walls: map.marks.walls.map(w => w.h),
+    weapons: D.Store.data.owned.length, all: Object.keys(D.WEAPONS).length,
+    god: D.rangeState().god,
+    bar: !document.getElementById('rangeBar').hidden
+  };
 });
-ok(room.on, 'кімната відкривається окремим пунктом меню');
-ok(room.targets.length >= 4 && new Set(room.targets).size === room.targets.length,
-   'манекени з РІЗНИМ HP', room.targets.join(' / '));
-ok(room.shooter === 1, 'є манекен, що стріляє — для парирування');
-ok(room.weapons === room.all, 'уся зброя розблокована на час тренування',
-   room.weapons + ' з ' + room.all);
+ok(room.zones.length === 4, 'чотири зони на одній карті', room.zones.join(', '));
+ok(room.signs, 'над кожною зоною вивіска з одним реченням');
+ok(room.targets.length === 3 && room.targets.includes(50) && room.targets.includes(100) && room.targets.includes('∞'),
+   'зона шкоди: 50 / 100 / нескінченний', room.targets.join(' / '));
+ok(room.turret === 1, 'зона парирування: манекен-турель');
+ok(String(room.gaps) === '3,4,5,6', 'зона платформінгу: прірви 3/4/5/6 тайлів', room.gaps.join('/'));
+ok(String(room.walls) === '1,2,3,4', 'і стіни 1/2/3/4 тайли', room.walls.join('/'));
+ok(room.weapons === room.all, 'уся зброя розблокована', room.weapons + ' з ' + room.all);
+ok(room.god === 1, 'безсмертя увімкнене за замовчуванням');
+ok(room.bar, 'кнопки «Панель» і «Вийти» на екрані завжди');
 
-const count = await page.evaluate(() => {
+console.log('\n  ЛІЧИЛЬНИКИ НАД МАНЕКЕНАМИ');
+const cnt = await page.evaluate(() => {
   const D = window.__DEV;
-  const t = D.ENEM.find(e => e.dummy === 'target');
-  const hp0 = t.hp;
-  D.damageEnemy(t, 40, 0, { melee: true });
-  const after = D.RANGE.dmg;
-  D.damageEnemy(t, 25, 0, { melee: true });
-  return { after, total: D.RANGE.dmg, hp0 };
+  const t = D.ENEM.find(e => e.dummy === 'target' && e.maxHp === 100);
+  D.damageEnemy(t, 30, 0, { melee: true });
+  for (let i = 0; i < 20; i++) D.step();
+  D.damageEnemy(t, 20, 0, { melee: true });
+  for (let i = 0; i < 20; i++) D.step();
+  const st = D.rangeStats(t);
+  return { last: st.last, dps: +st.dps.toFixed(1), ttk: +st.ttk.toFixed(1), hp: t.hp, max: t.maxHp };
 });
-ok(count.after === 40 && count.total === 65, 'лічильник шкоди рахує влучання', count.total);
+ok(cnt.last === 20, 'остання шкода', String(cnt.last));
+ok(cnt.dps > 0, 'DPS за вікном', String(cnt.dps));
+ok(cnt.ttk > 0, 'час до вбивства', cnt.ttk + ' с');
 
-const revive = await page.evaluate(() => {
+const surv = await page.evaluate(() => {
   const D = window.__DEV;
-  const t = D.ENEM.find(e => e.dummy === 'target');
+  const t = D.ENEM.find(e => e.dummy === 'target' && e.maxHp === 50);
   D.damageEnemy(t, 99999, 0, { melee: true });
-  for (let i = 0; i < 6; i++) D.step();
+  for (let i = 0; i < 10; i++) D.step();
   const alive = D.ENEM.filter(e => e.dummy === 'target').length;
-  const t2 = D.ENEM.find(e => e.dummy === 'target');
-  // і за секунду без влучань HP повертається
-  for (let i = 0; i < 80; i++) D.step();
-  return { alive, hpLow: t2 ? t2.hp : -1, hpBack: t2 ? t2.hp : -1, max: t2 ? t2.maxHp : 0 };
+  for (let i = 0; i < 90; i++) D.step();
+  return { alive, hp: t.hp, max: t.maxHp };
 });
-ok(revive.alive >= 4, 'найсильніший удар не вбиває манекена — тренування не закінчується',
-   revive.alive + ' манекенів');
-ok(revive.hpBack === revive.max, 'HP манекена повертається за секунду без влучань',
-   revive.hpBack + ' / ' + revive.max);
+ok(surv.alive === 3, 'манекен не гине навіть від найсильнішого удару');
+ok(surv.hp === surv.max, 'і відновлюється сам', surv.hp + '/' + surv.max);
 
-const backOut = await page.evaluate(() => {
+console.log('\n  ПАНЕЛЬ І ВИХІД');
+const panel = await page.evaluate(async () => {
   const D = window.__DEV;
-  D.Game.toMenu();
-  return { on: D.RANGE.on, owned: D.Store.data.owned.slice() };
+  D.Game.rangeSetParry(2);
+  const fast = D.rangeState().parrySpeed;
+  D.Game.rangeSetGod(false);
+  const god0 = D.rangeState().god;
+  D.Game.rangeSetGod(true);
+  D.Game.rangeCallBoss('chrono', 3);
+  for (let i = 0; i < 60; i++) D.step();
+  return { fast, god0, boss: D.BOSS.type, phase: D.BOSS.phase, on: D.BOSS.on };
 });
-ok(!backOut.on, 'вихід гасить кімнату');
-ok(backOut.owned.length === owned0.length && backOut.owned.every(w => owned0.includes(w)),
-   'арсенал гравця повернувся без змін — прогрес не зачеплено',
-   backOut.owned.join(','));
+ok(panel.fast === 2, 'швидкість куль турелі перемикається');
+ok(panel.god0 === 0, 'безсмертя вимикається');
+ok(panel.on && panel.boss === 'chrono' && panel.phase === 3,
+   'бос викликається одразу в потрібній фазі', panel.boss + ' фаза ' + panel.phase);
+
+const pit = await page.evaluate(() => {
+  const D = window.__DEV, P = D.P;
+  const map = D.rangeMap(), g = map.marks.gaps[3];       // найширша прірва
+  P.x = (g.x0 + 1) * D.TS; P.y = 13 * D.TS - P.h; P.vx = 0; P.vy = 0; P.onGround = false;
+  for (let i = 0; i < 200; i++) D.step();
+  return { x: Math.round(P.x / D.TS), hp: P.hp, gap: g.x0 };
+});
+ok(pit.x < pit.gap && pit.x > pit.gap - 6,
+   'падіння в прірву ставить на край поруч, а не відкидає на початок',
+   'тайл ' + pit.x + ' при прірві на ' + pit.gap);
+
+const out = await page.evaluate(async () => {
+  const D = window.__DEV;
+  D.Game.leaveRange();
+  await new Promise(r => setTimeout(r, 300));
+  return { on: D.rangeState().on, owned: D.Store.data.owned.slice(),
+           bar: document.getElementById('rangeBar').hidden };
+});
+ok(!out.on && out.bar, 'вихід гасить кімнату');
+ok(out.owned.length === owned0.length && out.owned.every(w => owned0.includes(w)),
+   'арсенал повернувся без змін — прогрес не зачеплено', out.owned.join(','));
 
 ok(errs.length === 0, 'без помилок JS' + (errs.length ? ': ' + errs[0] : ''));
-console.log('\n' + (fails === 0 ? 'НАВЧАННЯ: УСЕ ЧИСТО' : 'НАВЧАННЯ: ПРОБЛЕМ ' + fails));
+console.log('\n' + (fails === 0 ? 'НАВЧАННЯ Й КІМНАТА: УСЕ ЧИСТО' : 'НАВЧАННЯ Й КІМНАТА: ПРОБЛЕМ ' + fails));
 await browser.close();
 process.exit(fails === 0 ? 0 : 1);
