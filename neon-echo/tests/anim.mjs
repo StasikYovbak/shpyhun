@@ -13,6 +13,10 @@ const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 await page.goto(process.env.URL || 'http://localhost:4173/');
 await page.waitForFunction(() => !!window.__DEV, null, { timeout: 20000 });
+// Перший запуск питає про навчання (промт №13). Цей набір перевіряє
+// не його, тож позначаємо питання як уже поставлене — інакше «Грати»
+// відкриє екран навчання замість гри.
+await page.evaluate(() => { window.__DEV.Store.data.tutAsked = 1; window.__DEV.Store.save(); });
 await page.click('#mPlay');
 await page.waitForTimeout(400);
 

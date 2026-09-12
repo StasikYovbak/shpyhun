@@ -11,6 +11,8 @@ await page.waitForTimeout(800);
 const ok = await page.evaluate(()=>!!window.__DEV);
 console.log('__DEV доступний:', ok);
 if (ok) {
+  // Перший запуск питає про навчання — знімок робимо з гри, не з питання.
+  await page.evaluate(() => { window.__DEV.Store.data.tutAsked = 1; window.__DEV.Store.save(); });
   await page.click('#mPlay'); await page.waitForTimeout(400);
   await page.evaluate(()=>{ const D=window.__DEV; D.god(true); for(let i=0;i<240;i++){D.kb.r=1;D.step();} D.kb.r=0; });
   await page.waitForTimeout(600);

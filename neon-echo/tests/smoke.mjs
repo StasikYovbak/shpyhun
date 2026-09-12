@@ -29,6 +29,10 @@ page.on('pageerror', e => errors.push('[pageerror] ' + e.message + '\n' + (e.sta
 
 await page.goto(file);
 await page.waitForFunction(() => !!window.__DEV, null, { timeout: 15000 });
+// Перший запуск питає про навчання (промт №13). Цей набір перевіряє
+// не його, тож позначаємо питання як уже поставлене — інакше «Грати»
+// відкриє екран навчання замість гри.
+await page.evaluate(() => { window.__DEV.Store.data.tutAsked = 1; window.__DEV.Store.save(); });
 await page.waitForTimeout(500);
 console.log('ЗАВАНТАЖЕННЯ');
 ok(errors.length === 0, 'без помилок при старті' + (errors.length ? ': ' + errors[0] : ''));

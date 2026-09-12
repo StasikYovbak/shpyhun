@@ -13,6 +13,10 @@ const page = await browser.newPage({viewport:{width:900,height:420}});
 const errs=[]; page.on('pageerror',e=>errs.push(e.message)); page.on('console',m=>{if(m.type()==='error'&&!/GL Driver Message|GPU stall|WebGL-0x/i.test(m.text()))errs.push(m.text())});
 await page.goto(process.env.URL || 'http://localhost:4173/');
 await page.waitForFunction(()=>!!window.__DEV);
+// Перший запуск питає про навчання (промт №13). Цей набір перевіряє
+// не його, тож позначаємо питання як уже поставлене — інакше «Грати»
+// відкриє екран навчання замість гри.
+await page.evaluate(() => { window.__DEV.Store.data.tutAsked = 1; window.__DEV.Store.save(); });
 const ok=(c,m)=>console.log((c?'  ✓ ':'  ✗ ')+m);
 
 // реальний цикл rAF, реальна клавіатура

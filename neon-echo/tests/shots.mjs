@@ -6,6 +6,8 @@ const page = await browser.newPage({ viewport:{width:960,height:440}, deviceScal
 const errs=[]; page.on('pageerror',e=>errs.push(e.message));
 await page.goto('http://localhost:4173/');
 await page.waitForFunction(()=>!!window.__DEV,null,{timeout:20000});
+// Перший запуск питає про навчання — знімок робимо з гри, не з питання.
+await page.evaluate(() => { window.__DEV.Store.data.tutAsked = 1; window.__DEV.Store.save(); });
 await page.click('#mPlay'); await page.waitForTimeout(300);
 const shots=[['lvl1',0,false,300],['metro',4,false,700],['taur',1,true,240],['glitch',7,true,900]];
 for (const [name,lvl,boss,steps] of shots){
