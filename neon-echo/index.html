@@ -43,64 +43,128 @@
     <button class="btn" data-back="menu">Назад</button>
   </div></div>
 
-  <div class="scr" id="settings"><div class="inner">
-    <h2>Налаштування</h2>
-    <div class="row"><span class="lab">Ефекти</span>
-      <input type="range" id="sVol" min="0" max="100" step="5"><b class="val" id="vVol"></b></div>
-    <div class="row"><span class="lab">Музика</span>
-      <input type="range" id="sMus" min="0" max="100" step="5"><b class="val" id="vMus"></b></div>
-    <div class="row"><span class="lab">Зараз грає</span><b class="val" id="sTrack" style="min-width:120px"></b></div>
-    <div class="row"><span class="lab">Графіка</span><div class="seg" id="sGfx">
-      <button data-v="perf">Продукт.</button><button data-v="bal">Збаланс.</button>
-      <button data-v="max">Максимум</button><button data-v="auto">Авто</button></div></div>
-    <div class="row"><span class="lab">Bloom</span>
-      <input type="range" id="sBloom" min="0" max="100" step="5"><b class="val" id="vBloom"></b></div>
-    <div class="row"><span class="lab">Аберація</span>
-      <input type="range" id="sAb" min="0" max="100" step="5"><b class="val" id="vAb"></b></div>
-    <div class="row"><span class="lab">Яскравість фону</span>
-      <input type="range" id="sBg" min="20" max="100" step="5"><b class="val" id="vBg"></b></div>
-    <div class="row"><span class="lab">Камера</span><div class="seg" id="sCam">
-      <button data-v="0">По центру</button><button data-v="1">Класична</button></div></div>
-    <div class="row"><span class="lab">Тьмяніші кнопки в бою</span><div class="seg" id="sDim">
-      <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
-    <div class="row"><span class="lab">Scanlines / CRT</span><div class="seg" id="sCrt">
-      <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
-    <div class="row"><span class="lab">Контур силуетів</span><div class="seg" id="sOut">
-      <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
-    <div class="row"><span class="lab">Хітбокси (розробнику)</span><div class="seg" id="sDbg">
-      <button data-v="1">Показати</button><button data-v="0">Сховати</button></div></div>
-    <button class="btn" id="sClean">Чистий режим — без пост-ефектів</button>
-    <button class="btn" id="sCtrl">Керування…</button>
-    <button class="btn" id="sInv">Арсенал…</button>
-    <button class="btn" id="sReset">Скинути прогрес</button>
-    <button class="btn" data-back="menu">Назад</button>
-  </div></div>
-
-
-  <div class="scr" id="controls"><div class="inner narrow">
-    <h2>Керування</h2>
-    <div class="hint" id="cHint">Перетягни блоки пальцем — вони лишаються на місці.</div>
-    <div class="row"><span class="lab">Пресети</span><div class="seg" id="cPreset">
-      <button data-v="default">Класика</button><button data-v="big">Великі</button>
-      <button data-v="compact">Компакт</button><button data-v="lefty">Ліворукий</button></div></div>
-    <div class="row"><span class="lab">Прозорість стрілок</span>
-      <input type="range" id="cDpadOp" min="20" max="100" step="5"><b class="val" id="vDpadOp"></b></div>
-    <div class="row"><span class="lab">Розмір стрілок</span>
-      <input type="range" id="cDpadSize" min="70" max="160" step="5"><b class="val" id="vDpadSize"></b></div>
-    <div class="row"><span class="lab">Прозорість кнопок</span>
-      <input type="range" id="cBtnOp" min="20" max="100" step="5"><b class="val" id="vBtnOp"></b></div>
-    <div class="row"><span class="lab">Розмір кнопок</span>
-      <input type="range" id="cBtnSize" min="70" max="160" step="5"><b class="val" id="vBtnSize"></b></div>
-    <div class="row"><span class="lab">Дзеркальна розкладка</span><div class="seg" id="cHand">
-      <button data-v="0">Стрілки ліворуч</button><button data-v="1">Стрілки праворуч</button></div></div>
-    <div class="row"><span class="lab">Вібрація</span><div class="seg" id="cVib">
-      <button data-v="0">Вимк.</button><button data-v="1">Слабка</button><button data-v="2">Сильна</button></div></div>
-    <div class="row2">
-      <button class="btn" id="cResetPos">Скинути позиції</button>
-      <button class="btn" id="cResetAll">Скинути все</button>
-      <button class="btn pri" id="cDone">Готово</button>
+  <div class="scr sheet" id="settings">
+    <div class="shead">
+      <div class="top">
+        <button class="back" data-back="menu">&#8592; Назад</button>
+        <h2>Налаштування</h2>
+      </div>
+      <div class="stabs" id="sTabs">
+        <button data-v="ctl">Керування</button><button data-v="gfx">Графіка</button>
+        <button data-v="snd">Звук</button><button data-v="game">Гра</button>
+        <button data-v="dev">Розробнику</button>
+      </div>
     </div>
-  </div></div>
+    <div class="sbody" id="sBody">
+
+      <div class="pane" data-p="ctl">
+        <button class="btn wide" id="sCtrl">Редактор розкладки&#8230;</button>
+        <div class="row"><span class="lab">Вібрація</span><div class="seg" id="cVib">
+          <button data-v="0">Вимк.</button><button data-v="1">Слабка</button><button data-v="2">Сильна</button></div></div>
+        <div class="row"><span class="lab">Дзеркальна розкладка</span><div class="seg" id="cHand">
+          <button data-v="0">Стрілки ліворуч</button><button data-v="1">Праворуч</button></div></div>
+        <div class="row"><span class="lab">Тьмяніші кнопки в бою</span><div class="seg" id="sDim">
+          <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
+        <div class="row"><span class="lab">Профіль розкладки</span><div class="seg" id="sProf">
+          <button data-v="0">1</button><button data-v="1">2</button><button data-v="2">3</button></div></div>
+      </div>
+
+      <div class="pane" data-p="gfx">
+        <div class="row wide"><span class="lab">Графіка</span><div class="seg" id="sGfx">
+          <button data-v="perf">Продукт.</button><button data-v="bal">Збаланс.</button>
+          <button data-v="max">Максимум</button><button data-v="auto">Авто</button></div></div>
+        <div class="row"><span class="lab">Bloom</span>
+          <input type="range" id="sBloom" min="0" max="100" step="5"><b class="val" id="vBloom"></b></div>
+        <div class="row"><span class="lab">Аберація</span>
+          <input type="range" id="sAb" min="0" max="100" step="5"><b class="val" id="vAb"></b></div>
+        <div class="row"><span class="lab">Яскравість фону</span>
+          <input type="range" id="sBg" min="20" max="100" step="5"><b class="val" id="vBg"></b></div>
+        <div class="row"><span class="lab">Камера</span><div class="seg" id="sCam">
+          <button data-v="0">По центру</button><button data-v="1">Класична</button></div></div>
+        <div class="row"><span class="lab">Scanlines / CRT</span><div class="seg" id="sCrt">
+          <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
+        <div class="row"><span class="lab">Контур силуетів</span><div class="seg" id="sOut">
+          <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
+        <button class="btn wide" id="sClean">Чистий режим &#8212; без пост-ефектів</button>
+      </div>
+
+      <div class="pane" data-p="snd">
+        <div class="row"><span class="lab">Ефекти</span>
+          <input type="range" id="sVol" min="0" max="100" step="5"><b class="val" id="vVol"></b></div>
+        <div class="row"><span class="lab">Музика</span>
+          <input type="range" id="sMus" min="0" max="100" step="5"><b class="val" id="vMus"></b></div>
+        <div class="row wide"><span class="lab">Зараз грає</span><b class="val" id="sTrack" style="min-width:120px"></b></div>
+      </div>
+
+      <div class="pane" data-p="game">
+        <div class="row wide"><span class="lab">Складність</span><div class="seg" id="sDiff">
+          <button data-v="easy">Легкий</button><button data-v="normal">Середній</button>
+          <button data-v="hard">Максимальний</button></div></div>
+        <div class="hint wide" id="sDiffHint"></div>
+        <button class="btn" id="sTut">Пройти навчання</button>
+        <button class="btn" id="sRange">Тренувальна кімната</button>
+        <button class="btn" id="sInv">Арсенал&#8230;</button>
+        <button class="btn" id="sReset">Скинути прогрес</button>
+      </div>
+
+      <div class="pane" data-p="dev">
+        <div class="row wide"><span class="lab">Хітбокси</span><div class="seg" id="sDbg">
+          <button data-v="1">Показати</button><button data-v="0">Сховати</button></div></div>
+        <div class="hint wide">Смуга кадру, хітбокси й лічильники. Режим бога (кнопка DBG)
+          збирається окремою збіркою й у релізі вирізаний.</div>
+      </div>
+
+    </div>
+    <div class="sfade" id="sFade"></div>
+  </div>
+
+  <div class="scr sheet edit" id="controls">
+    <div class="shead">
+      <div class="top">
+        <button class="back" id="cDone">&#8592; Назад</button>
+        <button class="back" id="cTest">Перевірити</button>
+        <h2 id="cTitle">Редактор розкладки</h2>
+      </div>
+      <div class="stabs" id="cProf"></div>
+    </div>
+    <div class="epanel" id="cPanel" hidden>
+      <div class="etop"><b id="cSel">&#8212;</b>
+        <button class="back" id="cElReset">Скинути цю</button>
+        <button class="back" id="cClose">&#10005;</button></div>
+      <div class="erows">
+        <div class="row"><span class="lab">Розмір</span>
+          <input type="range" id="eSize" min="60" max="200" step="5"><b class="val" id="vSize"></b></div>
+        <div class="row"><span class="lab">Прозорість</span>
+          <input type="range" id="eOp" min="20" max="100" step="5"><b class="val" id="vOp"></b></div>
+        <div class="row" id="rShape"><span class="lab">Форма</span><div class="seg" id="eShape"></div></div>
+        <div class="row" id="rLab"><span class="lab">Підпис</span><div class="seg" id="eLab">
+          <button data-v="1">Є</button><button data-v="0">Нема</button></div></div>
+        <div class="row"><span class="lab">Вібрація</span><div class="seg" id="eVib">
+          <button data-v="1">Так</button><button data-v="0">Ні</button></div></div>
+        <div class="row"><span class="lab">Показувати</span><div class="seg" id="eHide">
+          <button data-v="0">Так</button><button data-v="1">Сховати</button></div></div>
+        <div class="row"><span class="lab">Позиція</span><b class="val" id="ePos">&#8212;</b></div>
+      </div>
+    </div>
+
+    <div class="ehint" id="cHint">Торкнись кнопки, щоб налаштувати її. Перетягни &#8212; щоб перенести.</div>
+    <div class="ewarn" id="cWarn" hidden>Кнопки перекриваються &#8212; одна з них не натиснеться</div>
+
+    <div class="epanel etools" id="cTools">
+      <div class="erows">
+        <div class="row wide"><span class="lab">Пресет</span><div class="seg" id="ePreset">
+          <button data-v="standard">Стандарт</button><button data-v="lefty">Для лівші</button>
+          <button data-v="big">Великі</button><button data-v="minimal">Мінімалізм</button></div></div>
+        <div class="row wide"><span class="lab">Розкладка рядком</span>
+          <input type="text" id="eStr" spellcheck="false" autocomplete="off" placeholder="ECHO1:&#8230;"></div>
+        <div class="erow3">
+          <button class="back" id="eCopy">Експорт</button>
+          <button class="back" id="ePaste">Імпорт</button>
+          <button class="back" id="eResetAll">Скинути профіль</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="scr" id="inv"><div class="inner">
     <h2>Арсенал</h2>
@@ -200,6 +264,22 @@
     <div class="row2">
       <button class="btn pri" id="asYes">Так, допоможи</button>
       <button class="btn" id="asNo">Ні, я сам</button>
+    </div>
+  </div></div>
+
+  <div class="scr" id="tutask"><div class="inner">
+    <h2>ПЕРШИЙ ЗАПУСК</h2>
+    <h1>НАВЧАННЯ?</h1>
+    <div class="txt" style="text-align:center">
+      <p>Підказки з&#8217;являються самі, там, де дія вперше потрібна,
+      і зникають, щойно ти її зробила. Жодного окремого рівня &#8212;
+      це перші екрани сектора 1.</p>
+      <p class="mini">Пропустити можна зараз, повернутись &#8212; у будь-який момент
+      через Налаштування &#8594; Гра.</p>
+    </div>
+    <div class="row2">
+      <button class="btn pri" id="tuYes">Так, пройти навчання</button>
+      <button class="btn" id="tuNo">Ні, я знаю платформери</button>
     </div>
   </div></div>
 

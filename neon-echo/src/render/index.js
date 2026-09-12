@@ -251,6 +251,7 @@ export const Gfx = {
     drawRings();
     drawWeather(th);
     drawLevelFx(G.world.time);
+    drawTutor();
     drawDarkness();
     drawLights();
     if (!G.Cut.on) drawHud();               // під час катсцени HUD не потрібен
@@ -1008,6 +1009,21 @@ function drawGhosts() {
     entAddP.rect(px(), g.x + (g.vx > 0 ? 14 : -14) - camX, g.y + 8 - camY, 14, 2, 0xc9b8ff, 0.6);
     pushLight(g.x + 7, g.y + 11, 40, 0x8f6fff, 0.35);
   }
+  // Постійна часова копія Хроноклинка (максимальний режим): вона має
+  // бути ВИДНО іншою — напівпрозорий силует із контуром, а не другий
+  // бос, інакше не зрозуміло, кого бити.
+  const tw = G.twin && G.twin();
+  if (tw && tw.on) {
+    const B = G.BOSS, x = tw.x - camX, y = tw.y - camY;
+    const a = tw.tel > 0 ? 0.22 + 0.5 * (1 - tw.tel / 0.5) : 0.42;
+    entAddP.rect(px(), x, y, B.w, B.h, 0x8f6fff, a);
+    entAddP.rect(px(), x, y, B.w, 1, 0xc9b8ff, a + 0.2);
+    entAddP.rect(px(), x, y + B.h - 1, B.w, 1, 0xc9b8ff, a + 0.2);
+    pushLight(x + camX + B.w / 2, y + camY + B.h / 2, 52, 0x8f6fff, 0.4);
+    // Передвісник телепорту копії — окремий силует у цільовій точці.
+    if (tw.tel > 0)
+      entAddP.rect(px(), tw.tx - camX, tw.ty - camY, B.w, B.h, 0x8f6fff, 0.30);
+  }
 }
 
 /* ------------------------------------------------------------ ГЕРОЙ */
@@ -1708,6 +1724,97 @@ function drawLevelFx(t) {
   }
 }
 
+/* ================================================================
+   НАВЧАННЯ: голограма з анімацією дії + іконка кнопки.
+   Слів рівно стільки, щоб назвати дію; усе інше показує рух.
+   ================================================================ */
+function drawTutor() {
+  const F = G.TUTFX;
+  if (!F) return;
+  const T_NOW = G.world.time;
+  if (F.hint) {
+    const h = F.hint, x = h.x - camX, y = h.y - camY;
+    const ph = (T_NOW * 3) % 6.283;
+    const a = 0.9;
+    // рамка голограми
+    entAddP.rect(px(), x - Si(26), y - Si(20), Si(52), Si(30), 0x22e0ff, 0.12);
+    for (let i = 0; i < 3; i++)
+      entAddP.rect(px(), x - Si(26), y - Si(20) + i * Si(12), Si(52), 1, 0x22e0ff, 0.22);
+    drawTutIcon(h.step.holo, x, y - Si(6), ph, a);
+    // іконка кнопки праворуч від піктограми
+    if (h.step.btn) {
+      const bw = h.step.btn.length > 1 ? Si(20) : Si(13);
+      const bx = x + Si(15), by = y - Si(12);
+      const blink = 0.55 + 0.45 * Math.abs(Math.sin(ph * 1.6));
+      entAddP.rect(px(), bx - 1, by - 1, bw + 2, Si(15), 0xffd23f, blink * 0.9);
+      entAddP.rect(px(), bx, by, bw, Si(13), 0x0b0413, 1);
+    }
+    txt('tutTxt', h.step.text, VW / 2, VH - Si(64), 9, 0xbff4ff, 'center');
+    if (h.step.btn) txt('tutBtn', h.step.btn, h.x - camX + Si(15) + (h.step.btn.length > 1 ? Si(10) : Si(6)),
+                        h.y - camY - Si(12), 9, 0xffd23f, 'center');
+    else txt('tutBtn', '', 0, -50, 9, 0xffd23f, 'center');
+  } else {
+    txt('tutTxt', '', 0, -50, 9, 0xbff4ff, 'center');
+    txt('tutBtn', '', 0, -50, 9, 0xffd23f, 'center');
+  }
+  // Ворота тренування парирування — видима межа, а не невидима стіна.
+  if (F.gate) {
+    const gx = F.gate - camX;
+    for (let i = 0; i < 6; i++)
+      entAddP.rect(px(), gx, Si(30) + i * Si(24), 2, Si(16), 0xffd23f,
+                   0.35 + 0.25 * Math.abs(Math.sin(T_NOW * 4 + i)));
+  }
+  txt('tutSay', F.sayT > 0 ? F.say : '', VW / 2, VH - Si(50), 9, 0xffd23f, 'center');
+}
+/** Піктограма дії: рухома, бо саме рух і пояснює, що робити. */
+function drawTutIcon(k, x, y, ph, a) {
+  const C = 0xbff4ff, Y = 0xffd23f;
+  if (k === 'tMove') {                                   // силует крокує вбік
+    const ox = Math.sin(ph) * Si(8);
+    entAddP.rect(px(), x - Si(16) + ox, y - Si(6), Si(5), Si(12), C, a);
+    for (let i = 0; i < 3; i++)
+      entAddP.rect(px(), x - Si(6) + i * Si(5), y, Si(3), 2, C, a * 0.6);
+  } else if (k === 'tJump') {                            // дуга стрибка
+    const f = (ph % 3.14) / 3.14;
+    entAddP.rect(px(), x - Si(14) + f * Si(24), y + Si(4) - Math.sin(f * Math.PI) * Si(14), Si(5), Si(8), C, a);
+    entAddP.rect(px(), x - Si(16), y + Si(12), Si(30), 1, C, a * 0.4);
+  } else if (k === 'tDjump') {                           // друга дуга вище першої
+    const f = (ph % 3.14) / 3.14;
+    entAddP.rect(px(), x - Si(14) + f * Si(12), y + Si(4) - Math.sin(f * Math.PI) * Si(9), Si(4), Si(7), C, a * 0.5);
+    entAddP.rect(px(), x - Si(2) + f * Si(12), y + Si(2) - Math.sin(f * Math.PI) * Si(15), Si(4), Si(7), Y, a);
+  } else if (k === 'tBlade') {                           // дуга удару
+    const sw = Math.sin(ph * 2);
+    for (let i = 0; i < 4; i++)
+      entAddP.rect(px(), x - Si(4) + i * Si(4), y - Si(8) + sw * Si(6) + i * Si(2), Si(4), 2, Y, a);
+  } else if (k === 'tDash') {                            // смуга ривка
+    const ox = (ph % 1.6) / 1.6 * Si(22) - Si(11);
+    for (let i = 0; i < 4; i++)
+      entAddP.rect(px(), x - Si(12) + ox - i * Si(5), y - 1, Si(4), 2, 0x22e0ff, a * (1 - i * 0.2));
+  } else if (k === 'tShoot') {                           // куля летить у мішень
+    const f = (ph % 1.3) / 1.3;
+    entAddP.rect(px(), x - Si(14), y - Si(3), Si(5), Si(7), C, a);
+    entAddP.rect(px(), x - Si(8) + f * Si(20), y - 1, Si(4), 2, Y, a);
+    entAddP.rect(px(), x + Si(14), y - Si(4), Si(3), Si(9), 0xff2e88, a * 0.8);
+  } else if (k === 'tHeat') {                            // шкала з зеленою зоною
+    entAddP.rect(px(), x - Si(16), y - 2, Si(32), Si(5), 0x39414d, a);
+    entAddP.rect(px(), x + Si(4), y - 2, Si(7), Si(5), 0x3dff9a, a);
+    entAddP.rect(px(), x - Si(16) + ((ph * 9) % Si(32)), y - Si(4), 2, Si(9), Y, a);
+  } else if (k === 'tParry') {                           // куля відскакує назад
+    const f = (ph % 1.8) / 1.8;
+    const fx = f < 0.5 ? -Si(14) + f * 2 * Si(14) : -f * 2 * Si(6);
+    entAddP.rect(px(), x + fx, y - 1, Si(4), Si(4), f < 0.5 ? 0xff6b3d : Y, a);
+    entAddP.rect(px(), x + Si(4), y - Si(8), 2, Si(16), C, a * 0.8);
+  } else if (k === 'tCp') {                              // маяк чекпоінта
+    const pl = 0.5 + 0.5 * Math.abs(Math.sin(ph));
+    entAddP.rect(px(), x - 1, y - Si(10), 3, Si(18), 0x22e0ff, a);
+    entAddP.rect(px(), x - Si(5), y - Si(12), Si(11), Si(4), 0x22e0ff, a * pl);
+  } else if (k === 'tInv') {                             // дві комірки міняються
+    const sw = Math.sin(ph) > 0;
+    entAddP.rect(px(), x - Si(13), y - Si(6), Si(11), Si(12), sw ? Y : C, a * 0.8);
+    entAddP.rect(px(), x + Si(2), y - Si(6), Si(11), Si(12), sw ? C : Y, a * 0.8);
+  }
+}
+
 function drawDarkness() {
   if (!G.world.dark) return;
   const P = G.P;
@@ -1924,6 +2031,21 @@ function drawHud() {
     txt('pick', 'ЗНАЙДЕНО: ' + G.Game.pickupName, vw / 2, VH - 37, 11, COL.yellow, 'center').alpha = a;
   } else hideTxt('pick');
   txt('sector', 'СЕКТОР ' + (W.idx + 1), vw / 2, 4, 10, 0xc9b8dd, 'center');
+
+  // Тренувальна кімната: лічильник шкоди й DPS за останні дві секунди.
+  const R = G.RANGE;
+  if (R && R.on) {
+    hudP.rect(px(), vw / 2 - 62, 34, 124, 22, 0x0b0413, 0.66);
+    txt('rngD', 'ШКОДА ' + Math.round(R.dmg), vw / 2, 36, 11, COL.yellow, 'center');
+    const dps = R.t > 0.2 ? R.dmg / R.t : 0;
+    txt('rngS', 'DPS ' + dps.toFixed(1), vw / 2, 46, 9, 0x7df9ff, 'center');
+  } else { hideTxt('rngD'); hideTxt('rngS'); }
+  // Підказка до щойно виданої зброї — один рядок про її механіку.
+  const tip = G.Tut && G.Tut.tip;
+  if (tip) {
+    hudP.rect(px(), vw / 2 - 116, VH - 58, 232, 14, 0x0b0413, 0.75);
+    txt('wtip', tip, vw / 2, VH - 56, 9, 0xbff4ff, 'center');
+  } else hideTxt('wtip');
 
   if (B.on && B.intro <= 0) {
     const w = 200, x = (vw - w) / 2;

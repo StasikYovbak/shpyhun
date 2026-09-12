@@ -40,14 +40,70 @@ html,body{height:100%;margin:0;padding:0;overflow:hidden;background:#000;
   background:rgba(11,4,19,.55);opacity:var(--btnop);display:flex;align-items:center;justify-content:center;
   color:#bff4ff;font-size:15px;font-weight:700}
 
-/* ---------- екрани меню ---------- */
-.scr{position:absolute;inset:0;z-index:10;display:none;flex-direction:column;
-  align-items:center;justify-content:center;gap:10px;padding:18px;
+/* ---------- екрани меню ----------
+   Висота — 100dvh, бо на Android 100vh бреше: вона рахує екран БЕЗ
+   панелі навігації, тож низ екрана з'їдається. `inset:0` лишаємо як
+   запасний варіант для браузерів без dvh.
+
+   ЦЕНТРУВАННЯ ЧЕРЕЗ `margin:auto`, А НЕ `justify-content:center`.
+   Це не косметика: flex-контейнер із `justify-content:center` при
+   переповненні виштовхує вміст ЗА верхній край, і туди неможливо
+   прокрутити — `scrollTop:0` уже найвища позиція. Саме через це
+   налаштування були обрізані згори. `margin:auto` центрує так само,
+   але при переповненні чесно віддає прокрутку. */
+.scr{position:absolute;inset:0;height:100dvh;z-index:10;display:none;flex-direction:column;
+  align-items:center;gap:10px;
+  padding:calc(18px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right))
+          calc(18px + env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left));
   background:radial-gradient(120% 90% at 50% 0%,rgba(123,47,190,.35),rgba(11,4,19,.94) 65%),
              linear-gradient(180deg,#0b0413,#170a26);
-  overflow-y:auto;-webkit-overflow-scrolling:touch}
+  overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .scr.on{display:flex}
-.scr .inner{width:100%;max-width:460px;display:flex;flex-direction:column;align-items:stretch;gap:9px}
+.scr .inner{width:100%;max-width:460px;margin:auto;display:flex;flex-direction:column;
+  align-items:stretch;gap:9px;flex:0 0 auto}
+
+/* ---------- аркуш: закріплена шапка + прокручуване тіло ----------
+   Для екранів, де пунктів свідомо більше, ніж влазить: налаштування
+   й редактор розкладки. Шапка не їде, прокручується лише тіло. */
+.scr.sheet{padding:0;gap:0;align-items:stretch;overflow:hidden;justify-content:flex-start}
+.shead{flex:0 0 auto;z-index:2;display:flex;flex-direction:column;gap:6px;
+  padding:calc(7px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right))
+          7px calc(10px + env(safe-area-inset-left));
+  background:linear-gradient(180deg,rgba(23,10,38,.98),rgba(23,10,38,.92));
+  border-bottom:1px solid var(--line);box-shadow:0 6px 18px rgba(0,0,0,.45)}
+.shead .top{display:flex;align-items:center;gap:9px;min-height:34px}
+.shead h2{margin:0;text-align:left;flex:1 1 auto;font-size:13px}
+.back{flex:0 0 auto;min-height:32px;padding:5px 12px;border:2px solid var(--line);border-radius:7px;
+  background:rgba(34,224,255,.09);color:#e8ddf5;font:inherit;font-size:12px;letter-spacing:.1em;
+  cursor:pointer;white-space:nowrap}
+.back:active{background:rgba(255,46,136,.25)}
+.stabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+.stabs::-webkit-scrollbar{display:none}
+.stabs button{flex:0 0 auto;min-height:28px;padding:4px 10px;border:1px solid var(--line);
+  border-radius:6px;background:transparent;color:#c9b8dd;font:inherit;font-size:11px;
+  letter-spacing:.08em;cursor:pointer;white-space:nowrap}
+.stabs button.on{background:var(--cyan);color:#06121a;border-color:var(--cyan);font-weight:700}
+/* Тіло. min-height:0 обов'язковий — без нього flex-елемент не дає
+   собі стиснутись нижче вмісту, і прокрутки просто не виникає. */
+.sbody{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--cyan) transparent;
+  padding:8px calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom))
+          calc(10px + env(safe-area-inset-left))}
+.sbody::-webkit-scrollbar{width:6px}
+.sbody::-webkit-scrollbar-thumb{background:rgba(34,224,255,.55);border-radius:3px}
+.sbody::-webkit-scrollbar-track{background:rgba(34,224,255,.08)}
+.pane{display:none;gap:8px;grid-template-columns:1fr;max-width:920px;margin:0 auto}
+.pane.on{display:grid}
+.pane .wide{grid-column:1/-1}
+/* Затемнення внизу — видно, що нижче ще є вміст. Гасне на самому низу. */
+.sfade{position:absolute;left:0;right:0;bottom:0;height:26px;pointer-events:none;z-index:3;
+  background:linear-gradient(180deg,rgba(11,4,19,0),rgba(11,4,19,.92));
+  opacity:0;transition:opacity .18s linear}
+.sfade.on{opacity:1}
+/* Дві колонки в горизонталі: екран широкий, гортати доводиться вдвічі менше. */
+@media (orientation:landscape) and (min-width:620px){
+  .pane.on{grid-template-columns:1fr 1fr}
+}
 h1{margin:0 0 2px;font-size:clamp(22px,7vw,38px);line-height:1;letter-spacing:.06em;text-align:center;
   color:var(--pink);text-shadow:0 0 12px rgba(255,46,136,.75),0 3px 0 #3d0a26}
 h1 span{display:block;font-size:.42em;letter-spacing:.34em;color:var(--cyan);
@@ -61,13 +117,17 @@ h2{margin:0 0 4px;font-size:15px;letter-spacing:.22em;color:var(--cyan);text-ali
 .btn.pri{border-color:var(--pink);background:rgba(255,46,136,.18);color:#fff;
   box-shadow:0 0 14px rgba(255,46,136,.28)}
 .btn:disabled{opacity:.32;cursor:default}
+.sbody .btn{min-height:44px;max-height:56px;padding:8px 12px;font-size:12.5px}
+/* Пункт налаштувань: стеля 56 px, відступи 8. До правки один рядок
+   із сегментом займав 63 px, і на екрані 405 px їх влазило шість. */
 .row{display:flex;gap:8px;align-items:center;justify-content:space-between;
-  border:1px solid rgba(154,127,181,.28);border-radius:8px;padding:9px 11px;font-size:12.5px;
-  letter-spacing:.08em}
-.row .lab{color:var(--dim);text-transform:uppercase;font-size:11px;letter-spacing:.14em}
+  border:1px solid rgba(154,127,181,.28);border-radius:8px;padding:6px 10px;font-size:12px;
+  letter-spacing:.08em;min-height:40px;max-height:56px}
+.row .lab{color:var(--dim);text-transform:uppercase;font-size:10.5px;letter-spacing:.12em;
+  line-height:1.15}
 .seg{display:flex;gap:4px}
-.seg button{min-width:40px;min-height:34px;border:1px solid var(--line);border-radius:6px;
-  background:transparent;color:#e8ddf5;font:inherit;font-size:12px;cursor:pointer}
+.seg button{min-width:38px;min-height:28px;padding:3px 7px;border:1px solid var(--line);
+  border-radius:6px;background:transparent;color:#e8ddf5;font:inherit;font-size:11px;cursor:pointer}
 .seg button.on{background:var(--cyan);color:#06121a;border-color:var(--cyan);font-weight:700}
 input[type=range]{width:130px;accent-color:#ff2e88;background:transparent}
 .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px}
@@ -94,10 +154,29 @@ input[type=range]{width:130px;accent-color:#ff2e88;background:transparent}
 /* Шар лежить поверх панелі, але ловить дотик ЛИШЕ на самих блоках —
    інакше він перекрив би повзунки й кнопки під собою. */
 #touch.prev{display:block;z-index:14;pointer-events:none}
-#touch.prev #dpad,#touch.prev .pad{outline:1px dashed rgba(255,210,63,.55);outline-offset:5px;
+#touch.prev .pad,#touch.prev #btnPause{outline:1px dashed rgba(255,210,63,.55);outline-offset:4px;
   pointer-events:auto;cursor:grab}
-#touch.prev #dpad .arw{pointer-events:auto}
-#touch.prev #btnPause{display:none}
+/* SVG стрілок розтягнутий на весь екран (кожна стрілка позиціюється
+   власними точками), тож САМ він дотик ловити не має — інакше він
+   накриває панель редактора, і жодна її кнопка не натискається.
+   Ловлять лише самі полігони. */
+#touch.prev #dpad{pointer-events:none}
+#touch.prev #dpad .arw{pointer-events:auto;stroke-dasharray:6 4}
+/* Вибраний елемент і елемент, що з кимось перекривається. */
+#touch.prev .sel{outline:2px solid var(--yellow);outline-offset:4px;
+  box-shadow:0 0 0 2px rgba(255,210,63,.35),0 0 18px rgba(255,210,63,.5)}
+#touch.prev .arw.sel{stroke:var(--yellow);stroke-width:5;stroke-dasharray:none}
+#touch.prev .bad{outline:2px solid #ff3355;outline-offset:4px;
+  box-shadow:0 0 0 2px rgba(255,51,85,.4),0 0 18px rgba(255,51,85,.55)}
+#touch.prev .arw.bad{stroke:#ff3355;stroke-width:5}
+/* Підпис під літерою ховається поелементно. */
+.pad.nocap small{display:none}
+/* Те саме в грі: шар ловить дотик сам, окремим обробником на #touch,
+   а SVG на весь екран не має перехоплювати нічого поверх нього. */
+#dpad{pointer-events:none}
+/* Стрілки живуть в одному SVG на весь екран: кожна позиціюється
+   власними точками, тож їх можна рознести куди завгодно. */
+#dpad{position:absolute;left:0;top:0}
 #controls{background:radial-gradient(120% 90% at 50% 0%,rgba(123,47,190,.30),rgba(11,4,19,.80) 65%),
           linear-gradient(180deg,rgba(11,4,19,.86),rgba(23,10,38,.86));
   justify-content:flex-start;padding:6px}
@@ -181,3 +260,53 @@ body{font-family:'Handjet',ui-monospace,'Courier New',monospace}
 .row{font-size:14px}.row .lab{font-size:13px}
 .seg button{font-size:13px;min-width:46px}
 .txt{font-size:14px}
+
+
+/* ==================================================== РЕДАКТОР РОЗКЛАДКИ
+   Екран навмисно НЕ закриває гру: кнопки налаштовують там, де ними
+   користуються, а не на порожньому тлі. Тому фон лише притемнений, а
+   шар #touch лежить поверх і ловить дотик. */
+.scr.edit{background:rgba(11,4,19,.42);backdrop-filter:blur(1px)}
+#cPanel:not([hidden]) ~ .ehint,#cPanel:not([hidden]) ~ .ewarn{display:none}
+.ehint{position:absolute;left:50%;transform:translateX(-50%);top:calc(74px + env(safe-area-inset-top));
+  z-index:11;font-size:11px;letter-spacing:.1em;color:var(--dim);text-align:center;
+  background:rgba(11,4,19,.8);border:1px solid var(--line);border-radius:7px;padding:5px 12px;
+  max-width:92vw;pointer-events:none}
+.ewarn{position:absolute;left:50%;transform:translateX(-50%);top:calc(74px + env(safe-area-inset-top));
+  z-index:12;font-size:11px;letter-spacing:.1em;color:#fff;text-align:center;
+  background:rgba(255,51,85,.92);border:1px solid #ff8ea0;border-radius:7px;padding:5px 12px;
+  max-width:92vw;pointer-events:none;box-shadow:0 0 18px rgba(255,51,85,.5)}
+.ewarn[hidden]{display:none}
+/* Панелі притиснуті до низу; між ними й шапкою — вільне поле,
+   де видно гру й самі кнопки. */
+/* Панель параметрів стає на ПРОТИЛЕЖНУ половину екрана від вибраної
+   кнопки: інакше вона накриває саме те, що зараз налаштовують, і
+   змінити розмір, не бачачи результату, — марна справа. */
+.epanel.top{bottom:auto;top:var(--headH,88px);
+  border-top:none;border-bottom:1px solid var(--line);
+  box-shadow:0 8px 22px rgba(0,0,0,.5)}
+.epanel{position:absolute;left:0;right:0;bottom:0;z-index:13;
+  background:linear-gradient(180deg,rgba(23,10,38,.93),rgba(11,4,19,.98));
+  border-top:1px solid var(--line);box-shadow:0 -8px 22px rgba(0,0,0,.5);
+  padding:7px calc(10px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom))
+          calc(10px + env(safe-area-inset-left));
+  max-height:58dvh;overflow-y:auto;overscroll-behavior:contain}
+.epanel[hidden]{display:none}
+.epanel .etop{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.epanel .etop b{flex:1 1 auto;font-size:12.5px;letter-spacing:.12em;color:var(--yellow)}
+.epanel .erows{display:grid;grid-template-columns:1fr;gap:6px}
+.epanel .erows .wide{grid-column:1/-1}
+.erow3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;grid-column:1/-1}
+/* Службова панель (пресети, експорт) стоїть посередині низу й НЕ
+   заходить у кути: ліворуч живуть стрілки, праворуч — кнопки дій, і
+   накривати їх службовим щитом означає ховати саме те, що редагують. */
+.etools{z-index:12;left:50%;right:auto;transform:translateX(-50%);
+  width:min(480px,58vw);border-radius:10px 10px 0 0;border:1px solid var(--line);border-bottom:none}
+@media (max-width:620px){.etools{width:86vw}}
+#eStr{flex:1 1 auto;min-width:0;background:rgba(34,224,255,.07);border:1px solid var(--line);
+  border-radius:6px;color:#e8ddf5;font:inherit;font-size:11px;padding:5px 8px}
+/* Коли вибрано елемент, службова панель ховається під панеллю параметрів. */
+#cPanel:not([hidden]) ~ .etools{display:none}
+@media (orientation:landscape) and (min-width:620px){
+  .epanel .erows{grid-template-columns:1fr 1fr}
+}

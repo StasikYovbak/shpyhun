@@ -21,6 +21,9 @@ const CSS = `
   color:#ffd23f;font:inherit;font-size:10px;letter-spacing:.12em;opacity:.5;padding:0}
 #btnDbg.hot{border-color:#ff3355;color:#ff6b7f;opacity:.95}
 #btnDbg[hidden]{display:none}
+/* Поки відкритий будь-який екран меню, кнопка ховається: інакше вона
+   лягає поверх правого верхнього кута налаштувань і перекриває вміст. */
+body.menuOpen #btnDbg{display:none}
 .dbgPanel{position:absolute;inset:0 0 0 auto;width:min(340px,92vw);z-index:20;display:none;
   flex-direction:column;background:rgba(9,4,16,.95);border-left:1px solid rgba(255,210,63,.35);
   font-size:11px;letter-spacing:.04em}

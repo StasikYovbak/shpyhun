@@ -10,6 +10,9 @@ import './style.css';
 import { DT, MAXDT, PH, BL, RG, CONFIG, TS, SCALE, VW, VH, DEV_MODE } from './config.js';
 import { CH, cheating } from './cheats.js';
 import { Store, SAVE_KEY } from './store.js';
+import { Pad } from './pad.js';
+import { HARDEST, HARD_EXTRA } from './difficulty.js';
+import { STEPS as TUT_STEPS } from './tutorial.js';
 import { initAudio, resumeAudio, applyVolume, Sfx, Music, setHaptics } from './audio.js';
 import { TRACKS } from './music.js';
 import { Input } from './input.js';
@@ -105,6 +108,7 @@ let dbg = null;                                    // панель розроб�
 /* -------------------------------------------------------------- старт */
 async function boot() {
   Store.load();
+  Pad.load();                                      // розкладка живе у власному ключі
   await Gfx.init(canvas);
   initUI();
   G.loadLevel(0);
@@ -165,7 +169,11 @@ async function boot() {
   // службовий доступ для автотестів
   window.__DEV = {
     G, Game: G.Game, P: G.P, world: G.world, BOSS: G.BOSS, Store, SAVE_KEY, kb: Input.kb, S: Input.S,
-    btn: Input.btn, pad: Input.pad, Gfx,
+    btn: Input.btn, pad: Input.pad, Gfx, Input, Pad,
+    // складність, навчання й тренувальна кімната — для автотестів
+    DIFF: G.DIFF, Tut: G.Tut, TUTFX: G.TUTFX, RANGE: G.RANGE,
+    diff: v => { Store.data.diff = v; Store.save(); return G.Game.applyDifficulty(); },
+    twin: G.twin, parries: G.parries,
     levels: () => G.LEVELS.length,
     god: v => G.setGod(v),
     step: () => G.stepGame(DT),
@@ -178,6 +186,8 @@ async function boot() {
     },
     hurtBoss: n => { if (G.BOSS.on) { G.BOSS.hp -= n; if (G.BOSS.hp <= 0) { G.BOSS.hp = 0; G.bossDie(); } else G.bossCheckPhase(); } },
     killParts: () => { for (const p of G.BOSS.parts) p.alive = false; },
+    bossCheckPhase: () => G.bossCheckPhase(),
+    HARDEST: HARDEST, HARD_EXTRA: HARD_EXTRA, TUT_STEPS: TUT_STEPS,
     hitboxes: () => G.bossHitBoxes(),
     shoot: G.shoot, spawnEnemy: G.spawnEnemy, BULL: G.BULL, ENEM: G.ENEM, EQ: G.EQ, DRONES: G.DRONES,
     TELE: G.TELE, ZONES: G.ZONES, BEAMS: G.BEAMS, WEAPONS: G.WEAPONS,

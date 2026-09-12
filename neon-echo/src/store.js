@@ -25,7 +25,11 @@ export const Store = {
     // нагороди й секрет
     frags: [], bonusHp: 0, ngKey: 0, ng: 0,
     // катсцени: які вже бачив (другий перегляд не обов'язковий)
-    seenCuts: [], cutAlways: 0
+    seenCuts: [], cutAlways: 0,
+    // складність: easy / normal / hard. Міняється будь-коли, нічого не блокує.
+    diff: 'normal',
+    // навчання: чи питали й чи пройдено; які підказки вже показані
+    tutAsked: 0, tutDone: 0, tutSeen: []
   },
   load() {
     try {
@@ -74,6 +78,10 @@ export const Store = {
           d.cutAlways = o.cutAlways ? 1 : 0;
           d.hand = o.hand ? 1 : 0;
           d.deaths = parseInt(o.deaths, 10) || 0;
+          d.diff = ['easy', 'normal', 'hard'].indexOf(o.diff) >= 0 ? o.diff : 'normal';
+          d.tutAsked = o.tutAsked ? 1 : 0;
+          d.tutDone = o.tutDone ? 1 : 0;
+          d.tutSeen = Array.isArray(o.tutSeen) ? o.tutSeen.filter(v => typeof v === 'string') : [];
         }
       }
     } catch (e) { /* приватний режим / вимкнене сховище — граємо без збереження */ }
@@ -83,10 +91,14 @@ export const Store = {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.data)); } catch (e) { }
   },
   clear() {
+    // Стирається ПРОГРЕС. Налаштування, складність і розкладка керування
+    // (вона й так в іншому ключі) лишаються: людина скидає проходження,
+    // а не свою руку й свій екран.
     const d = this.data;
     d.unlocked = 1; d.cleared = []; d.deaths = 0; d.logs = [];
     d.owned = ['arc', 'rail']; d.melee = 'arc'; d.ranged = 'rail';
     d.frags = []; d.bonusHp = 0; d.ngKey = 0; d.ng = 0;
+    d.seenCuts = []; d.tutDone = 0; d.tutAsked = 0; d.tutSeen = [];
     this.save();
   }
 };
