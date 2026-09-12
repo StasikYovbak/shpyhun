@@ -28,17 +28,28 @@
  *   need  — що має статись, щоб підказка зникла
  */
 export const STEPS = [
-  { id: 'move',  btn: '←→', holo: 'tMove',  text: 'РУХ',                at: 0.00, need: 'moved' },
-  { id: 'jump',  btn: 'A',  holo: 'tJump',  text: 'СТРИБОК',            at: 0.16, need: 'jumped' },
-  { id: 'djump', btn: 'A',  holo: 'tDjump', text: 'ДРУГИЙ ТАП У ПОВІТРІ — ПОДВІЙНИЙ', at: 0.26, need: 'djumped' },
-  { id: 'blade', btn: 'B',  holo: 'tBlade', text: 'КЛИНОК',             at: 0.38, need: 'hitMelee' },
-  { id: 'dash',  btn: 'D',  holo: 'tDash',  text: 'РИВОК — ПІД ЧАС НЬОГО ТИ НЕВРАЗЛИВА', at: 0.50, need: 'dashed' },
-  { id: 'shoot', btn: 'C',  holo: 'tShoot', text: 'ДАЛЬНЯ ЗБРОЯ',       at: 0.62, need: 'shot' },
-  { id: 'heat',  btn: 'C',  holo: 'tHeat',  text: 'ПЕРЕГРІВ: ТАП У ЗЕЛЕНІЙ ЗОНІ СКИДАЄ ТЕПЛО', at: 0.70, need: 'cooled' },
-  { id: 'parry', btn: 'B',  holo: 'tParry', text: 'ПАРИРУВАННЯ: B ЗА МИТЬ ДО КУЛІ', at: 0.80, need: 'parried2' },
-  { id: 'cp',    btn: '',   holo: 'tCp',    text: 'ЧЕКПОІНТ — ТУТ ТИ ВІДРОДИШСЯ',  at: 0.92, need: 'checkpoint' },
-  { id: 'inv',   btn: '',   holo: 'tInv',   text: 'НА ЧЕКПОІНТІ МОЖНА ЗМІНИТИ ЗБРОЮ', at: 0.94, need: 'invSeen' }
+  { id: 'move',  btn: '←→', el: 'dpad',  holo: 'tMove',
+    task: 'Іди вправо',                          need: 'moved' },
+  { id: 'jump',  btn: 'A',  el: 'btnA',  holo: 'tJump',
+    task: 'Стрибни через прірву',                need: 'jumped' },
+  { id: 'blade', btn: 'B',  el: 'btnB',  holo: 'tBlade',
+    task: 'Удар клинком',                        need: 'hitMelee' },
+  { id: 'dash',  btn: 'D',  el: 'btnD',  holo: 'tDash',
+    task: 'Ривок — під час нього ти невразлива',  need: 'dashed' },
+  { id: 'shoot', btn: 'C',  el: 'btnC',  holo: 'tShoot',
+    task: 'Постріл дальньою зброєю',             need: 'shot' },
+  { id: 'heat',  btn: 'C',  el: 'btnC',  holo: 'tHeat',
+    task: 'Перегрів: тапни C у зеленій зоні шкали', need: 'cooled' },
+  { id: 'parry', btn: 'B',  el: 'btnB',  holo: 'tParry', long: 1,
+    task: 'Парирування: тисни B за мить ДО кулі', need: 'parried2' },
+  { id: 'cp',    btn: '',   el: '',      holo: 'tCp',
+    task: 'Стань на чекпоінт',                   need: 'checkpoint' },
+  { id: 'inv',   btn: '',   el: 'btnPause', holo: 'tInv',
+    task: 'Пауза → Арсенал: зміни зброю',        need: 'invSeen' }
 ];
+
+/** Скільки невдалих спроб до появи «Пропустити цей крок». */
+export const SKIP_AFTER = 5;
 
 /** Скільки вдалих парирувань треба, щоб пройти тренування. */
 export const PARRY_NEED = 2;
@@ -70,43 +81,70 @@ export const WEAPON_TIP = {
 export function makeTutorial(api) {
   const st = {
     on: false,          // навчання йде
-    i: 0,               // поточний крок
-    step: null,         // об'єкт кроку
-    shownT: 0,          // скільки підказка вже висить
+    i: 0,               // індекс поточного кроку
+    step: null,         // сам крок
+    t: 0,               // скільки він уже триває
+    tries: 0,           // невдалих спроб на цьому кроці
+    canSkip: 0,         // чи показувати «Пропустити цей крок»
     done: {},           // що вже виконано
-    parryOk: 0, parryMiss: 0, parryGate: 0, parrySkip: 0,
+    parryOk: 0, parryMiss: 0, parrySkip: 0,
+    finished: 0,        // навчання дійшло до кінця
     tipId: null, tipT: 0
   };
 
+  /** Починає крок i: чистить лічильники й готує сцену. */
+  function enter(i) {
+    st.i = i;
+    st.step = STEPS[i] || null;
+    st.t = 0; st.tries = 0; st.canSkip = 0;
+    if (!st.step) { stop(true); return; }
+    // Кожен крок починається з чистого аркуша: ворогів і куль на
+    // ділянці немає взагалі, тож помилка нічого не коштує.
+    api.clearField();
+    if (st.step.id === 'parry') { st.parryOk = 0; st.parryMiss = 0; st.parrySkip = 0; api.startParryDrill(); }
+    api.showStep(st.step, i + 1, STEPS.length);
+  }
+
   function start(fromMenu) {
-    st.on = true; st.i = 0; st.step = null; st.shownT = 0;
-    st.done = {}; st.parryOk = 0; st.parryMiss = 0; st.parryGate = 0; st.parrySkip = 0;
+    st.on = true; st.done = {}; st.finished = 0;
     api.setSeen([]);
     if (fromMenu) api.startLevel(0, false);
+    enter(0);
   }
   function stop(completed) {
     st.on = false; st.step = null;
     api.clearHint();
-    if (completed) api.markDone();
+    api.endParryDrill();
+    if (completed) { st.finished = 1; api.markDone(); api.finish(); }
+  }
+  /** Вихід одним тапом — із будь-якого місця. */
+  function quit() { stop(false); api.quit(); }
+  /** Повторити поточний крок. */
+  function repeat() { if (st.on && st.step) enter(st.i); }
+  /** Пропустити крок. Стає доступним після п'яти невдалих спроб. */
+  function skip() {
+    if (!st.on || !st.step) return;
+    api.seen(st.step.id);
+    if (st.step.id === 'parry') api.endParryDrill();
+    if (st.i + 1 >= STEPS.length) { stop(true); return; }
+    enter(st.i + 1);
   }
 
-  /** Чи виконано умову кроку. Усе — з реального стану гри, без окремих лічильників. */
+  /** Чи виконано умову кроку. */
   function satisfied(need) {
     const g = api.state();
     switch (need) {
-      case 'moved':      return Math.abs(g.px - g.spawnX) > g.tile * 3;
+      case 'moved':      return Math.abs(g.px - g.stepX) > g.tile * 4;
       // Саме НАТИСНУТИЙ стрибок, а не `P.jumps > 0`: лічильник стрибків
-      // стає одиницею й тоді, коли просто зійшла з краю платформи, —
-      // і підказка гасла б, хоча кнопки ніхто не торкався.
+      // стає одиницею й тоді, коли просто зійшла з краю платформи.
       case 'jumped':     return !!st.done.jumped;
-      case 'djumped':    return st.done.djumped;
-      case 'hitMelee':   return st.done.hitMelee;
-      case 'dashed':     return st.done.dashed;
-      case 'shot':       return st.done.shot;
-      case 'cooled':     return st.done.cooled;
+      case 'hitMelee':   return !!st.done.hitMelee;
+      case 'dashed':     return !!st.done.dashed;
+      case 'shot':       return !!st.done.shot;
+      case 'cooled':     return !!st.done.cooled;
       case 'parried2':   return st.parryOk >= PARRY_NEED || st.parrySkip;
       case 'checkpoint': return g.cpTaken;
-      case 'invSeen':    return st.done.invSeen;
+      case 'invSeen':    return !!st.done.invSeen;
     }
     return true;
   }
@@ -115,53 +153,44 @@ export function makeTutorial(api) {
   function note(what) {
     if (!st.on) return;
     if (what === 'parryOk') { st.parryOk++; return; }
-    if (what === 'parryMiss') { st.parryMiss++; return; }
+    if (what === 'parryMiss') { st.parryMiss++; fail(); return; }
     st.done[what] = 1;
+  }
+  /** Невдала спроба: п'ять таких — і з'являється пропуск. */
+  function fail() {
+    if (!st.on || !st.step) return;
+    st.tries++;
+    if (st.tries >= SKIP_AFTER && !st.canSkip) {
+      st.canSkip = 1;
+      api.offerSkip();
+    }
   }
 
   function update(dt) {
     if (st.tipT > 0) { st.tipT -= dt; if (st.tipT <= 0) st.tipId = null; }
-    if (!st.on) return;
+    if (!st.on || !st.step) return;
     const g = api.state();
-    if (g.level !== 0 || g.state !== 'play') return;
+    if (g.state !== 'play') return;
+    st.t += dt;
 
-    // Крок уже виконано — гасимо підказку й беремо наступний.
-    if (st.step && satisfied(st.step.need)) {
+    // Поки крок не виконано — далі не йдемо. Межа видима, а не невидима.
+    if (st.step.id === 'parry') {
+      if (!st.parrySkip && st.parryOk < PARRY_NEED) api.gate(g.stepX + g.tile * 8);
+      else api.gate(0);
+    } else if (st.step.need !== 'moved' && st.step.need !== 'checkpoint') {
+      api.gate(g.stepX + g.tile * 8);
+    } else api.gate(0);
+
+    api.hint(st.step, api.hintPos());
+
+    if (satisfied(st.step.need)) {
       api.seen(st.step.id);
+      api.ding();
       if (st.step.id === 'parry') api.endParryDrill();
-      st.step = null; st.i++;
-      api.clearHint();
-      api.ding();
-      if (st.i >= STEPS.length) { stop(true); return; }
+      api.gate(0);
+      if (st.i + 1 >= STEPS.length) { stop(true); return; }
+      enter(st.i + 1);
     }
-    if (st.step) {
-      st.shownT += dt;
-      api.hint(st.step, api.hintPos());
-      if (st.step.id === 'parry') parryDrill(dt);
-      return;
-    }
-    // Наступний крок вмикається, коли героїня дійшла до його місця.
-    const next = STEPS[st.i];
-    if (!next) { stop(true); return; }
-    if (g.px >= g.tutorSpan * next.at) {
-      st.step = next; st.shownT = 0;
-      api.ding();
-      if (next.id === 'parry') { st.parryGate = g.px + g.tile * 6; api.startParryDrill(); }
-    }
-  }
-
-  /* Тренування парирування. Ворог стріляє ПОВІЛЬНИМИ кулями по колу —
-     ритм читається з першого разу, і можна спробувати ще, не гинучи.
-     Далі не пускаємо, поки не паріювала двічі... але після п'яти
-     невдач відкриваємо прохід самі: навчання не має ставати стіною. */
-  function parryDrill(dt) {
-    const g = api.state();
-    if (st.parryMiss >= PARRY_GIVEUP && !st.parrySkip) {
-      st.parrySkip = 1;
-      api.say('МОЖНА ЙТИ ДАЛІ — ПАРИРУВАННЯ ЧЕКАЄ В ТРЕНУВАЛЬНІЙ КІМНАТІ');
-    }
-    if (!st.parrySkip && st.parryOk < PARRY_NEED) api.gate(st.parryGate);
-    else api.gate(0);
   }
 
   /** Коротка підказка до нової зброї — один раз на зброю. */
@@ -175,10 +204,17 @@ export function makeTutorial(api) {
     st: st,
     start: start,
     stop: stop,
+    quit: quit,
+    repeat: repeat,
+    skip: skip,
+    fail: fail,
     update: update,
     note: note,
     weaponTip: weaponTip,
+    steps: STEPS,
     get tip() { return st.tipId ? WEAPON_TIP[st.tipId] : null; },
-    get active() { return st.on; }
+    get active() { return st.on; },
+    get stepNo() { return st.i + 1; },
+    get total() { return STEPS.length; }
   };
 }

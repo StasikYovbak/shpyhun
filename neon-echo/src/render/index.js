@@ -251,6 +251,7 @@ export const Gfx = {
     drawRings();
     drawWeather(th);
     drawLevelFx(G.world.time);
+    drawRange();
     drawTutor();
     drawDarkness();
     drawLights();
@@ -1749,7 +1750,9 @@ function drawTutor() {
       entAddP.rect(px(), bx - 1, by - 1, bw + 2, Si(15), 0xffd23f, blink * 0.9);
       entAddP.rect(px(), bx, by, bw, Si(13), 0x0b0413, 1);
     }
-    txt('tutTxt', h.step.text, VW / 2, VH - Si(64), 9, 0xbff4ff, 'center');
+    // Текст завдання живе у смузі навчання (DOM), тут лишається сама
+    // анімація дії — інакше одне й те саме речення дублюється двічі.
+    hideTxt('tutTxt');
     if (h.step.btn) txt('tutBtn', h.step.btn, h.x - camX + Si(15) + (h.step.btn.length > 1 ? Si(10) : Si(6)),
                         h.y - camY - Si(12), 9, 0xffd23f, 'center');
     else txt('tutBtn', '', 0, -50, 9, 0xffd23f, 'center');
@@ -1815,6 +1818,75 @@ function drawTutIcon(k, x, y, ph, a) {
   }
 }
 
+/* ================================================================
+   ТРЕНУВАЛЬНА КІМНАТА: вивіски зон, лічильники над манекенами,
+   підписи прірв і стін. Жодних текстових стін — усе пояснюють самі
+   цифри там, де вони стосуються справи.
+   ================================================================ */
+function drawRange() {
+  const R = G.RANGE;
+  if (!R || !R.on) { rangeHideTexts(); return; }
+  const P = G.P, TSz = TS, gy = 13 * TSz;
+  let n = 0;
+  const put = (str, wx, wy, size, col) => {
+    const x = wx - camX, y = wy - camY;
+    if (x < -80 || x > vw + 80) return;
+    txt('rg' + (n++), str, x, y, size || 9, col || 0xbff4ff, 'center');
+  };
+
+  // --- вивіски зон: назва + одне речення ---
+  for (const z of G.RANGE_ZONES) {
+    const cx = (z.x0 + z.x1) / 2 * TSz, top = gy - Si(128);
+    const x = cx - camX;
+    if (x < -260 || x > vw + 260) continue;
+    const w = Si(190);
+    entAddP.rect(px(), x - w / 2, top - Si(4), w, Si(26), 0x22e0ff, 0.10);
+    for (let i = 0; i < 2; i++)
+      entAddP.rect(px(), x - w / 2, top - Si(4) + i * Si(25), w, 1, 0x22e0ff, 0.35);
+    put(z.name, cx, top, 11, 0x22e0ff);
+    put(z.hint, cx, top + Si(12), 8, 0x9a7fb5);
+  }
+
+  // --- лічильники над манекенами зони шкоди ---
+  for (let i = 0; i < G.ENEM.length; i++) {
+    const e = G.ENEM[i];
+    if (e.dummy !== 'target') continue;
+    const st = G.rangeStats(e);
+    const cx = e.x + e.w / 2, top = e.y - Si(34);
+    put(e.label || '', cx, top, 10, 0xffd23f);
+    put('останній ' + st.last.toFixed(0), cx, top + Si(10), 8, 0xbff4ff);
+    put('DPS ' + st.dps.toFixed(1), cx, top + Si(19), 8, 0x7df9ff);
+    put(e.infinite ? 'HP ∞' : (st.ttk > 0 ? 'до вбивства ' + st.ttk.toFixed(1) + ' с' : 'до вбивства —'),
+        cx, top + Si(28), 8, 0x9a7fb5);
+  }
+  // --- серія парирувань над туреллю ---
+  for (let i = 0; i < G.ENEM.length; i++) {
+    const e = G.ENEM[i];
+    if (e.dummy !== 'parry') continue;
+    put('ПАРІЮВАНЬ ПОСПІЛЬ: ' + R.streak, e.x + e.w / 2, e.y - Si(30), 11,
+        R.streak > 0 ? 0xffd23f : 0x9a7fb5);
+    put('найкраще ' + R.bestStreak, e.x + e.w / 2, e.y - Si(18), 8, 0x9a7fb5);
+  }
+
+  // --- підписи прірв і стін: число береться з тієї самої карти ---
+  const map = G.rangeMap();
+  for (const gp of map.marks.gaps) {
+    const cx = (gp.x0 + gp.n / 2) * TSz;
+    put(gp.n + ' ТАЙЛИ', cx, gy - Si(20), 10, 0xff2e88);
+    entAddP.rect(px(), gp.x0 * TSz - camX, gy - camY, gp.n * TSz, 2, 0xff2e88, 0.5);
+  }
+  for (const wl of map.marks.walls) {
+    put(wl.h + 'т', (wl.x + 0.5) * TSz, gy - (wl.h + 1) * TSz - Si(10), 10, 0xffd23f);
+  }
+  for (let i = n; i < 48; i++) hideTxt('rg' + i);
+  rangeTexts = n;
+}
+let rangeTexts = 0;
+function rangeHideTexts() {
+  for (let i = 0; i < 48; i++) hideTxt('rg' + i);
+  rangeTexts = 0;
+}
+
 function drawDarkness() {
   if (!G.world.dark) return;
   const P = G.P;
@@ -1841,6 +1913,9 @@ function drawLights() {
 }
 
 /* -------------------------------------------------------------- HUD */
+/* Лічильник перемикань onGround для діагностики: живе між кадрами. */
+let ogPrev = false, ogFlips = 0;
+
 const FONT = 'Handjet, ui-monospace, monospace';
 function txt(key, str, x, y, size, color, align) {
   let t = hudTexts[key];
@@ -2030,16 +2105,9 @@ function drawHud() {
     hudP.rect(px(), vw / 2 - 78, VH - 40, 156, 16, 0x0b0413, 0.72 * a);
     txt('pick', 'ЗНАЙДЕНО: ' + G.Game.pickupName, vw / 2, VH - 37, 11, COL.yellow, 'center').alpha = a;
   } else hideTxt('pick');
-  txt('sector', 'СЕКТОР ' + (W.idx + 1), vw / 2, 4, 10, 0xc9b8dd, 'center');
+  if (W.idx >= 0) txt('sector', 'СЕКТОР ' + (W.idx + 1), vw / 2, 4, 10, 0xc9b8dd, 'center');
+  else hideTxt('sector');
 
-  // Тренувальна кімната: лічильник шкоди й DPS за останні дві секунди.
-  const R = G.RANGE;
-  if (R && R.on) {
-    hudP.rect(px(), vw / 2 - 62, 34, 124, 22, 0x0b0413, 0.66);
-    txt('rngD', 'ШКОДА ' + Math.round(R.dmg), vw / 2, 36, 11, COL.yellow, 'center');
-    const dps = R.t > 0.2 ? R.dmg / R.t : 0;
-    txt('rngS', 'DPS ' + dps.toFixed(1), vw / 2, 46, 9, 0x7df9ff, 'center');
-  } else { hideTxt('rngD'); hideTxt('rngS'); }
   // Підказка до щойно виданої зброї — один рядок про її механіку.
   const tip = G.Tut && G.Tut.tip;
   if (tip) {
@@ -2198,7 +2266,7 @@ function drawDiag() {
 
   /* --- цифри: кадр, героїня, пули --- */
   if (CH.diag) {
-    hudP.rect(px(), 0, 0, 232, 60, 0x000000, 0.62);   // підкладка: цифри читаються поверх HUD
+    hudP.rect(px(), 0, 0, 248, 82, 0x000000, 0.62);   // підкладка: цифри читаються поверх HUD
     const cnt = { bull: G.BULL.length, enem: G.ENEM.length, part: G.PARTS.length };
     poolPeak.bull = Math.max(poolPeak.bull, cnt.bull);
     poolPeak.enem = Math.max(poolPeak.enem, cnt.enem);
@@ -2208,8 +2276,18 @@ function drawDiag() {
         4, 4, 9, fps < 50 ? 0xff6b3d : 0x3dff9a);
     txt('dg1', 'x ' + P.x.toFixed(1) + '  y ' + P.y.toFixed(1) +
                '   vx ' + P.vx.toFixed(1) + '  vy ' + P.vy.toFixed(1), 4, 15, 9, 0xbff4ff);
-    txt('dg2', 'onGround ' + (P.onGround ? '1' : '0') +
+    /* Лічильник перемикань onGround. Якщо прапорець мерехтить у
+       повітрі, це видно одразу: число росте там, де росло б лише на
+       приземленні. Саме через таке мерехтіння в польоті вмикалось би
+       НАЗЕМНЕ тертя, і стрибок «раптом гальмував». */
+    if (P.onGround !== ogPrev) { ogFlips++; ogPrev = P.onGround; }
+    txt('dg2', 'onGround ' + (P.onGround ? '1' : '0') + '  змін ' + ogFlips +
                '   СТАН ' + (AST_NAME[P.aState] || P.aState) + '   КАДР ' + P.anim, 4, 26, 9, 0xffd23f);
+    txt('dg5', 'coyote ' + P.coyote.toFixed(3) + '  буфер ' + P.jbuf.toFixed(3) +
+               '  стрибків ' + P.jumps + '  ривок ' + Math.max(0, P.dashT).toFixed(2),
+        4, 59, 9, 0x7df9ff);
+    txt('dg6', 'зовнішній імпульс ' + P.evx.toFixed(1) + ' px/с  (' + P.evxT.toFixed(3) + ' с)',
+        4, 70, 9, Math.abs(P.evx) > 1 ? 0xff6b3d : 0x9a7fb5);
     txt('dg3', 'ПУЛИ  кулі ' + cnt.bull + '/' + poolPeak.bull +
                '  вороги ' + cnt.enem + '/' + poolPeak.enem +
                '  частинки ' + cnt.part + '/' + poolPeak.part +
@@ -2219,7 +2297,7 @@ function drawDiag() {
                (G.BOSS.on ? '   БОС ' + G.BOSS.hp.toFixed(0) + '/' + G.BOSS.maxHp +
                             ' ФАЗА ' + G.BOSS.phase + (G.BOSS.rage ? ' ЛЮТЬ' : '') : ''),
         4, 48, 9, 0x22e0ff);
-  } else for (const k of ['dg0', 'dg1', 'dg2', 'dg3', 'dg4']) hideTxt(k);
+  } else for (const k of ['dg0', 'dg1', 'dg2', 'dg3', 'dg4', 'dg5', 'dg6']) hideTxt(k);
 
   /* --- останні помилки з консолі --- */
   if (CH.errs) {

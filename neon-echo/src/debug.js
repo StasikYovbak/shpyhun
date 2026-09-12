@@ -137,7 +137,7 @@ function build() {
 
   /* ---------------- БІЙ ---------------- */
   const c = section('БІЙ');
-  syncers.push(toggle(c, 'Безсмертя', 'invuln'));
+  syncers.push(toggle(c, 'Безсмертя (чит)', 'invuln'));
   syncers.push(choice(c, 'Урон гравця', 'dmgK',
     [['×1', 1], ['×5', 5], ['×20', 20]], () => { CH.oneShot = 0; }));
   syncers.push(toggle(c, 'Вбиває з одного удару', 'oneShot',

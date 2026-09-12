@@ -8,7 +8,7 @@ import { WEAPONS, MELEE_IDS, RANGED_IDS, unlockText } from './weapons.js';
 import { Gfx } from './render/index.js';
 
 const $ = id => document.getElementById(id);
-const SCREENS = ['menu', 'levels', 'settings', 'controls', 'inv', 'reward', 'assist', 'about', 'pause', 'dead', 'clear', 'win', 'tutask'];
+const SCREENS = ['menu', 'levels', 'settings', 'controls', 'inv', 'reward', 'assist', 'about', 'pause', 'dead', 'clear', 'win', 'tutask', 'rangeSet', 'tutdone'];
 export let curScreen = 'menu';
 
 export function showScreen(id) {
@@ -21,6 +21,38 @@ export function showScreen(id) {
   // на скріншоті налаштувань).
   document.body.classList.toggle('menuOpen', id !== null && id !== undefined && id !== 'controls');
   if (id === 'settings') requestAnimationFrame(fadeSync);
+  // Смужки кімнати й навчання видимі, лише поки жоден екран не заважає.
+  const inGame = id === null || id === undefined;
+  const bar = $('rangeBar');
+  if (bar) bar.hidden = !(Game.range && inGame);
+  const tb = $('tutBar');
+  if (tb) tb.hidden = !(Game.tutInfo && Game.tutInfo().on && inGame);
+}
+
+/* ========================================================== НАВЧАННЯ
+   Смуга показує, ЯКИЙ це крок і що саме треба зробити, а потрібна
+   кнопка пульсує на самому інтерфейсі. Читати не треба — видно. */
+function tutPulse(elId) {
+  for (const id of ['dpad', 'btnA', 'btnB', 'btnC', 'btnD', 'btnPause']) {
+    const e = $(id);
+    if (e) e.classList.toggle('tutWant', !!elId && id === elId);
+  }
+}
+export function tutShow(step) {
+  const tb = $('tutBar');
+  if (!step) { if (tb) tb.hidden = true; tutPulse(null); return; }
+  tb.hidden = false;
+  $('tbNo').textContent = 'КРОК ' + step.n + ' З ' + step.total;
+  $('tbTask').textContent = step.task;
+  $('tbSkip').hidden = true;          // з'явиться після п'яти невдач
+  tutPulse(step.el);
+}
+function initTutorialBar() {
+  $('tbRepeat').addEventListener('click', () => { Sfx.ui(); Game.tutRepeat(); });
+  $('tbSkip').addEventListener('click', () => { Sfx.ui(); Game.tutSkip(); });
+  $('tbQuit').addEventListener('click', () => { Sfx.ui(); Game.tutQuit(); });
+  $('tdRange').addEventListener('click', () => { Sfx.ui(); Game.startRange('menu'); });
+  $('tdPlay').addEventListener('click', () => { Sfx.ui(); Game.startLevel(0, false); });
 }
 function updateProgressLabel() {
   $('mProg').textContent = 'ВІДКРИТО СЕКТОРІВ: ' + Store.data.unlocked + ' / ' + LEVELS.length;
@@ -467,7 +499,8 @@ export function initUI() {
   $('sBody').addEventListener('scroll', fadeSync, { passive: true });
   window.addEventListener('resize', () => { if (curScreen === 'settings') fadeSync(); });
   $('sTut').addEventListener('click', () => { Sfx.ui(); Game.startTutorial(); });
-  $('sRange').addEventListener('click', () => { Sfx.ui(); Game.startRange(); });
+  $('sRange').addEventListener('click', () => { Sfx.ui(); Game.startRange(Game.backTo); });
+  $('pRange').addEventListener('click', () => { Sfx.ui(); Game.startRange('pause'); });
   for (const [id, lab, key] of [['sBloom', 'vBloom', 'bloom'], ['sAb', 'vAb', 'ab'], ['sBg', 'vBg', 'bgDim']])
     $(id).addEventListener('input', e => {
       Store.data[key] = +e.target.value || 0;
@@ -486,6 +519,12 @@ export function initUI() {
   $('pInv').addEventListener('click', () => { Sfx.ui(); openInv('pause'); });
   initControlsScreen();
   initInvScreen();
+  initRangeScreen();
+  initTutorialBar();
+  hooks.tutStep = tutShow;
+  hooks.tutSkip = () => { $('tbSkip').hidden = false; };
+  hooks.tutDone = () => { tutShow(null); showScreen('tutdone'); };
+  hooks.tutQuit = () => { tutShow(null); Game.toMenu(); };
   $('sReset').addEventListener('click', () => {
     Sfx.ui(); Store.clear(); buildLevelGrid(); updateProgressLabel();
     $('sReset').textContent = 'Прогрес скинуто';
@@ -496,6 +535,53 @@ export function initUI() {
   setTab('ctl');
   syncSettings();
   syncControls();
+}
+
+/* ================================================ ТРЕНУВАЛЬНА КІМНАТА
+   Панель — окремий екран поверх гри. Усе, що вона міняє, діє одразу й
+   не пишеться в збереження: кімната не має слідів. */
+const SEG = (id, items, cur, fn) => {
+  const box = $(id);
+  if (box.children.length !== items.length) {
+    box.innerHTML = '';
+    for (const it of items) {
+      const b = document.createElement('button');
+      b.setAttribute('data-v', it.v); b.textContent = it.n;
+      box.appendChild(b);
+    }
+    box.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      Sfx.ui(); fn(b.getAttribute('data-v')); syncRange();
+    });
+  }
+  segSet(id, String(cur));
+};
+
+export function syncRange() {
+  const S = Game.rangeInfo();
+  SEG('rgMelee', MELEE_IDS.map(id => ({ v: id, n: WEAPONS[id].name.split(' ')[0] })),
+      Store.data.melee, v => { Store.data.melee = v; refreshEquip(); });
+  SEG('rgRanged', RANGED_IDS.map(id => ({ v: id, n: WEAPONS[id].name.split(' ')[0] })),
+      Store.data.ranged, v => { Store.data.ranged = v; refreshEquip(); });
+  SEG('rgParry', S.speeds.map((p, i) => ({ v: i, n: p.name })), S.parrySpeed,
+      v => Game.rangeSetParry(+v));
+  SEG('rgBoss', [{ v: '', n: 'Нікого' }].concat(S.bosses.map(b => ({ v: b.id, n: b.name.split('-')[0] }))),
+      S.boss || '', v => Game.rangeCallBoss(v || null, S.bossPhase));
+  segSet('rgGod', String(S.god));
+  segSet('rgBox', String(Store.data.dbg));
+  segSet('rgPhase', String(S.bossPhase));
+}
+
+function initRangeScreen() {
+  $('rgPanel').addEventListener('click', () => { Sfx.ui(); syncRange(); showScreen('rangeSet'); });
+  $('rgClose').addEventListener('click', () => { Sfx.ui(); showScreen(null); Game.resumeRange(); });
+  $('rgExit').addEventListener('click', () => { Sfx.ui(); Game.leaveRange(); });
+  $('rgLeave').addEventListener('click', () => { Sfx.ui(); Game.leaveRange(); });
+  $('rgReset').addEventListener('click', () => { Sfx.ui(); Game.rangeReset(); syncRange(); });
+  segBind('rgGod', v => { Game.rangeSetGod(+v); }, syncRange);
+  segBind('rgBox', v => { Store.data.dbg = +v; }, syncRange);
+  segBind('rgPhase', v => { Game.rangeSetPhase(+v); }, syncRange);
 }
 
 /** Складність міняється будь-коли й нічого не блокує. */

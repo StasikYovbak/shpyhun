@@ -249,6 +249,7 @@
     <button class="btn pri" id="pRes">Продовжити</button>
     <button class="btn" id="pRestart">Почати рівень спочатку</button>
     <button class="btn" id="pInv">Арсенал</button>
+    <button class="btn" id="pRange">Тренувальна кімната</button>
     <button class="btn" id="pSet">Налаштування</button>
     <button class="btn" id="pMenu">У головне меню</button>
   </div></div>
@@ -266,6 +267,63 @@
       <button class="btn" id="asNo">Ні, я сам</button>
     </div>
   </div></div>
+
+  <!-- Смуга навчання: крок N з 9, завдання одним реченням і три
+       кнопки — повторити, пропустити (після 5 невдач), вийти. -->
+  <div id="tutBar" hidden>
+    <div class="tbTop">
+      <b id="tbNo">КРОК 1 З 9</b>
+      <span id="tbTask">Іди вправо</span>
+    </div>
+    <div class="tbBtns">
+      <button class="back" id="tbRepeat">Повторити</button>
+      <button class="back" id="tbSkip" hidden>Пропустити цей крок</button>
+      <button class="back" id="tbQuit">Вийти з навчання</button>
+    </div>
+  </div>
+
+  <div class="scr" id="tutdone"><div class="inner">
+    <h2>НАВЧАННЯ ПРОЙДЕНО</h2>
+    <div class="txt" style="text-align:center">
+      <p>Рух, стрибок, клинок, ривок, дальня зброя, перегрів, парирування,
+      чекпоінт і зміна зброї. Решту гра покаже сама.</p>
+    </div>
+    <div class="row2">
+      <button class="btn" id="tdRange">Тренувальна кімната</button>
+      <button class="btn pri" id="tdPlay">Почати гру</button>
+    </div>
+  </div></div>
+
+  <!-- Панель тренувальної кімнати. Лежить поверх гри, а не замість неї:
+       налаштування видно там, де вони діють. -->
+  <div id="rangeBar" hidden>
+    <button class="back" id="rgPanel">&#9776; Панель</button>
+    <button class="back pri" id="rgExit">Вийти</button>
+  </div>
+  <div class="scr sheet" id="rangeSet">
+    <div class="shead">
+      <div class="top">
+        <button class="back" id="rgClose">&#8592; Назад у кімнату</button>
+        <h2>Панель тренувальної кімнати</h2>
+      </div>
+    </div>
+    <div class="sbody">
+      <div class="pane on" data-p="rg">
+        <div class="row wide"><span class="lab">Ближня зброя</span><div class="seg" id="rgMelee"></div></div>
+        <div class="row wide"><span class="lab">Дальня зброя</span><div class="seg" id="rgRanged"></div></div>
+        <div class="row"><span class="lab">Безсмертя</span><div class="seg" id="rgGod">
+          <button data-v="1">Увімк.</button><button data-v="0">Вимк.</button></div></div>
+        <div class="row"><span class="lab">Хітбокси</span><div class="seg" id="rgBox">
+          <button data-v="1">Показати</button><button data-v="0">Сховати</button></div></div>
+        <div class="row wide"><span class="lab">Швидкість куль турелі</span><div class="seg" id="rgParry"></div></div>
+        <div class="row wide"><span class="lab">Викликати боса</span><div class="seg" id="rgBoss"></div></div>
+        <div class="row"><span class="lab">Фаза боса</span><div class="seg" id="rgPhase">
+          <button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button></div></div>
+        <button class="btn" id="rgReset">Скинути зону &#8212; відродити манекени</button>
+        <button class="btn pri wide" id="rgLeave">Вийти з тренувальної кімнати</button>
+      </div>
+    </div>
+  </div>
 
   <div class="scr" id="tutask"><div class="inner">
     <h2>ПЕРШИЙ ЗАПУСК</h2>

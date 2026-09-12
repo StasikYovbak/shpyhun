@@ -16,6 +16,9 @@ import { Cut, script as cutScript } from './cutscene.js';
 import { CH } from './cheats.js';
 import { D as DIFF, setDiff, HARDEST } from './difficulty.js';
 import { makeTutorial, STEPS as TUT_STEPS, PARRY_NEED, PARRY_GIVEUP } from './tutorial.js';
+import { buildRange, ZONES as RANGE_ZONES, TARGETS as RANGE_TARGETS,
+         PARRY_SPEED, GAPS as RANGE_GAPS, WALLS as RANGE_WALLS,
+         RANGE_BOSSES } from './range.js';
 import { WEAPONS, LEVEL_REWARD, FRAG_LEVELS } from './weapons.js';
 
 /** Гачки в бік інтерфейсу — щоб ядро не знало нічого про DOM. */
@@ -23,6 +26,7 @@ export const hooks = {
   showScreen() { }, refreshLevels() { }, refreshProgress() { },
   setClear() { }, setWinStat() { },
   showReward(reward, next) { next(); },
+  tutStep() { }, tutSkip() { }, tutDone() { }, tutQuit() { },
   askAssist() { }
 };
 
@@ -267,8 +271,13 @@ function landOnMP(e, prevBottom) {
 }
 
 /* --- завантаження рівня --- */
+/** Карта тренувальної кімнати: будується один раз і не міняється. */
+let RANGE_MAP = null;
+function rangeMap() { return RANGE_MAP || (RANGE_MAP = buildRange()); }
+
 function loadLevel(idx) {
-  const def = LEVELS[idx];
+  // -1 — тренувальна кімната: та сама машинерія завантаження, інша карта.
+  const def = idx < 0 ? rangeMap() : LEVELS[idx];
   world.idx = idx; world.def = def;
   world.theme = def.th; world.bossType = def.boss;
   const rows = def.rows;
@@ -329,6 +338,22 @@ function loadLevel(idx) {
   // Механіка й секрети вбудовуються в УЖЕ зібраний світ: тайли на
   // місці, список пікапів існує. Інакше прес ставав би посеред стіни,
   // ніша прорізалась би в порожнечу, а нагороду з неї одразу ж затерло б.
+  /* Тренувальна кімната НЕ отримує механіку сектора й секрети. Це не
+     дрібниця: тема карти — «virtual», а її механіка — інверсія
+     гравітації у випадково розставлених зонах. У кімнаті, де міряють
+     довжину стрибка й вчаться парирувати, випадкова інверсія робить
+     те саме вимірювання безглуздим (і саме вона давала розкид у
+     тесті детермінізму). Кімната — стенд, а не сектор. */
+  if (idx < 0) {
+    LFX.on = false; LFX.chal = null;
+    LFX.zones.length = 0; LFX.presses.length = 0; LFX.trains.length = 0;
+    LFX.signs.length = 0; LFX.grav.length = 0; LFX.crumble.length = 0;
+    LFX.vista.length = 0;
+    LFX.wind = 0; LFX.windT = 0; LFX.heat = 0; LFX.fog = 0; LFX.beat = 0;
+    LFX.holo = null; LFX.holoT = 0;
+    world.dark = false; world.grav = 1; world.off = null;
+    return;
+  }
   levelFxInit(def);
   levelSecrets(def, idx);
 }
@@ -766,6 +791,11 @@ const P = {
   atkT: 0, atkIdx: 0, atkAct: false, comboT: 0, hitSet: [], clawSide: 0,
   shootT: 0, shootDur: 0, shootW: '', tpPose: 0,
   parryT: 0, bHold: 0, q: 0, dischT: 0,
+  // Зовнішній імпульс живе ОКРЕМО від власного руху гравця: віддача,
+  // відкидання, вибух, поштовх платформи. Змішувати його з `vx` не
+  // можна — саме через це той самий стрибок то летів на 183 px, то на
+  // 36, залежно від того, що сталося секундою раніше.
+  evx: 0, evxT: 0,
   heat: 0, lock: false, lockT: 0, arA: 0.4, arB: 0.55, arUsed: false, arMark: 0,
   cHold: 0, fireCd: 0, chargeReady: false, recoil: 0,
   anim: 'idle', animT: 0, noise: 0, exiting: 0, spawnFx: 0, worn: false,
@@ -812,8 +842,11 @@ function playerHurt(dmg, srcX, force) {
   // У тренуванні парирування пропущена куля — це невдала спроба.
   // П'ять таких, і прохід відкривається сам.
   Tut.note('parryMiss');
+  if (RANGE.on) RANGE.streak = 0;                  // серія в кімнаті рветься
   P.inv = 1.0 * DIFF.iframe; P.hurtT = 0.3;
-  P.vx = (srcX !== undefined ? sign(P.x + P.w / 2 - srcX) || 1 : -P.face) * S(120);
+  // Відкидання — зовнішній імпульс, а не новий власний рух.
+  P.vx = 0;
+  pushX((srcX !== undefined ? sign(P.x + P.w / 2 - srcX) || 1 : -P.face) * S(120));
   P.vy = -S(150) * world.grav;
   P.onGround = false;
   P.atkT = 0; P.atkAct = false;
@@ -929,6 +962,35 @@ function discharge() {
     }
   }
 }
+/* =============================================== ЗОВНІШНІЙ ІМПУЛЬС
+   Віддача зброї, відкидання від удару, вибух, поштовх від платформи —
+   усе це НЕ власний рух гравця, і змішувати його з `vx` не можна.
+
+   Було саме так, і коштувало це передбачуваності стрибка: постріл
+   дробовика в польоті віднімав від `vx` 427 px/с (удвічі більше за
+   швидкість бігу), і той самий стрибок з тими самими кнопками летів на
+   36 px замість 136. Ривок навпаки лишав по собі 450 px/с, і стрибок
+   летів на 183. Гравець натискає те саме — прірва то береться, то ні.
+
+   Тепер імпульс живе у власному полі, згасає рівно за EXT_T і
+   ДОДАЄТЬСЯ до базової швидкості при русі. Власний рух лишається
+   рівно таким, яким його задає гравець. */
+const EXT_T = 0.25;                  // за скільки згасає зовнішній імпульс
+function extMax() { return PH.RUN * 3; }   // стеля: втричі більше за біг
+
+/** Додати зовнішній імпульс по горизонталі. */
+function pushX(v) {
+  P.evx = clamp(P.evx + v, -extMax(), extMax());
+  P.evxT = EXT_T;
+}
+/** Згасання: лінійне, до нуля рівно за той час, що лишився. */
+function extDecay(dt) {
+  if (P.evxT <= 0) { P.evx = 0; return; }
+  P.evxT -= dt;
+  if (P.evxT <= 0) { P.evxT = 0; P.evx = 0; }
+  else P.evx *= P.evxT / (P.evxT + dt);
+}
+
 /* Парирування: куля летить назад посиленою.
    На максимальному режимі вікно вужче (0,10 с проти 0,15), але відбита
    куля б'є ВТРИЧІ сильніше за штатну — ризик і нагорода ростуть разом,
@@ -940,6 +1002,7 @@ function tryParry(b) {
   b.own = 'p'; b.parried = true;
   b.dmg *= DIFF.parryK; b.col = '#ffd23f';
   parryCount++;
+  if (RANGE.on) { RANGE.streak++; RANGE.bestStreak = Math.max(RANGE.bestStreak, RANGE.streak); }
   Tut.note('parryOk');
   const sp = Math.hypot(b.vx, b.vy) * 1.7 + S(60);
   const ang = Math.atan2(b.vy, b.vx) + Math.PI;
@@ -969,7 +1032,7 @@ function railShoot() {
   if (DEV_MODE && CH.res) P.heat = 0;                   // чит: тепло не росте
   P.fireCd = RG.CD; P.recoil = 0.12; shootAnim(RG.CD);
   P.noise = 0.7;
-  P.vx -= P.face * (P.onGround ? RG.RECOIL * 0.35 : RG.RECOIL);
+  pushX(-P.face * (P.onGround ? RG.RECOIL * 0.35 : RG.RECOIL));
   Sfx.wRail();
   // ударна хвиля повітря по боках ствола
   for (const d of [-1, 1])
@@ -997,7 +1060,7 @@ function railBeam() {
   P.heat = Math.min(130, P.heat + RG.BEAM * (P.heatK || 1));
   if (DEV_MODE && CH.res) P.heat = 0;
   P.fireCd = 0.25; P.recoil = 0.22; P.noise = 1.0; shootAnim(0.25);
-  P.vx -= P.face * S(P.onGround ? 60 : 130);
+  pushX(-P.face * S(P.onGround ? 60 : 130));
   Sfx.wRail(); Sfx.beam(); buzz(22); cam.hit(3.5);
   for (let i = 0; i < 14; i++)
     part(sx + P.face * rnd(0, len), y + rnd(-3, 3), rnd(-30, 30), rnd(-60, 60),
@@ -1740,7 +1803,7 @@ function shotFire() {
   }
   P.fireCd = 0.36; shootAnim(0.36);
   P.noise = 1.0;
-  P.vx -= P.face * S(P.onGround ? 110 : 285);       // віддача: у повітрі — як другий стрибок
+  pushX(-P.face * S(P.onGround ? 110 : 285));        // віддача: у повітрі — як другий стрибок
   if (!P.onGround && P.vy > -S(60)) P.vy -= S(70);
   wfx({ k: 'muzzle', x: P.x + P.w / 2 + P.face * Si(10), y: y, face: P.face, t: 0.40 });
   // гільза, що падає й дзвенить
@@ -1996,6 +2059,14 @@ function updatePlayer(dt) {
     if (!P.onGround && P.coyote > 0) P.coyote -= dt;
   } else {
     P.vy = -(groundJump ? PH.JUMP : PH.JUMP2) * g;
+    /* ОДНЕ ПРАВИЛО ДЛЯ РУХОМИХ ПЛАТФОРМ: швидкість платформи
+       передається стрибку як ЗОВНІШНІЙ ІМПУЛЬС і згасає за 0,25 с.
+       Раніше вона не передавалась узагалі (`ride` просто обнулявся),
+       тож стрибок із платформи, що їде вперед, виходив коротшим за
+       такий самий стрибок зі землі — і це було невидимо гравцю.
+       Імпульс, а не додача до `vx`: інакше він знову змішався б із
+       власним рухом і поїхала б уся передбачуваність. */
+    if (P.ride && P.ride.dx && dt > 0) pushX(P.ride.dx / dt);
     P.onGround = false; P.coyote = 0; P.jbuf = 0; P.jumpHeld = true; P.ride = null;
     P.jumps = groundJump ? 1 : P.jumps + 1;
     Tut.note(groundJump ? 'jumped' : 'djumped');
@@ -2031,6 +2102,14 @@ function updatePlayer(dt) {
     P.dashT -= dt;
     P.vx = P.dashDir * PH.DASHV;
     P.vy = 0;
+    /* Ривок закінчився — швидкість одразу повертається до бігової, без
+       жодного «шлейфа». Раніше надлишок (450 проти 210) лишався в `vx`
+       і повільно стікав, через що стрибок одразу після ривка летів на
+       183 px замість 136 — гравець тиснув те саме, а дальність інша.
+       Тримати цей надлишок хоч у `vx`, хоч у зовнішньому імпульсі
+       означає те саме: стрибок «пам'ятає» ривок. Ривок і так уже
+       переніс героїню на свою відстань — це і є його внесок. */
+    if (P.dashT <= 0) P.vx = clamp(P.vx, -PH.RUN, PH.RUN);
     part(P.x + P.w / 2 - P.dashDir * 4, P.y + rnd(2, 12), -P.dashDir * rnd(20, 70), rnd(-20, 20),
          0.22, '#22e0ff', 2, 0, 1);
   } else {
@@ -2047,8 +2126,13 @@ function updatePlayer(dt) {
     if (P.ride.dx) moveX(P, P.ride.dx);
     if (P.ride.dy) P.y += P.ride.dy;
   }
-  if (moveX(P, P.vx * dt)) {
-    P.vx = 0;
+  // Стеля власної швидкості. Поза ривком гравець не може розігнатись
+  // швидше за біг ЖОДНИМ способом: усе інше — зовнішній імпульс, який
+  // додається окремо й сам згасає.
+  if (P.dashT <= 0) P.vx = clamp(P.vx, -PH.RUN, PH.RUN);
+  extDecay(dt);
+  if (moveX(P, (P.vx + P.evx) * dt)) {
+    P.vx = 0; P.evx = 0; P.evxT = 0;
     // чіпнув стіну в повітрі — повертаємо один повітряний стрибок (щоб не було
     // нескінченного «залізання» по стіні, лише раз за політ)
     if (!P.onGround && !P.wallRestored && P.jumps > 1) {
@@ -2061,6 +2145,20 @@ function updatePlayer(dt) {
   const prevBottom = P.y + P.h;
   const r = moveY(P, P.vy * dt, P.dropT <= 0 && g > 0);
   let grounded = (r === g);
+  /* Пробний зсув на піксель униз, коли вертикальна швидкість НУЛЬОВА.
+     `moveY` за домовленістю миттєво повертає 0 при dy === 0, тобто
+     нічого не перевіряє — а таке буває щоразу під час ривка, де `vy`
+     примусово обнулена й гравітація не працює. Через це героїня, яка
+     несеться ривком ПО ПІДЛОЗІ, усі 11 кадрів вважалась такою, що в
+     повітрі: coyote витікав, лічильник стрибків клацав на одиницю, і
+     стрибок одразу після ривка ставав ПОВІТРЯНИМ (−495 замість −660).
+     Гравець при цьому стоїть на землі й тисне ту саму кнопку.
+     Перевірка справжня: реальна колізія знизу, просто на пробний піксель. */
+  if (!grounded && P.vy === 0 && P.dropT <= 0) {
+    const y0 = P.y;
+    grounded = moveY(P, g * 1, g > 0) === g;
+    P.y = y0;
+  }
   let ride = null;
   if (g > 0 && !grounded && P.vy > 0 && P.dropT <= 0) {
     const m = landOnMP(P, prevBottom);
@@ -2099,6 +2197,18 @@ function updatePlayer(dt) {
 
   // ---- падіння за межі карти ----
   if (P.y > world.ph + Si(24) || P.y < -Si(80)) {
+    /* У тренувальній кімнаті прірва — це вправа, а не смерть. Впав —
+       станеш на найближчий твердий край ЗЛІВА від прірви й пробуєш
+       ще раз. Відкидати за це на початок кімнати означало б зробити
+       зону платформінгу непридатною саме для того, для чого вона є. */
+    if (RANGE.on) {
+      const gy = 13 * TS;
+      let tx = Math.floor((P.x + P.w / 2) / TS);
+      while (tx > 2 && tAt(tx, 13) !== T_SOLID) tx--;
+      P.x = tx * TS + (TS - P.w) / 2; P.y = gy - P.h;
+      P.vx = 0; P.vy = 0; P.evx = 0; P.evxT = 0; P.onGround = true;
+      return;
+    }
     if (!GOD && !(DEV_MODE && CH.invuln)) P.hp -= 1;
     if (P.hp <= 0) { P.hp = 0; P.x = world.cp.x; P.y = world.cp.y; playerDie(); }
     else {
@@ -2483,8 +2593,8 @@ function damageEnemy(e, dmg, kb, opt) {
   // гине навіть від найсильнішого удару, інакше тренування закінчується
   // після першого ж пострілу з дробовика.
   if (e.dummy) {
-    rangeHit(dmg);
     if (e.dummy === 'target') {
+      rangeHit(e, dmg);
       e.hp = Math.max(1, e.hp - dmg); e.flash = 0.12;
       Sfx.hitEnemy();
       burst(e.x + e.w / 2, e.y + e.h / 2, 4, '#ffd23f', 110, 0.25, 60, 1);
@@ -2509,7 +2619,7 @@ function damageEnemy(e, dmg, kb, opt) {
     e.guard++; e.guardT = 1.2; e.parryCd = 0.5;
     Sfx.blocked();
     burst(e.x + e.w / 2, e.y + 6, 6, '#22e0ff', 110, 0.25, 0, 1);
-    P.vx = -P.face * S(90);
+    pushX(-P.face * S(90));                          // відскок від парирування адепта
     if (e.guard >= 3) { e.stagger = 1.4; e.guard = 0; e.st = 'stagger'; e.tm = 1.4; }
     return false;
   }
@@ -4503,7 +4613,7 @@ function glitchShockwave(d) {
   const dist = Math.hypot(dx, dy);
   if (dist < S(110)) {
     const k = 1 - dist / S(110);
-    P.vx += sign(dx || 1) * S(250) * k;
+    pushX(sign(dx || 1) * S(250) * k);
       P.vy -= S(150) * k * world.grav;
     P.onGround = false; P.ride = null;
   }
@@ -4817,19 +4927,18 @@ function updateWeather(dt) {
    Драйвер живе в tutorial.js і нічого не знає про цей файл; сюди
    приходить лише набір дрібних функцій, якими він читає стан і малює
    підказку. Так навчання перевіряється тестом без запуску всієї гри. */
-const TUTFX = { hint: null, gate: 0, say: '', sayT: 0, drill: null };
+const TUTFX = { hint: null, gate: 0, say: '', sayT: 0, drill: null,
+                step: null, stepX: 0, canSkip: 0 };
 export const Tut = makeTutorial({
   state() {
     return {
-      px: P.x, spawnX: world.spawn.x, tile: TS, jumps: P.jumps,
-      cpTaken: Game.cpTaken, level: Game.level, state: Game.state,
-      // Навчання живе в перших трьох екранах сектора, далі не лізе.
-      tutorSpan: Math.min(world.pw - TS * 4, VW * 3)
+      px: P.x, stepX: TUTFX.stepX, tile: TS,
+      cpTaken: Game.cpTaken, level: Game.level, state: Game.state
     };
   },
   hint(step, pos) { TUTFX.hint = { step: step, x: pos.x, y: pos.y }; },
-  clearHint() { TUTFX.hint = null; },
-  hintPos() { return { x: P.x + P.w / 2, y: P.y - Si(30) }; },
+  clearHint() { TUTFX.hint = null; TUTFX.step = null; TUTFX.gate = 0; },
+  hintPos() { return { x: P.x + P.w / 2, y: P.y - Si(34) }; },
   gate(x) { TUTFX.gate = x || 0; },
   say(t) { TUTFX.say = t; TUTFX.sayT = 4.0; },
   ding() { Sfx.pickup(); },
@@ -4840,6 +4949,28 @@ export const Tut = makeTutorial({
   setSeen(a) { Store.data.tutSeen = a; Store.save(); },
   markDone() { Store.data.tutDone = 1; Store.save(); },
   startLevel(i, cp) { Game.startLevel(i, cp); },
+
+  /* Крок починається з чистого аркуша: ні ворогів, ні куль, ні
+     шкоди. Помилка на кроці не має коштувати нічого — інакше гравець
+     вчиться боятись, а не грати. */
+  clearField() {
+    ENEM.length = 0; BULL.length = 0; ZONES.length = 0; TELE.length = 0; PENDING.length = 0;
+    LFX.on = false; LFX.chal = null;
+    setGod(true);
+    TUTFX.stepX = P.x;
+  },
+  /** Новий крок: рядок завдання, лічильник і підсвічена кнопка. */
+  showStep(step, n, total) {
+    TUTFX.step = { id: step.id, task: step.task, btn: step.btn, el: step.el, n: n, total: total };
+    TUTFX.canSkip = 0;
+    if (hooks.tutStep) hooks.tutStep(TUTFX.step);
+  },
+  offerSkip() { TUTFX.canSkip = 1; if (hooks.tutSkip) hooks.tutSkip(); },
+  /** Навчання дійшло до кінця — пропонуємо, куди далі. */
+  finish() { setGod(false); if (hooks.tutDone) hooks.tutDone(); },
+  /** Вихід одним тапом. */
+  quit() { setGod(false); TUTFX.step = null; TUTFX.gate = 0; if (hooks.tutQuit) hooks.tutQuit(); },
+
   startParryDrill() { spawnParryDummy(); },
   endParryDrill() {
     if (TUTFX.drill) { TUTFX.drill.dead = true; TUTFX.drill = null; }
@@ -4852,56 +4983,131 @@ export const Tut = makeTutorial({
    на ньому — чотири манекени з різним HP і один стрілець. Уся зброя
    тимчасово розблокована: сенс кімнати саме в тому, щоб порівняти.
    Прогрес не чіпається — `owned` підміняється лише в пам'яті. */
-const RANGE = { on: false, dmg: 0, t: 0, last: 0, owned: null, melee: null, ranged: null };
-const RANGE_HP = [50, 150, 400, 1200];
+/* ---------------------------------------------- ТРЕНУВАЛЬНА КІМНАТА
+   Чотири зони на одній карті, між якими просто йдеш. Над кожною висить
+   вивіска з одним реченням — жодних текстових стін.
 
-function rangeEnter() {
-  Game.startLevel(0, false);
-  RANGE.on = true; RANGE.dmg = 0; RANGE.t = 0; RANGE.last = 0;
-  // Зброя: підміняємо СПИСОК у пам'яті, у сховище нічого не пишемо.
-  RANGE.owned = Store.data.owned.slice();
-  RANGE.melee = Store.data.melee; RANGE.ranged = Store.data.ranged;
-  Store.data.owned = Object.keys(WEAPONS);
-  refreshEquip();
-  clearEntities();
-  LFX.on = false; LFX.chal = null;
-  const gy = 12 * TS;
-  const x0 = world.spawn.x + Si(70);
-  for (let i = 0; i < RANGE_HP.length; i++) {
-    const e = spawnEnemy('thug', x0 + i * Si(54), gy - Si(34), false);
-    if (!e) continue;
-    e.dummy = 'target'; e.hp = e.maxHp = RANGE_HP[i]; e.sp = 0;
+   Кімната НЕ чіпає прогрес: `owned` підміняється тільки в пам'яті,
+   збереження не пишеться, а вихід повертає рівно той екран, з якого
+   зайшли (меню або пауза). */
+const RANGE = {
+  on: false, back: 'menu',
+  owned: null, melee: null, ranged: null,     // що повернути на виході
+  god: 1,                                     // безсмертя, за замовчуванням увімкнене
+  parrySpeed: 1,                              // індекс у PARRY_SPEED
+  streak: 0, bestStreak: 0,                   // паріювань поспіль
+  boss: null, bossPhase: 1,                   // викликаний бос
+  zone: null                                  // у якій зоні зараз героїня
+};
+
+function rangeEnter(back) {
+  RANGE.back = back || 'menu';
+  if (Game.level >= 0) Game.lastLevel = Game.level;   // куди повернутись із паузи
+  // Арсенал запам'ятовуємо ДО підміни, щоб вихід повернув саме його.
+  if (!RANGE.on) {
+    RANGE.owned = Store.data.owned.slice();
+    RANGE.melee = Store.data.melee; RANGE.ranged = Store.data.ranged;
   }
-  const sh = spawnEnemy('turret', x0 + Si(4 * 54), gy - Si(22), false);
-  if (sh) { sh.dummy = 'parry'; sh.hp = sh.maxHp = 9999; sh.tm = 0.9; sh.ang = 0; }
-  P.x = world.spawn.x; P.y = gy - P.h;
-  Game.pickupName = 'ТРЕНУВАЛЬНА КІМНАТА'; Game.pickupT = 3.0;
+  RANGE.on = true;
+  RANGE.streak = 0; RANGE.bestStreak = 0;
+  RANGE.boss = null; RANGE.bossPhase = 1;
+  Store.data.owned = Object.keys(WEAPONS);     // уся зброя — тільки в пам'яті
+  Game.range = true;
+  Game.startLevel(-1, false);                  // -1 = карта кімнати
 }
-/** Вихід із кімнати повертає справжній арсенал. */
+
+/** Вихід повертає і арсенал, і екран, з якого зайшли. */
 function rangeLeave() {
   if (!RANGE.on) return;
   RANGE.on = false;
-  if (RANGE.owned) { Store.data.owned = RANGE.owned; Store.data.melee = RANGE.melee; Store.data.ranged = RANGE.ranged; }
+  Game.range = false;
+  if (RANGE.owned) {
+    Store.data.owned = RANGE.owned;
+    Store.data.melee = RANGE.melee; Store.data.ranged = RANGE.ranged;
+  }
   RANGE.owned = null;
+  RANGE.boss = null;
+  bossReset();
   refreshEquip();
 }
-/** Лічильник шкоди: сума за останні 2 с, щоб було видно саме темп. */
-function rangeHit(dmg) {
-  if (!RANGE.on) return;
-  RANGE.dmg += dmg; RANGE.last = 2.0;
+
+/** Розставляє манекени й турель у своїх зонах. */
+function rangeSetup() {
+  clearEntities();
+  const gy = 13 * TS;
+  const zDmg = RANGE_ZONES[0], zPar = RANGE_ZONES[1];
+  for (const t of RANGE_TARGETS) {
+    const e = spawnEnemy('thug', (zDmg.x0 + t.at) * TS, gy - Si(34), false);
+    if (!e) continue;
+    e.dummy = 'target'; e.sp = 0;
+    e.maxHp = t.hp || 1e9; e.hp = e.maxHp;
+    e.infinite = t.hp === 0; e.label = t.label;
+    e.dmgLast = 0; e.dmgWin = []; e.dmgT = 0;
+  }
+  const tur = spawnEnemy('turret', (zPar.x0 + 12) * TS, gy - Si(22), false);
+  if (tur) { tur.dummy = 'parry'; tur.hp = tur.maxHp = 1e9; tur.tm = 0.8; tur.ang = 0; }
+  P.x = (zDmg.x0 + 1) * TS; P.y = gy - P.h;
+  P.vx = 0; P.vy = 0; P.evx = 0; P.evxT = 0; P.hp = P.maxHp;
+  setGod(!!RANGE.god);
 }
+
+/** Урон по манекену: остання шкода + вікно 10 с для DPS. */
+function rangeHit(e, dmg) {
+  if (!RANGE.on || !e || e.dummy !== 'target') return;
+  e.dmgLast = dmg;
+  e.dmgWin.push({ t: world.time, d: dmg });
+  e.dmgT = 1.2;
+}
+/** DPS манекена за останні 10 с і прогноз часу до вбивства. */
+export function rangeStats(e) {
+  if (!e || !e.dmgWin) return { last: 0, dps: 0, ttk: 0 };
+  const t0 = world.time - 10;
+  while (e.dmgWin.length && e.dmgWin[0].t < t0) e.dmgWin.shift();
+  const sum = e.dmgWin.reduce((a, x) => a + x.d, 0);
+  const span = e.dmgWin.length ? Math.max(1, world.time - e.dmgWin[0].t) : 1;
+  const dps = e.dmgWin.length > 1 ? sum / span : 0;
+  return { last: e.dmgLast || 0, dps: dps, ttk: dps > 0 ? e.maxHp / dps : 0 };
+}
+
 function rangeUpdate(dt) {
   if (!RANGE.on) return;
-  RANGE.t += dt;
-  if (RANGE.last > 0) { RANGE.last -= dt; if (RANGE.last <= 0) { RANGE.dmg = 0; RANGE.t = 0; } }
-  // HP манекена повертається через секунду без влучань: смужка показує
-  // урон за підхід, а не суму за весь час у кімнаті.
+  // у якій зоні героїня — для вивіски
+  const tx = (P.x + P.w / 2) / TS;
+  RANGE.zone = null;
+  for (const z of RANGE_ZONES) if (tx >= z.x0 && tx <= z.x1) { RANGE.zone = z; break; }
+
   for (let i = 0; i < ENEM.length; i++) {
     const e = ENEM[i];
     if (e.dummy !== 'target') continue;
-    e.back = (e.back || 0) - dt;
-    if (e.back <= 0 && e.hp < e.maxHp) { e.hp = e.maxHp; e.back = 1.0; }
-    if (e.flash > 0) e.back = 1.0;
+    if (e.dmgT > 0) e.dmgT -= dt;
+    // Скінченний манекен, доведений до нуля, встає знову через секунду:
+    // тренування не має закінчуватись від одного вдалого пострілу.
+    if (!e.infinite && e.hp <= 1 && e.dmgT <= 0) { e.hp = e.maxHp; e.flash = 0.3; }
+    if (e.infinite) e.hp = e.maxHp;
+  }
+}
+
+/* --- панель керування кімнати --- */
+export function rangeSetGod(on) { RANGE.god = on ? 1 : 0; setGod(!!RANGE.god); }
+export function rangeSetParry(i) {
+  RANGE.parrySpeed = clamp(i | 0, 0, PARRY_SPEED.length - 1);
+  RANGE.streak = 0;
+}
+export function rangeReset() { rangeSetup(); RANGE.streak = 0; }
+/** Викликати боса в четвертій зоні. Він показує патерни, але не вбиває. */
+export function rangeCallBoss(id, phase) {
+  if (!RANGE.on) return;
+  bossReset();
+  if (!id) { RANGE.boss = null; return; }
+  RANGE.boss = id; RANGE.bossPhase = clamp(phase | 0, 1, 3);
+  const z = RANGE_ZONES[3];
+  P.x = (z.x0 + 2) * TS; P.y = 13 * TS - P.h; P.vx = 0; P.vy = 0;
+  world.bossType = id;
+  startBoss(id, (z.x0 + 1) * TS, (z.x1 - 1) * TS);
+  BOSS.intro = 0.2; BOSS.nameT = 2.0;
+  for (let i = 1; i < RANGE.bossPhase; i++) {
+    BOSS.hp = BOSS.maxHp * (i === 1 ? 0.55 : 0.25);
+    bossCheckPhase();
   }
 }
 export function rangeState() { return RANGE; }
@@ -4924,18 +5130,20 @@ function dummyUpdate(e, dt) {
   if (!ETYPE[e.t].fly) groundPhys(e, dt);
   if (e.dummy === 'parry') parryDummyUpdate(e, dt);
 }
-/** Оновлення тренувального ворога: коло повільних куль. */
+/** Оновлення тренувального ворога: коло куль із заданою швидкістю. */
 function parryDummyUpdate(e, dt) {
+  // У кімнаті швидкість задає повзунок, у навчанні — завжди «повільно».
+  const sp = RANGE.on ? PARRY_SPEED[RANGE.parrySpeed] : PARRY_SPEED[0];
   e.tm -= dt;
   if (e.tm > 0) return;
-  e.tm = 1.15;
+  e.tm = sp.cd;
   e.ang = (e.ang || 0) + 0.7;
   const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
   for (let i = 0; i < 4; i++) {
     const a = e.ang + i * Math.PI / 2;
     // Позначка ставиться на вже створеній кулі: shoot() свідомо копіює
     // лише відомі йому поля, щоб у кулях не заводилось випадкового сміття.
-    const b = shoot(cx, cy, Math.cos(a) * S(52), Math.sin(a) * S(52),
+    const b = shoot(cx, cy, Math.cos(a) * S(sp.v), Math.sin(a) * S(sp.v),
                     { own: 'e', dmg: 1, col: '#ff6b3d', w: 7, h: 7, life: 4.5 });
     b.drill = 1;
   }
@@ -4946,6 +5154,7 @@ const Game = {
   state: 'menu', level: 0, introT: 0, cpTaken: false, cpIndex: 0, backTo: 'menu',
   pickupName: '', pickupT: 0, assembleT: 0, reward: null,
   assist: false, assistAsked: false, bossDeaths: 0, bossDeathLvl: -1, diedAtBoss: -1, cutT: false,
+  range: false,
   combat: false,
 
   /* Навчання: з меню — окремим пунктом, з першого запуску — питанням.
@@ -4953,17 +5162,54 @@ const Game = {
      пройти навчання й пройти перший сектор — одна й та сама дія. */
   startTutorial() {
     this.range = false;
+    rangeLeave();
     Tut.start(true);
+  },
+  tutQuit() { Tut.quit(); },
+  tutRepeat() { Tut.repeat(); },
+  tutSkip() { Tut.skip(); },
+  tutInfo() {
+    return { on: Tut.active, step: TUTFX.step, canSkip: TUTFX.canSkip,
+             no: Tut.stepNo, total: Tut.total };
   },
 
   /* Тренувальна кімната: доступна завжди, ні на що не впливає.
      Манекени з різним HP, манекен-стрілець для парирування, уся зброя
      розблокована на час тренування, лічильник шкоди на екрані. */
-  startRange() {
-    this.range = true;
+  startRange(back) {
     Tut.stop(false);
-    rangeEnter();
+    rangeEnter(back || 'menu');
   },
+  /** Вихід із кімнати рівно туди, звідки зайшли: меню або пауза. */
+  leaveRange() {
+    const back = RANGE.back;
+    rangeLeave();
+    if (back === 'pause' && this.level >= 0) {
+      // Поверталися з паузи — повертаємо і сектор, і саму паузу.
+      this.startLevel(this.lastLevel === undefined ? 0 : this.lastLevel, true);
+      this.pause();
+      return;
+    }
+    this.toMenu();
+  },
+  /** Повернення з панелі в саму кімнату. */
+  resumeRange() {
+    if (!RANGE.on) return;
+    this.state = 'play';
+    Input.enable(true); Input.clearEdges();
+  },
+  /** Усе, що потрібно панелі, одним об'єктом. */
+  rangeInfo() {
+    return { god: RANGE.god, parrySpeed: RANGE.parrySpeed, boss: RANGE.boss,
+             bossPhase: RANGE.bossPhase, speeds: PARRY_SPEED, bosses: RANGE_BOSSES,
+             zone: RANGE.zone, streak: RANGE.streak, best: RANGE.bestStreak };
+  },
+  rangeSetGod(v) { rangeSetGod(v); },
+  rangeSetParry(i) { rangeSetParry(i); },
+  rangeReset() { rangeReset(); },
+  rangeCallBoss(id, phase) { rangeCallBoss(id, phase); },
+  rangeSetPhase(p) { RANGE.bossPhase = clamp(p | 0, 1, 3); if (RANGE.boss) rangeCallBoss(RANGE.boss, p); },
+  rangeState() { return RANGE; },
 
   /** Складність міняється будь-коли; наступний кадр уже рахується по ній. */
   applyDifficulty() {
@@ -4972,12 +5218,16 @@ const Game = {
   },
 
   startLevel(idx, useCp) {
-    rangeLeave();                                 // звичайний старт гасить кімнату
-    const lvl = clamp(idx, 0, LEVELS.length - 1);
+    // Вхід у кімнату йде цим самим шляхом, але з idx = -1: та сама
+    // машинерія завантаження, інша карта й без нагород та катсцен.
+    const room = idx < 0;
+    if (!room) rangeLeave();                      // звичайний старт гасить кімнату
+    const lvl = room ? -1 : clamp(idx, 0, LEVELS.length - 1);
     // разова допомога живе лише в межах одного сектора
     if (lvl !== this.level) { this.assist = false; this.assistAsked = false; this.bossDeaths = 0; }
     this.level = lvl;
     if (!useCp) { this.cpTaken = false; this.cpIndex = 0; }
+    if (room) { this.assist = false; this.assistAsked = false; }
     clearEntities();
     bossReset();
     ZONES.length = 0; PENDING.length = 0; GHOSTS.length = 0; TRAIL.length = 0;
@@ -5012,7 +5262,13 @@ const Game = {
     hooks.showScreen(null);
     Input.enable(true);
     Input.clearEdges();
-    playCut('lvl', () => { });
+    if (room) {
+      rangeSetup();
+      // У кімнаті немає заставки з назвою сектора: вона накриває саме
+      // ті вивіски зон, заради яких кімната й зроблена.
+      this.introT = 0; Game.pickupName = ''; Game.pickupT = 0;
+    }
+    else playCut('lvl', () => { });
   },
   levelClear() {
     this.state = 'clear';
@@ -5180,6 +5436,7 @@ export const timing = {
 export function setGod(v) { GOD = !!v; }
 export {
   cam, world, P, BOSS, Game, LFX, TUTFX, RANGE, DIFF,
+  RANGE_ZONES, RANGE_GAPS, RANGE_WALLS, RANGE_BOSSES, PARRY_SPEED, rangeMap, pushX,
   PARTS, RINGS, ZONES, TELE, BEAMS, GHOSTS, PICKS, PENDING, BULL, ENEM, TRAIL, WEATHER, WFX,
   ETYPE, LEVELS, WEAPONS, WHIP,
   stepGame, updateMovingPlatforms, Cut, playCut,

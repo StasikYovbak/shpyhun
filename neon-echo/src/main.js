@@ -173,6 +173,10 @@ async function boot() {
     // складність, навчання й тренувальна кімната — для автотестів
     DIFF: G.DIFF, Tut: G.Tut, TUTFX: G.TUTFX, RANGE: G.RANGE,
     diff: v => { Store.data.diff = v; Store.save(); return G.Game.applyDifficulty(); },
+    RANGE_ZONES: G.RANGE_ZONES, RANGE_GAPS: G.RANGE_GAPS, RANGE_WALLS: G.RANGE_WALLS,
+    rangeStats: G.rangeStats, rangeCallBoss: G.rangeCallBoss, rangeSetGod: G.rangeSetGod,
+    rangeSetParry: G.rangeSetParry, rangeReset: G.rangeReset, rangeState: G.rangeState,
+    rangeMap: G.rangeMap, pushX: G.pushX, playerHurt: G.playerHurt, T_CONVR: G.T_CONVR,
     twin: G.twin, parries: G.parries,
     levels: () => G.LEVELS.length,
     god: v => G.setGod(v),
