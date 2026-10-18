@@ -142,7 +142,7 @@
             android:layout_marginTop="8dp"
             android:hint="Ключ Claude API (sk-ant-…)"
             app:endIconMode="password_toggle"
-            app:helperText="platform.claude.com → Settings → API keys → Create key. Зберігається зашифрованим."
+            app:helperText="Зберігається зашифрованим лише на цьому телефоні."
             app:helperTextEnabled="true">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -152,6 +152,43 @@
                 android:fontFamily="monospace"
                 android:inputType="textPassword" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnGetClaude"
+                style="@style/Jarvis.Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="Отримати ключ" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPasteClaude"
+                style="@style/Jarvis.Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Вставити" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTestClaude"
+            style="@style/Jarvis.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Перевірити ключ Claude" />
+
+        <TextView
+            android:id="@+id/claudeResult"
+            style="@style/Jarvis.Hint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
 
         <com.google.android.material.textfield.TextInputLayout
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
@@ -192,20 +229,6 @@
             android:text="Виправляти назви пісень через Claude («білівер» → «Believer»)"
             android:textColor="@color/jarvis_text" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnTestClaude"
-            style="@style/Jarvis.Button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Перевірити ключ Claude" />
-
-        <TextView
-            android:id="@+id/claudeResult"
-            style="@style/Jarvis.Hint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:visibility="gone" />
-
         <!-- ============================== YOUTUBE -->
         <TextView
             style="@style/Jarvis.Section"
@@ -219,7 +242,7 @@
             android:layout_height="wrap_content"
             android:hint="Ключ YouTube Data API v3 (AIza…)"
             app:endIconMode="password_toggle"
-            app:helperText="console.cloud.google.com → APIs &amp; Services → Credentials → Create credentials → API key"
+            app:helperText="Безкоштовно, до ~100 пісень на добу. Зберігається зашифрованим."
             app:helperTextEnabled="true">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -229,6 +252,29 @@
                 android:fontFamily="monospace"
                 android:inputType="textPassword" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnGetYoutube"
+                style="@style/Jarvis.Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="Отримати ключ" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPasteYoutube"
+                style="@style/Jarvis.Button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Вставити" />
+        </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnTestYoutube"
