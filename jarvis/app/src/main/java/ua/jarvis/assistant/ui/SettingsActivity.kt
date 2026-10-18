@@ -7,17 +7,22 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.launch
+import ua.jarvis.assistant.R
 import ua.jarvis.assistant.actions.YouTubeApi
 import ua.jarvis.assistant.core.ApiKeys
 import ua.jarvis.assistant.core.Prefs
@@ -100,40 +105,41 @@ class SettingsActivity : AppCompatActivity() {
         b.btnTestYoutube.setOnClickListener { testYouTube() }
 
         b.btnGetClaude.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Ключ Claude API")
-                .setMessage(
-                    "1. Увійдіть або зареєструйтеся на platform.claude.com.\n\n" +
-                        "2. Поповніть рахунок: Settings → Billing → Buy credits. Без коштів ключ не працює.\n\n" +
-                        "3. Settings → API keys → Create key → назва «Jarvis» → скопіюйте ключ (sk-ant-…). " +
-                        "Його показують лише один раз.\n\n" +
-                        "4. Поверніться сюди й натисніть «Вставити».",
-                )
-                .setPositiveButton("Створити ключ") { _, _ -> openUrl(ApiKeys.CLAUDE_KEYS_URL) }
-                .setNeutralButton("Поповнити рахунок") { _, _ -> openUrl(ApiKeys.CLAUDE_BILLING_URL) }
-                .setNegativeButton("Закрити", null)
-                .show()
+            showKeyGuide(
+                "Ключ Claude API",
+                "Сайт англійською, тож назви кнопок подано так, як на ньому.\n\n" +
+                    "1. «Поповнити рахунок»: увійдіть або зареєструйтеся, далі Buy credits. Без коштів ключ не працює.\n\n" +
+                    "2. «Створити ключ»: Create key → назва «Jarvis» → скопіюйте ключ (sk-ant-…). " +
+                    "Його показують лише один раз.\n\n" +
+                    "3. Поверніться в Джарвіс і натисніть «Вставити».\n\n" +
+                    "Якщо це вікно зникло, коли ви поверталися, знову натисніть «Отримати ключ».",
+                listOf(
+                    "1. Поповнити рахунок" to ApiKeys.CLAUDE_BILLING_URL,
+                    "2. Створити ключ" to ApiKeys.CLAUDE_KEYS_URL,
+                ),
+            )
         }
         b.btnGetYoutube.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Ключ YouTube Data API v3")
-                .setMessage(
-                    "1. Натисніть «1. Увімкнути API», увійдіть у Google. Якщо попросить проєкт — створіть " +
-                        "(вгорі: вибір проєкту → New Project → Create). Натисніть Enable.\n\n" +
-                        "2. Поверніться сюди й натисніть «2. Створити ключ»: + Create credentials → API key → " +
-                        "скопіюйте ключ (AIza…).\n\n" +
-                        "3. Поверніться сюди й натисніть «Вставити».\n\nЦе безкоштовно: до ~100 пісень на добу.",
-                )
-                .setNeutralButton("1. Увімкнути API") { _, _ -> openUrl(ApiKeys.YOUTUBE_ENABLE_URL) }
-                .setPositiveButton("2. Створити ключ") { _, _ -> openUrl(ApiKeys.YOUTUBE_CREDENTIALS_URL) }
-                .setNegativeButton("Закрити", null)
-                .show()
+            showKeyGuide(
+                "Ключ YouTube Data API v3",
+                "Це безкоштовно: до ~100 пісень на добу.\n\n" +
+                    "1. «Увімкнути API»: увійдіть у Google. Якщо сайт попросить вибрати проєкт, створіть новий: " +
+                    "«Новий проект» (New Project) → «Створити» (Create). Потім натисніть «Увімкнути» (Enable).\n\n" +
+                    "2. «Створити ключ»: «+ Створити облікові дані» (Create credentials) → «Ключ API» (API key) → " +
+                    "скопіюйте ключ (AIza…).\n\n" +
+                    "3. Поверніться в Джарвіс і натисніть «Вставити».\n\n" +
+                    "Якщо це вікно зникло, коли ви поверталися, знову натисніть «Отримати ключ».",
+                listOf(
+                    "1. Увімкнути API" to ApiKeys.YOUTUBE_ENABLE_URL,
+                    "2. Створити ключ" to ApiKeys.YOUTUBE_CREDENTIALS_URL,
+                ),
+            )
         }
         b.btnPasteClaude.setOnClickListener {
-            pasteKey(b.claudeKey, b.claudeResult, ApiKeys::extractClaude, "Claude", "sk-ant-") { testClaude() }
+            pasteKey(b.claudeKey, b.claudeResult, ApiKeys::extractClaude, "Claude", "sk-ant-", ::testClaude)
         }
         b.btnPasteYoutube.setOnClickListener {
-            pasteKey(b.youtubeKey, b.youtubeResult, ApiKeys::extractYouTube, "YouTube", "AIza") { testYouTube() }
+            pasteKey(b.youtubeKey, b.youtubeResult, ApiKeys::extractYouTube, "YouTube", "AIza", ::testYouTube)
         }
         b.btnPreview.setOnClickListener {
             save()
@@ -168,23 +174,23 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun testClaude() {
+    private fun testClaude(prefix: String = "") {
         save()
         b.claudeResult.visibility = View.VISIBLE
-        b.claudeResult.text = "Перевіряю…"
+        b.claudeResult.text = prefix + "Перевіряю…"
         lifecycleScope.launch {
             val agent = ClaudeAgent(prefs)
-            b.claudeResult.text = agent.testKey()
+            b.claudeResult.text = prefix + agent.testKey()
             agent.close()
         }
     }
 
-    private fun testYouTube() {
+    private fun testYouTube(prefix: String = "") {
         save()
         b.youtubeResult.visibility = View.VISIBLE
-        b.youtubeResult.text = "Перевіряю…"
+        b.youtubeResult.text = prefix + "Перевіряю…"
         lifecycleScope.launch {
-            b.youtubeResult.text = try {
+            b.youtubeResult.text = prefix + try {
                 val v = YouTubeApi().searchFirst("Щедрик", prefs.youtubeKey)
                 "Ключ працює ✓ Знайдено: ${v.title}"
             } catch (e: Exception) {
@@ -195,32 +201,68 @@ class SettingsActivity : AppCompatActivity() {
 
     /**
      * Вставляє ключ із буфера обміну. Шукаємо сам ключ усередині скопійованого тексту,
-     * а після вставлення очищаємо буфер, щоб ключ не прочитала інша програма.
+     * зберігаємо, очищаємо системний буфер обміну й одразу перевіряємо ключ.
+     * Історію буфера клавіатури (Gboard тощо) програма очистити не може — про це кажемо користувачу.
      */
     private fun pasteKey(
         field: TextInputEditText,
         result: TextView,
         extract: (CharSequence?) -> String?,
         service: String,
-        prefix: String,
-        onPasted: () -> Unit,
+        keyPrefix: String,
+        test: (String) -> Unit,
     ) {
         val clipboard = getSystemService(ClipboardManager::class.java)
         val clip = clipboard?.primaryClip
         val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).coerceToText(this) else null
-        result.visibility = View.VISIBLE
-        if (text.isNullOrBlank()) {
-            result.text = "Буфер обміну порожній. Спершу скопіюйте ключ на сайті («Отримати ключ»)."
-            return
-        }
         val key = extract(text)
+        result.visibility = View.VISIBLE
         if (key == null) {
-            result.text = "У буфері обміну немає ключа $service — він має починатися з «$prefix». Скопіюйте ключ ще раз."
+            result.text = when {
+                // Буфер ми самі очистили після минулого вставлення — ключ уже в полі.
+                extract(field.text) != null ->
+                    "Ключ $service уже вставлено й збережено. Щоб перевірити ще раз, натисніть «Перевірити ключ $service»."
+                text.isNullOrBlank() -> "Буфер обміну порожній. Спершу скопіюйте ключ на сайті («Отримати ключ»)."
+                else -> "У буфері обміну немає ключа $service: він має починатися з «$keyPrefix». Скопіюйте ключ ще раз."
+            }
             return
         }
         field.setText(key)
         runCatching { clipboard?.clearPrimaryClip() }
-        onPasted()
+        test(
+            "Ключ вставлено й збережено, буфер обміну очищено. Якщо клавіатура зберігає історію буфера " +
+                "(значок буфера в Gboard), видаліть ключ і там.\n\n",
+        )
+    }
+
+    /** Підказка з кроками й кнопками-посиланнями. Кнопки йдуть строго за кроками й не закривають вікно. */
+    private fun showKeyGuide(title: String, steps: String, links: List<Pair<String, String>>) {
+        val pad = dp(24)
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, dp(8), pad, 0)
+        }
+        column.addView(TextView(this).apply {
+            text = steps
+            setTextColor(ContextCompat.getColor(this@SettingsActivity, R.color.jarvis_text))
+            textSize = 15f
+            setLineSpacing(0f, 1.15f)
+        })
+        for ((label, url) in links) {
+            column.addView(
+                MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    text = label
+                    setOnClickListener { openUrl(url) }
+                },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                    .apply { topMargin = dp(8) },
+            )
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(ScrollView(this).apply { addView(column) })
+            .setNegativeButton("Закрити", null)
+            .show()
     }
 
     private fun openUrl(url: String) {
