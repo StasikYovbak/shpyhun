@@ -64,7 +64,6 @@ class MainActivity : AppCompatActivity() {
         b.logList.adapter = log
         b.btnSettings.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         b.btnPermissions.setOnClickListener { startActivity(Intent(this, PermissionsActivity::class.java)) }
-        b.setupBanner.setOnClickListener { startActivity(Intent(this, PermissionsActivity::class.java)) }
         b.btnClearLog.setOnClickListener { CommandLog.clear(this) }
         b.mainSwitch.setOnCheckedChangeListener(switchListener)
 
@@ -128,14 +127,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderSetupBanner() {
-        val missing = mutableListOf<String>()
-        if (!granted(Manifest.permission.RECORD_AUDIO)) missing += "мікрофон"
-        if (!SystemSettings.isAccessibilityEnabled(this)) missing += "спеціальні можливості"
-        if (!SystemSettings.isIgnoringBattery(this)) missing += "робота у фоні"
-        if (!prefs.hasClaude) missing += "ключ Claude"
-        if (!prefs.hasYouTube) missing += "ключ YouTube"
+        val system = mutableListOf<String>()
+        if (!granted(Manifest.permission.RECORD_AUDIO)) system += "мікрофон"
+        if (!SystemSettings.isAccessibilityEnabled(this)) system += "спеціальні можливості"
+        if (!SystemSettings.isIgnoringBattery(this)) system += "робота у фоні"
+        val keys = mutableListOf<String>()
+        if (!prefs.hasClaude) keys += "ключ Claude"
+        if (!prefs.hasYouTube) keys += "ключ YouTube"
+        val missing = system + keys
         b.setupBanner.visibility = if (missing.isEmpty()) View.GONE else View.VISIBLE
         b.setupBanner.text = "Не налаштовано: ${missing.joinToString(", ")}. Торкніться, щоб виправити"
+        // Дозволи — на екрані дозволів, а ключі вводяться в налаштуваннях.
+        val target = if (system.isNotEmpty()) PermissionsActivity::class.java else SettingsActivity::class.java
+        b.setupBanner.setOnClickListener { startActivity(Intent(this, target)) }
     }
 
     private fun setSwitch(on: Boolean) {
