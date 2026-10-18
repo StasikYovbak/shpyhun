@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Джарвіс</string>
+    <string name="accessibility_description">Дозволяє Джарвісу відкривати програми з фону та за вашою голосовою командою натискати кнопки, вводити текст і прокручувати екран в інших програмах. Джарвіс читає вміст екрана лише під час виконання вашої команди в розумному режимі.</string>
+    <string name="accessibility_summary">Голосове керування телефоном</string>
+    <string name="settings">Налаштування</string>
+    <string name="permissions">Дозволи</string>
+    <string name="back">Назад</string>
+</resources>

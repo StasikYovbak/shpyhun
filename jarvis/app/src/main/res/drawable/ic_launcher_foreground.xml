@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Іконка застосунку: дуговий реактор. Безпечна зона адаптивної іконки — коло діаметром 66 з 108. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- сяйво -->
+    <path android:fillColor="#3300E5FF" android:pathData="M54,20A34,34 0,1 1,54 88A34,34 0,1 1,54 20Z" />
+    <!-- зовнішнє кільце -->
+    <path android:fillColor="#FF00E5FF"
+        android:pathData="M54,24A30,30 0,1 1,54 84A30,30 0,1 1,54 24ZM54,27A27,27 0,1 0,54 81A27,27 0,1 0,54 27Z" />
+    <!-- котушки -->
+    <path android:fillColor="#CC00E5FF"
+        android:pathData="M51.5,30h5v8h-5zM51.5,70h5v8h-5zM30,51.5h8v5h-8zM70,51.5h8v5h-8z" />
+    <path android:fillColor="#CC00E5FF"
+        android:pathData="M36.3,39.8l3.5,-3.5l5.7,5.7l-3.5,3.5zM62.5,66l3.5,-3.5l5.7,5.7l-3.5,3.5zM36.3,68.2l5.7,-5.7l3.5,3.5l-5.7,5.7zM62.5,42l5.7,-5.7l3.5,3.5l-5.7,5.7z" />
+    <!-- внутрішнє кільце -->
+    <path android:fillColor="#FF4DD0E1"
+        android:pathData="M54,40A14,14 0,1 1,54 68A14,14 0,1 1,54 40ZM54,42.5A11.5,11.5 0,1 0,54 65.5A11.5,11.5 0,1 0,54 42.5Z" />
+    <!-- ядро -->
+    <path android:fillColor="#FFE0FFFF" android:pathData="M54,46A8,8 0,1 1,54 62A8,8 0,1 1,54 46Z" />
+</vector>

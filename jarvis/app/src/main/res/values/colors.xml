@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Палітра «Iron Man / J.A.R.V.I.S.»: глибокий темно-синій фон і блакитне світіння -->
+<resources>
+    <color name="jarvis_bg">#FF040A16</color>
+    <color name="jarvis_bg2">#FF08162E</color>
+    <color name="jarvis_panel">#E60B1B36</color>
+    <color name="jarvis_panel_solid">#FF0B1B36</color>
+    <color name="jarvis_stroke">#6600E5FF</color>
+    <color name="jarvis_cyan">#FF00E5FF</color>
+    <color name="jarvis_cyan_dim">#FF4DD0E1</color>
+    <color name="jarvis_cyan_glow">#9900E5FF</color>
+    <color name="jarvis_on_cyan">#FF001B22</color>
+    <color name="jarvis_text">#FFE3F6FF</color>
+    <color name="jarvis_text_dim">#FF8FB3C9</color>
+    <color name="jarvis_amber">#FFFFC400</color>
+    <color name="jarvis_red">#FFFF5252</color>
+    <color name="jarvis_green">#FF69F0AE</color>
+    <color name="ic_launcher_background">#FF040A16</color>
+</resources>

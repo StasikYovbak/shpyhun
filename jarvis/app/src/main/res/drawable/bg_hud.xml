@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Фон: темно-синій із ледь помітним блакитним сяйвом зверху -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="@color/jarvis_bg2"
+                android:centerColor="@color/jarvis_bg"
+                android:endColor="@color/jarvis_bg" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:centerX="0.5"
+                android:centerY="0.22"
+                android:gradientRadius="420dp"
+                android:startColor="#3300B8D4"
+                android:endColor="#0000E5FF" />
+        </shape>
+    </item>
+</layer-list>

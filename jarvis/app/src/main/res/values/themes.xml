@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Завжди темна тема в стилі J.A.R.V.I.S. -->
+    <style name="Theme.Jarvis" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/jarvis_cyan</item>
+        <item name="colorOnPrimary">@color/jarvis_on_cyan</item>
+        <item name="colorPrimaryContainer">@color/jarvis_bg2</item>
+        <item name="colorOnPrimaryContainer">@color/jarvis_cyan</item>
+        <item name="colorSecondary">@color/jarvis_cyan_dim</item>
+        <item name="colorOnSecondary">@color/jarvis_on_cyan</item>
+        <item name="colorTertiary">@color/jarvis_amber</item>
+        <item name="colorError">@color/jarvis_red</item>
+        <item name="android:colorBackground">@color/jarvis_bg</item>
+        <item name="colorSurface">@color/jarvis_bg</item>
+        <item name="colorSurfaceContainer">@color/jarvis_panel_solid</item>
+        <item name="colorSurfaceContainerHigh">@color/jarvis_panel_solid</item>
+        <item name="colorOnSurface">@color/jarvis_text</item>
+        <item name="colorOnSurfaceVariant">@color/jarvis_text_dim</item>
+        <item name="colorOutline">@color/jarvis_stroke</item>
+        <item name="android:textColorPrimary">@color/jarvis_text</item>
+        <item name="android:textColorSecondary">@color/jarvis_text_dim</item>
+        <item name="android:windowBackground">@color/jarvis_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Підпис секції: «ЧУЮ», «КОМАНДА», «ЖУРНАЛ» -->
+    <style name="Jarvis.Label" parent="">
+        <item name="android:textColor">@color/jarvis_cyan_dim</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:letterSpacing">0.25</item>
+        <item name="android:fontFamily">sans-serif-condensed</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:layout_marginTop">18dp</item>
+        <item name="android:layout_marginBottom">6dp</item>
+    </style>
+
+    <!-- Панель із тонкою блакитною рамкою -->
+    <style name="Jarvis.Card" parent="">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:padding">14dp</item>
+        <item name="android:textColor">@color/jarvis_text</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <!-- Заголовок секції налаштувань -->
+    <style name="Jarvis.Section" parent="">
+        <item name="android:textColor">@color/jarvis_cyan</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:letterSpacing">0.15</item>
+        <item name="android:fontFamily">sans-serif-condensed</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:layout_marginTop">26dp</item>
+        <item name="android:layout_marginBottom">8dp</item>
+        <item name="android:shadowColor">@color/jarvis_cyan_glow</item>
+        <item name="android:shadowRadius">12</item>
+    </style>
+
+    <style name="Jarvis.Hint" parent="">
+        <item name="android:textColor">@color/jarvis_text_dim</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:layout_marginTop">4dp</item>
+    </style>
+
+    <style name="Jarvis.Button" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="strokeColor">@color/jarvis_cyan</item>
+        <item name="android:textColor">@color/jarvis_cyan</item>
+        <item name="android:layout_marginTop">8dp</item>
+    </style>
+</resources>
